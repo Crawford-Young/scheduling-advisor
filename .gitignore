@@ -1,0 +1,35 @@
+# deps
+node_modules/
+.pnp
+.pnp.js
+
+# build
+.next/
+out/
+dist/
+build/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# coverage
+coverage/
+.nyc_output/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# editors
+.vscode/
+.idea/
+*.swp
+
+# playwright
+playwright-report/
+test-results/
+
+# drizzle
+drizzle/
