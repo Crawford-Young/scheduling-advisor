@@ -1,6 +1,6 @@
-@import "tailwindcss";
-@config "../../tailwind.config.ts";
-@source "../../node_modules/@crawfordyoung/ui/src/**/*.{ts,tsx}";
+@import 'tailwindcss';
+@config '../../tailwind.config.ts';
+@source '../../node_modules/@crawfordyoung/ui/src/**/*.{ts,tsx}';
 
 /* Import component library design tokens (CSS variables for colors, radius, etc.) */
-@import "@crawfordyoung/ui/styles.css";
+@import '@crawfordyoung/ui/styles.css';
