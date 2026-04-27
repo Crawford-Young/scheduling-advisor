@@ -41,7 +41,7 @@ describe('webPushService', () => {
       url: '/dashboard',
     })
 
-    const call = mockSendNotification.mock.calls[0]
+    const call = mockSendNotification.mock.calls[0]!
     const payload = JSON.parse(call[1] as string) as { url: string }
     expect(payload.url).toBe('/dashboard')
   })

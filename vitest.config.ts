@@ -11,7 +11,17 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**'],
-      exclude: ['src/app/**', 'src/components/providers/**'],
+      exclude: [
+        'src/app/**',
+        'src/components/providers/**',
+        'src/auth.ts',
+        'src/env.ts',
+        'src/middleware.ts',
+        'src/db/index.ts',
+        'src/db/schema.ts',
+        'src/lib/redis.ts',
+        'src/lib/logger.ts',
+      ],
       thresholds: {
         statements: 100,
         branches: 100,

@@ -43,6 +43,20 @@ describe('createCheckIn', () => {
     const result = await createCheckIn({ scheduledAt: 'not-a-date' })
     expect(result).toHaveProperty('error')
   })
+
+  it('returns error when unauthenticated', async () => {
+    const { auth } = await import('@/auth')
+    vi.mocked(auth).mockResolvedValueOnce(null as never)
+    const result = await createCheckIn({ scheduledAt: new Date().toISOString() })
+    expect(result).toMatchObject({ error: 'Unauthorized' })
+  })
+
+  it('returns error when rate limited', async () => {
+    const { ratelimit } = await import('@/lib/redis')
+    vi.mocked(ratelimit.limit).mockResolvedValueOnce({ success: false } as never)
+    const result = await createCheckIn({ scheduledAt: new Date().toISOString() })
+    expect(result).toMatchObject({ error: 'Too many requests' })
+  })
 })
 
 describe('completeCheckIn', () => {
@@ -60,5 +74,18 @@ describe('completeCheckIn', () => {
       rating: 6,
     })
     expect(result).toHaveProperty('error')
+  })
+
+  it('returns error when unauthenticated', async () => {
+    const { auth } = await import('@/auth')
+    vi.mocked(auth).mockResolvedValueOnce(null as never)
+    const result = await completeCheckIn({ id: '550e8400-e29b-41d4-a716-446655440000', rating: 3 })
+    expect(result).toMatchObject({ error: 'Unauthorized' })
+  })
+
+  it('returns not-found error when check-in does not exist', async () => {
+    mockReturningUpdate.mockResolvedValueOnce([])
+    const result = await completeCheckIn({ id: '550e8400-e29b-41d4-a716-446655440000', rating: 3 })
+    expect(result).toMatchObject({ error: 'Not found' })
   })
 })

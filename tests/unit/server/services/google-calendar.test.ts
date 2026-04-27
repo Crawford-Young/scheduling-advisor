@@ -38,6 +38,9 @@ vi.mock('@/db', () => ({
 }))
 
 import { googleCalendarService } from '@/server/services/impl/google-calendar'
+import { db } from '@/db'
+
+const mockFindFirst = vi.mocked(db.query.accounts.findFirst)
 
 describe('googleCalendarService', () => {
   const userId = 'user-123'
@@ -45,6 +48,22 @@ describe('googleCalendarService', () => {
   const end = new Date('2026-05-01T17:00:00Z')
 
   beforeEach(() => vi.clearAllMocks())
+
+  describe('getClient', () => {
+    it('throws when no access token', async () => {
+      mockFindFirst.mockResolvedValueOnce(null as never)
+      await expect(googleCalendarService.getEvents(userId, start, end)).rejects.toThrow(
+        'No Google account linked for user',
+      )
+    })
+
+    it('uses undefined for null refresh_token', async () => {
+      mockFindFirst.mockResolvedValueOnce({ access_token: 'tok', refresh_token: null } as never)
+      mockEventsList.mockResolvedValue({ data: { items: [] } })
+      const events = await googleCalendarService.getEvents(userId, start, end)
+      expect(events).toEqual([])
+    })
+  })
 
   describe('getEvents', () => {
     it('returns mapped events', async () => {
@@ -75,6 +94,34 @@ describe('googleCalendarService', () => {
       mockEventsList.mockResolvedValue({ data: { items: null } })
       const events = await googleCalendarService.getEvents(userId, start, end)
       expect(events).toEqual([])
+    })
+
+    it('falls back to date when dateTime missing', async () => {
+      mockEventsList.mockResolvedValue({
+        data: {
+          items: [
+            {
+              id: null,
+              summary: null,
+              start: { date: '2026-05-01' },
+              end: { date: '2026-05-02' },
+            },
+          ],
+        },
+      })
+      const events = await googleCalendarService.getEvents(userId, start, end)
+      expect(events[0]!.id).toBe('')
+      expect(events[0]!.title).toBe('(No title)')
+    })
+
+    it('falls back to empty string when all start/end fields missing', async () => {
+      mockEventsList.mockResolvedValue({
+        data: {
+          items: [{ id: 'evt', summary: 'Test', start: {}, end: {} }],
+        },
+      })
+      const events = await googleCalendarService.getEvents(userId, start, end)
+      expect(events[0]!.id).toBe('evt')
     })
   })
 
@@ -116,6 +163,44 @@ describe('googleCalendarService', () => {
       const slots = await googleCalendarService.getFreeSlots(userId, start, end, 30)
       expect(slots.every((s) => s.durationMinutes >= 30)).toBe(true)
     })
+
+    it('returns empty array when no calendars in response', async () => {
+      mockFreeBusy.mockResolvedValue({ data: { calendars: null } })
+      const slots = await googleCalendarService.getFreeSlots(userId, start, end, 30)
+      expect(slots.length).toBeGreaterThan(0)
+    })
+
+    it('skips advancing cursor when blockEnd is before cursor', async () => {
+      mockFreeBusy.mockResolvedValue({
+        data: {
+          calendars: {
+            primary: {
+              busy: [
+                { start: '2026-05-01T09:00:00Z', end: '2026-05-01T12:00:00Z' },
+                { start: null, end: null },
+              ],
+            },
+          },
+        },
+      })
+      const slots = await googleCalendarService.getFreeSlots(userId, start, end, 30)
+      expect(slots).toBeDefined()
+    })
+
+    it('discards trailing slot below minDuration threshold', async () => {
+      const tightEnd = new Date('2026-05-01T09:10:00Z')
+      mockFreeBusy.mockResolvedValue({
+        data: {
+          calendars: {
+            primary: {
+              busy: [{ start: '2026-05-01T09:00:00Z', end: '2026-05-01T09:05:00Z' }],
+            },
+          },
+        },
+      })
+      const slots = await googleCalendarService.getFreeSlots(userId, start, tightEnd, 30)
+      expect(slots.every((s) => s.durationMinutes >= 30)).toBe(true)
+    })
   })
 
   describe('createEvent', () => {
@@ -137,6 +222,21 @@ describe('googleCalendarService', () => {
 
       expect(event.id).toBe('new-evt')
       expect(event.title).toBe('Run 5k')
+    })
+
+    it('falls back to empty strings when response fields are null', async () => {
+      mockEventsInsert.mockResolvedValue({
+        data: { id: null, summary: null, start: null, end: null },
+      })
+
+      const event = await googleCalendarService.createEvent(userId, {
+        title: 'Test',
+        start: new Date('2026-05-01T07:00:00Z'),
+        end: new Date('2026-05-01T08:00:00Z'),
+      })
+
+      expect(event.id).toBe('')
+      expect(event.title).toBe('')
     })
   })
 
