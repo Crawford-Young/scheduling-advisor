@@ -18,6 +18,7 @@ export const env = createEnv({
     NOTIFICATION_SERVICE_IMPL: z.enum(['web-push']).default('web-push'),
   },
   client: {
+    NEXT_PUBLIC_TAMBO_API_KEY: z.string().min(1),
     NEXT_PUBLIC_TAMBO_URL: z.string().url(),
     NEXT_PUBLIC_VAPID_PUBLIC_KEY: z.string().min(1),
     NEXT_PUBLIC_APP_URL: z.string().url(),
@@ -36,6 +37,7 @@ export const env = createEnv({
     SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
     CALENDAR_SERVICE_IMPL: process.env.CALENDAR_SERVICE_IMPL,
     NOTIFICATION_SERVICE_IMPL: process.env.NOTIFICATION_SERVICE_IMPL,
+    NEXT_PUBLIC_TAMBO_API_KEY: process.env.NEXT_PUBLIC_TAMBO_API_KEY,
     NEXT_PUBLIC_TAMBO_URL: process.env.NEXT_PUBLIC_TAMBO_URL,
     NEXT_PUBLIC_VAPID_PUBLIC_KEY: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,

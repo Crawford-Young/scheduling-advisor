@@ -46,7 +46,7 @@ export function LifeBalanceView({ categories }: LifeBalanceViewProps) {
                 ))}
               </Pie>
               <Tooltip
-                formatter={(value: number) => minutesToHours(value)}
+                formatter={(value) => minutesToHours(value as number)}
                 contentStyle={{
                   backgroundColor: 'hsl(var(--card))',
                   border: '1px solid hsl(var(--border))',

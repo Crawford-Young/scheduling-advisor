@@ -38,9 +38,4 @@ export default defineConfig({
     },
     dedupe: ['react', 'react-dom'],
   },
-  server: {
-    deps: {
-      inline: ['@crawfordyoung/ui', /@radix-ui\/.*/],
-    },
-  },
 })

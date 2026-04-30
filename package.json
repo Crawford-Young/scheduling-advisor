@@ -22,6 +22,7 @@
     "@crawfordyoung/ui": "link:C:/Users/young/code/component-library",
     "@neondatabase/serverless": "^1.1.0",
     "@t3-oss/env-nextjs": "^0.13.11",
+    "@tambo-ai/react": "^1.2.6",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.37.0",
     "clsx": "^2.1.1",
