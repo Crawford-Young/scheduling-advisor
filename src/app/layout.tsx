@@ -4,6 +4,8 @@ import './globals.css'
 import { auth } from '@/auth'
 import { ThemeProvider } from '@/components/providers/theme-provider'
 import { TamboProvider } from '@/components/providers/tambo-provider'
+import { Analytics } from '@vercel/analytics/next'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -31,7 +33,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     >
       <body className="bg-background text-foreground flex min-h-full flex-col">
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
-          <TamboProvider userKey={session?.user?.id ?? undefined}>{children}</TamboProvider>
+          <TamboProvider userKey={session?.user?.id ?? undefined}>
+            {children}
+            <Analytics />
+            <SpeedInsights />
+          </TamboProvider>
         </ThemeProvider>
       </body>
     </html>
