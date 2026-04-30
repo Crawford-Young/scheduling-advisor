@@ -1,9 +1,7 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
-import { auth } from '@/auth'
 import { ThemeProvider } from '@/components/providers/theme-provider'
-import { TamboProvider } from '@/components/providers/tambo-provider'
 import { Analytics } from '@vercel/analytics/next'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 
@@ -22,9 +20,7 @@ export const metadata: Metadata = {
   description: 'AI-powered scheduling and life balance advisor',
 }
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const session = await auth()
-
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="en"
@@ -33,11 +29,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     >
       <body className="bg-background text-foreground flex min-h-full flex-col">
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
-          <TamboProvider userKey={session?.user?.id ?? undefined}>
-            {children}
-            <Analytics />
-            <SpeedInsights />
-          </TamboProvider>
+          {children}
+          <Analytics />
+          <SpeedInsights />
         </ThemeProvider>
       </body>
     </html>
