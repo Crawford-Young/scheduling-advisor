@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, uuid, primaryKey } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, uuid, primaryKey, json } from 'drizzle-orm/pg-core'
 
 // ── Auth.js v5 required tables ────────────────────────────────────────────────
 
@@ -10,6 +10,8 @@ export const users = pgTable('users', {
   email: text('email').notNull().unique(),
   emailVerified: timestamp('email_verified', { mode: 'date' }),
   image: text('image'),
+  anthropicApiKey: text('anthropic_api_key'),
+  preferredModel: text('preferred_model').notNull().default('claude-sonnet-4-6'),
   timezone: text('timezone').notNull().default('UTC'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
@@ -104,4 +106,23 @@ export const calendarPrefs = pgTable('calendar_prefs', {
   workingHoursEnd: integer('working_hours_end').notNull().default(17),
   maxDailyTaskMinutes: integer('max_daily_task_minutes').notNull().default(120),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+export const conversations = pgTable('conversations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+export const messages = pgTable('messages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  conversationId: uuid('conversation_id')
+    .notNull()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  role: text('role').notNull(),
+  content: json('content').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 })
