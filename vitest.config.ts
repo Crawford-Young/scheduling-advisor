@@ -22,6 +22,7 @@ export default defineConfig({
         'src/db/schema.ts',
         'src/lib/redis.ts',
         'src/lib/logger.ts',
+        'src/lib/chat/system-prompt.ts',
       ],
       thresholds: {
         statements: 100,

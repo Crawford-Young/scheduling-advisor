@@ -26,8 +26,9 @@ export default defineConfig({
       VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY ?? 'playwright-vapid-private',
       VAPID_EMAIL: process.env.VAPID_EMAIL ?? 'playwright@example.com',
       TRIGGER_API_KEY: process.env.TRIGGER_API_KEY ?? 'playwright-trigger-key',
-      NEXT_PUBLIC_TAMBO_API_KEY: process.env.NEXT_PUBLIC_TAMBO_API_KEY ?? 'playwright-tambo-key',
-      NEXT_PUBLIC_TAMBO_URL: process.env.NEXT_PUBLIC_TAMBO_URL ?? 'https://playwright.tambo.co',
+      ENCRYPTION_KEY:
+        process.env.ENCRYPTION_KEY ??
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       NEXT_PUBLIC_VAPID_PUBLIC_KEY:
         process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? 'playwright-vapid-public',
       NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000',

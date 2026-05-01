@@ -16,10 +16,12 @@ export const env = createEnv({
     SENTRY_AUTH_TOKEN: z.string().optional(),
     CALENDAR_SERVICE_IMPL: z.enum(['google-calendar']).default('google-calendar'),
     NOTIFICATION_SERVICE_IMPL: z.enum(['web-push']).default('web-push'),
+    ENCRYPTION_KEY: z
+      .string()
+      .length(64)
+      .regex(/^[0-9a-f]+$/i, 'Must be a 64-character hex string (32 bytes)'),
   },
   client: {
-    NEXT_PUBLIC_TAMBO_API_KEY: z.string().min(1),
-    NEXT_PUBLIC_TAMBO_URL: z.string().url(),
     NEXT_PUBLIC_VAPID_PUBLIC_KEY: z.string().min(1),
     NEXT_PUBLIC_APP_URL: z.string().url(),
   },
@@ -37,8 +39,7 @@ export const env = createEnv({
     SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
     CALENDAR_SERVICE_IMPL: process.env.CALENDAR_SERVICE_IMPL,
     NOTIFICATION_SERVICE_IMPL: process.env.NOTIFICATION_SERVICE_IMPL,
-    NEXT_PUBLIC_TAMBO_API_KEY: process.env.NEXT_PUBLIC_TAMBO_API_KEY,
-    NEXT_PUBLIC_TAMBO_URL: process.env.NEXT_PUBLIC_TAMBO_URL,
+    ENCRYPTION_KEY: process.env.ENCRYPTION_KEY,
     NEXT_PUBLIC_VAPID_PUBLIC_KEY: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
   },
