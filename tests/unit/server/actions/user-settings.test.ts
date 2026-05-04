@@ -13,9 +13,13 @@ vi.mock('@/db/schema', () => ({ users: {} }))
 vi.mock('@/lib/encryption', () => ({ encrypt: vi.fn(() => 'iv:tag:ct') }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('drizzle-orm', () => ({ eq: vi.fn() }))
+vi.mock('@/lib/redis', () => ({
+  ratelimit: { limit: vi.fn().mockResolvedValue({ success: true }) },
+}))
 
 import { auth } from '@/auth'
 import { encrypt } from '@/lib/encryption'
+import { ratelimit } from '@/lib/redis'
 import { saveApiKey, clearApiKey, saveModelPreference } from '@/server/actions/user-settings'
 
 const authedSession = { user: { id: 'user-1' } } as Awaited<ReturnType<typeof auth>>
@@ -58,6 +62,14 @@ describe('saveApiKey', () => {
     fd.append('apiKey', 'sk-ant-valid')
     expect(await saveApiKey(fd)).toEqual({})
   })
+
+  it('returns error when rate limited', async () => {
+    vi.mocked(auth).mockResolvedValue(authedSession)
+    vi.mocked(ratelimit.limit).mockResolvedValueOnce({ success: false } as never)
+    const fd = new FormData()
+    fd.append('apiKey', 'sk-ant-test')
+    expect(await saveApiKey(fd)).toEqual({ error: 'Too many requests' })
+  })
 })
 
 describe('clearApiKey', () => {
@@ -69,10 +81,22 @@ describe('clearApiKey', () => {
     expect(mockSet).toHaveBeenCalledWith({ anthropicApiKey: null })
   })
 
-  it('does nothing when unauthenticated', async () => {
+  it('returns error when unauthenticated', async () => {
     vi.mocked(auth).mockResolvedValue(null)
-    await clearApiKey()
+    const result = await clearApiKey()
+    expect(result).toEqual({ error: 'Unauthorized' })
     expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('returns empty object on success', async () => {
+    vi.mocked(auth).mockResolvedValue(authedSession)
+    expect(await clearApiKey()).toEqual({})
+  })
+
+  it('returns error when rate limited', async () => {
+    vi.mocked(auth).mockResolvedValue(authedSession)
+    vi.mocked(ratelimit.limit).mockResolvedValueOnce({ success: false } as never)
+    expect(await clearApiKey()).toEqual({ error: 'Too many requests' })
   })
 })
 
@@ -104,5 +128,11 @@ describe('saveModelPreference', () => {
   it('returns empty object on success', async () => {
     vi.mocked(auth).mockResolvedValue(authedSession)
     expect(await saveModelPreference('claude-sonnet-4-6')).toEqual({})
+  })
+
+  it('returns error when rate limited', async () => {
+    vi.mocked(auth).mockResolvedValue(authedSession)
+    vi.mocked(ratelimit.limit).mockResolvedValueOnce({ success: false } as never)
+    expect(await saveModelPreference('claude-sonnet-4-6')).toEqual({ error: 'Too many requests' })
   })
 })
