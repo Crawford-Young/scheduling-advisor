@@ -9,6 +9,8 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { streamText, tool } from 'ai'
 import { z } from 'zod'
 import { systemPrompt } from '@/lib/chat/system-prompt'
+import { chatRequestSchema } from '@/lib/schemas/chat'
+import { logger } from '@/lib/logger'
 import { getCalendarService } from '@/server/services'
 import { getUserTasks } from '@/server/queries/tasks'
 import { getUserCheckIns } from '@/server/queries/check-ins'
@@ -31,10 +33,11 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: 'Rate limited' }, { status: 429 })
   }
 
-  const { messages: incomingMessages, conversationId } = (await req.json()) as {
-    messages: Array<{ role: string; content: string }>
-    conversationId: string
+  const parseResult = chatRequestSchema.safeParse(await req.json())
+  if (!parseResult.success) {
+    return Response.json({ error: 'Invalid request' }, { status: 400 })
   }
+  const { messages: incomingMessages, conversationId } = parseResult.data
 
   const user = await db.query.users.findFirst({ where: eq(users.id, session.user.id) })
   if (!user?.anthropicApiKey) {
@@ -136,11 +139,15 @@ export async function POST(req: NextRequest) {
     onFinish: async ({ response }) => {
       const assistantMsg = response.messages[response.messages.length - 1]
       if (assistantMsg) {
-        await db.insert(messages).values({
-          conversationId,
-          role: 'assistant',
-          content: assistantMsg.content as unknown as string,
-        })
+        try {
+          await db.insert(messages).values({
+            conversationId,
+            role: 'assistant',
+            content: assistantMsg.content as unknown as Record<string, unknown>,
+          })
+        } catch (err) {
+          logger.error({ err, conversationId }, 'Failed to persist assistant message')
+        }
       }
     },
   })
