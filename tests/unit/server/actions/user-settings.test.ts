@@ -22,7 +22,7 @@ import { encrypt } from '@/lib/encryption'
 import { ratelimit } from '@/lib/redis'
 import { saveApiKey, clearApiKey, saveModelPreference } from '@/server/actions/user-settings'
 
-const authedSession = { user: { id: 'user-1' } } as Awaited<ReturnType<typeof auth>>
+const authedSession = { user: { id: 'user-1' } } as unknown as Awaited<ReturnType<typeof auth>>
 
 describe('saveApiKey', () => {
   beforeEach(() => vi.clearAllMocks())
