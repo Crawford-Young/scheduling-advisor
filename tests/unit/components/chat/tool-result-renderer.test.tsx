@@ -1,27 +1,27 @@
-import { describe, it, expect, vi } from 'vitest'
+﻿import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { ToolInvocation } from 'ai'
 import { ToolResultRenderer } from '@/components/chat/tool-result-renderer'
 
-vi.mock('@/components/tambo/task-card', () => ({
+vi.mock('@/components/cards/task-card', () => ({
   TaskCard: ({ title }: { title: string }) => <div data-testid="task-card">{title}</div>,
 }))
-vi.mock('@/components/tambo/habit-card', () => ({
+vi.mock('@/components/cards/habit-card', () => ({
   HabitCard: () => <div data-testid="habit-card" />,
 }))
-vi.mock('@/components/tambo/goal-card', () => ({
+vi.mock('@/components/cards/goal-card', () => ({
   GoalCard: () => <div data-testid="goal-card" />,
 }))
-vi.mock('@/components/tambo/schedule-suggestion', () => ({
+vi.mock('@/components/cards/schedule-suggestion', () => ({
   ScheduleSuggestion: () => <div data-testid="schedule-suggestion" />,
 }))
-vi.mock('@/components/tambo/reflection-card', () => ({
+vi.mock('@/components/cards/reflection-card', () => ({
   ReflectionCard: () => <div data-testid="reflection-card" />,
 }))
-vi.mock('@/components/tambo/week-calendar-view', () => ({
+vi.mock('@/components/cards/week-calendar-view', () => ({
   WeekCalendarView: () => <div data-testid="week-calendar-view" />,
 }))
-vi.mock('@/components/tambo/life-balance-view', () => ({
+vi.mock('@/components/cards/life-balance-view', () => ({
   LifeBalanceView: () => <div data-testid="life-balance-view" />,
 }))
 

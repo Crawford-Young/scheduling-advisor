@@ -1,10 +1,10 @@
-import { describe, it, expect } from 'vitest'
+﻿import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { axe } from 'jest-axe'
 import {
   WeekCalendarView,
   weekCalendarViewPropsSchema,
-} from '@/components/tambo/week-calendar-view'
+} from '@/components/cards/week-calendar-view'
 
 const baseProps = {
   weekStart: '2026-05-04T00:00:00Z',

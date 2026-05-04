@@ -1,12 +1,12 @@
-'use client'
+﻿'use client'
 import type { ToolInvocation } from 'ai'
-import { TaskCard } from '@/components/tambo/task-card'
-import { HabitCard } from '@/components/tambo/habit-card'
-import { GoalCard } from '@/components/tambo/goal-card'
-import { ScheduleSuggestion } from '@/components/tambo/schedule-suggestion'
-import { ReflectionCard } from '@/components/tambo/reflection-card'
-import { WeekCalendarView } from '@/components/tambo/week-calendar-view'
-import { LifeBalanceView } from '@/components/tambo/life-balance-view'
+import { TaskCard } from '@/components/cards/task-card'
+import { HabitCard } from '@/components/cards/habit-card'
+import { GoalCard } from '@/components/cards/goal-card'
+import { ScheduleSuggestion } from '@/components/cards/schedule-suggestion'
+import { ReflectionCard } from '@/components/cards/reflection-card'
+import { WeekCalendarView } from '@/components/cards/week-calendar-view'
+import { LifeBalanceView } from '@/components/cards/life-balance-view'
 
 const componentMap = {
   showTaskCard: TaskCard,

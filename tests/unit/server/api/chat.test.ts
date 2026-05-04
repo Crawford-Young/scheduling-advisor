@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+﻿import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
 /* eslint-disable @typescript-eslint/no-unused-vars -- intermediate chain mocks are used as return values inside vi.hoisted but not referenced directly in tests */
@@ -73,17 +73,17 @@ vi.mock('@/server/queries/check-ins', () => ({ getUserCheckIns: vi.fn().mockReso
 vi.mock('@/lib/chat/system-prompt', () => ({ systemPrompt: 'test-system-prompt' }))
 vi.mock('@/lib/logger', () => ({ logger: { error: vi.fn(), info: vi.fn() } }))
 vi.mock('drizzle-orm', () => ({ eq: vi.fn(), desc: vi.fn() }))
-vi.mock('@/components/tambo/task-card', () => ({ taskCardPropsSchema: { _def: {} } }))
-vi.mock('@/components/tambo/habit-card', () => ({ habitCardPropsSchema: { _def: {} } }))
-vi.mock('@/components/tambo/goal-card', () => ({ goalCardPropsSchema: { _def: {} } }))
-vi.mock('@/components/tambo/schedule-suggestion', () => ({
+vi.mock('@/components/cards/task-card', () => ({ taskCardPropsSchema: { _def: {} } }))
+vi.mock('@/components/cards/habit-card', () => ({ habitCardPropsSchema: { _def: {} } }))
+vi.mock('@/components/cards/goal-card', () => ({ goalCardPropsSchema: { _def: {} } }))
+vi.mock('@/components/cards/schedule-suggestion', () => ({
   scheduleSuggestionPropsSchema: { _def: {} },
 }))
-vi.mock('@/components/tambo/reflection-card', () => ({ reflectionCardPropsSchema: { _def: {} } }))
-vi.mock('@/components/tambo/week-calendar-view', () => ({
+vi.mock('@/components/cards/reflection-card', () => ({ reflectionCardPropsSchema: { _def: {} } }))
+vi.mock('@/components/cards/week-calendar-view', () => ({
   weekCalendarViewPropsSchema: { _def: {} },
 }))
-vi.mock('@/components/tambo/life-balance-view', () => ({
+vi.mock('@/components/cards/life-balance-view', () => ({
   lifeBalanceViewPropsSchema: { _def: {} },
 }))
 

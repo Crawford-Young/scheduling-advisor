@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+﻿import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'jest-axe'
-import { ReflectionCard, reflectionCardPropsSchema } from '@/components/tambo/reflection-card'
+import { ReflectionCard, reflectionCardPropsSchema } from '@/components/cards/reflection-card'
 
 vi.mock('@/server/actions/check-ins', () => ({
   completeCheckIn: vi.fn().mockResolvedValue({ data: { id: 'ci-1' } }),

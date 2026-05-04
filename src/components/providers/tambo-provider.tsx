@@ -1,22 +1,22 @@
-'use client'
+﻿'use client'
 import { TamboProvider as BaseTamboProvider, defineTool } from '@tambo-ai/react'
 import type { TamboComponent } from '@tambo-ai/react'
 import { z } from 'zod'
 import { env } from '@/env'
 import type { ReactNode } from 'react'
-import { TaskCard, taskCardPropsSchema } from '@/components/tambo/task-card'
-import { HabitCard, habitCardPropsSchema } from '@/components/tambo/habit-card'
-import { GoalCard, goalCardPropsSchema } from '@/components/tambo/goal-card'
+import { TaskCard, taskCardPropsSchema } from '@/components/cards/task-card'
+import { HabitCard, habitCardPropsSchema } from '@/components/cards/habit-card'
+import { GoalCard, goalCardPropsSchema } from '@/components/cards/goal-card'
 import {
   ScheduleSuggestion,
   scheduleSuggestionPropsSchema,
-} from '@/components/tambo/schedule-suggestion'
-import { ReflectionCard, reflectionCardPropsSchema } from '@/components/tambo/reflection-card'
+} from '@/components/cards/schedule-suggestion'
+import { ReflectionCard, reflectionCardPropsSchema } from '@/components/cards/reflection-card'
 import {
   WeekCalendarView,
   weekCalendarViewPropsSchema,
-} from '@/components/tambo/week-calendar-view'
-import { LifeBalanceView, lifeBalanceViewPropsSchema } from '@/components/tambo/life-balance-view'
+} from '@/components/cards/week-calendar-view'
+import { LifeBalanceView, lifeBalanceViewPropsSchema } from '@/components/cards/life-balance-view'
 
 const tamboComponents: TamboComponent[] = [
   {
@@ -50,7 +50,7 @@ const tamboComponents: TamboComponent[] = [
   {
     name: 'ReflectionCard',
     description:
-      'Prompts the user to rate (1–5) and write a short reflection on a check-in. Use for daily or task check-ins.',
+      'Prompts the user to rate (1â€“5) and write a short reflection on a check-in. Use for daily or task check-ins.',
     component: ReflectionCard,
     propsSchema: reflectionCardPropsSchema,
   },

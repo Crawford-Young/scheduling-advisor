@@ -1,8 +1,8 @@
-import React from 'react'
+﻿import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { axe } from 'jest-axe'
-import { LifeBalanceView, lifeBalanceViewPropsSchema } from '@/components/tambo/life-balance-view'
+import { LifeBalanceView, lifeBalanceViewPropsSchema } from '@/components/cards/life-balance-view'
 
 global.ResizeObserver = class ResizeObserver {
   observe() {}

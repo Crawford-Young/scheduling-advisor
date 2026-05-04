@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from 'vitest'
+﻿import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'jest-axe'
-import { TaskCard, taskCardPropsSchema } from '@/components/tambo/task-card'
+import { TaskCard, taskCardPropsSchema } from '@/components/cards/task-card'
 
 vi.mock('@/server/actions/tasks', () => ({
   updateTask: vi.fn().mockResolvedValue({ data: { status: 'completed' } }),

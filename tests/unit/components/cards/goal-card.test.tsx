@@ -1,8 +1,8 @@
-import React from 'react'
+﻿import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { axe } from 'jest-axe'
-import { GoalCard, goalCardPropsSchema } from '@/components/tambo/goal-card'
+import { GoalCard, goalCardPropsSchema } from '@/components/cards/goal-card'
 
 vi.mock('@crawfordyoung/ui', () => ({
   Card: ({ children, ...p }: React.HTMLAttributes<HTMLDivElement>) =>
