@@ -20,6 +20,7 @@ export default defineConfig({
         'src/middleware.ts',
         'src/db/index.ts',
         'src/db/schema.ts',
+        'src/db/migrations/**',
         'src/lib/redis.ts',
         'src/lib/logger.ts',
         'src/lib/chat/system-prompt.ts',
