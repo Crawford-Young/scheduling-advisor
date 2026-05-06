@@ -20,7 +20,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.5",
     "@auth/drizzle-adapter": "^1.11.2",
-    "@crawfordyoung/ui": "link:C:/Users/young/code/component-library",
+    "@crawfordyoung/ui": "^0.4.0",
     "@neondatabase/serverless": "^1.1.0",
     "@sentry/nextjs": "^10.51.0",
     "@t3-oss/env-nextjs": "^0.13.11",
