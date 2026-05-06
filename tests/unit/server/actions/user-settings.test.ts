@@ -28,7 +28,7 @@ describe('saveApiKey', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('returns error when unauthenticated', async () => {
-    vi.mocked(auth).mockResolvedValue(null)
+    vi.mocked(auth).mockResolvedValue(null as never)
     const fd = new FormData()
     fd.append('apiKey', 'sk-ant-test')
     expect(await saveApiKey(fd)).toEqual({ error: 'Unauthorized' })
@@ -82,7 +82,7 @@ describe('clearApiKey', () => {
   })
 
   it('returns error when unauthenticated', async () => {
-    vi.mocked(auth).mockResolvedValue(null)
+    vi.mocked(auth).mockResolvedValue(null as never)
     const result = await clearApiKey()
     expect(result).toEqual({ error: 'Unauthorized' })
     expect(mockUpdate).not.toHaveBeenCalled()
@@ -104,7 +104,7 @@ describe('saveModelPreference', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('returns error when unauthenticated', async () => {
-    vi.mocked(auth).mockResolvedValue(null)
+    vi.mocked(auth).mockResolvedValue(null as never)
     expect(await saveModelPreference('claude-sonnet-4-6')).toEqual({ error: 'Unauthorized' })
   })
 

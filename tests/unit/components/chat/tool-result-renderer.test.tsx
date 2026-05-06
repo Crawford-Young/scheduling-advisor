@@ -25,8 +25,14 @@ vi.mock('@/components/cards/life-balance-view', () => ({
   LifeBalanceView: () => <div data-testid="life-balance-view" />,
 }))
 
-function makeInvocation(toolName: string, result: unknown): ToolInvocation {
-  return { state: 'result', toolCallId: 'call-1', toolName, args: {}, result } as ToolInvocation
+function makeInvocation(toolName: string, result: unknown): ToolInvocation & { state: 'result' } {
+  return {
+    state: 'result',
+    toolCallId: 'call-1',
+    toolName,
+    args: {},
+    result,
+  } as ToolInvocation & { state: 'result' }
 }
 
 describe('ToolResultRenderer', () => {

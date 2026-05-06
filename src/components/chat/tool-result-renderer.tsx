@@ -25,5 +25,7 @@ interface ToolResultRendererProps {
 export function ToolResultRenderer({ toolInvocation }: ToolResultRendererProps) {
   const Component = componentMap[toolInvocation.toolName as keyof typeof componentMap]
   if (!Component) return null
-  return <Component {...(toolInvocation.result as never)} />
+  // Dynamic dispatch — props match Component requirements by construction; union prevents precise typing
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return <Component {...(toolInvocation.result as any)} />
 }

@@ -36,7 +36,7 @@ export function SettingsForm({ maskedApiKey, currentModel }: SettingsFormProps) 
           {maskedApiKey && (
             <p className="text-muted-foreground font-mono text-sm">{maskedApiKey}</p>
           )}
-          <form action={saveApiKey} className="flex gap-2">
+          <form action={(fd) => void saveApiKey(fd)} className="flex gap-2">
             <input
               id="apiKey"
               name="apiKey"
@@ -52,7 +52,7 @@ export function SettingsForm({ maskedApiKey, currentModel }: SettingsFormProps) 
             </button>
           </form>
           {maskedApiKey && (
-            <form action={clearApiKey}>
+            <form action={() => void clearApiKey()}>
               <button
                 type="submit"
                 className="border-border hover:bg-muted rounded-md border px-3 py-1.5 text-sm"

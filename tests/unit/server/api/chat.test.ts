@@ -1,17 +1,7 @@
 ﻿import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
-/* eslint-disable @typescript-eslint/no-unused-vars -- intermediate chain mocks are used as return values inside vi.hoisted but not referenced directly in tests */
-const {
-  mockInsertValues,
-  mockInsert,
-  mockLimit,
-  mockOrderBy,
-  mockSelectWhere,
-  mockFrom,
-  mockSelect,
-  mockFindFirst,
-} = vi.hoisted(() => {
+const { mockInsertValues, mockInsert, mockSelect, mockFindFirst } = vi.hoisted(() => {
   const mockInsertValues = vi.fn().mockResolvedValue([])
   const mockInsert = vi.fn().mockReturnValue({ values: mockInsertValues })
   const mockLimit = vi.fn().mockResolvedValue([])
@@ -20,18 +10,8 @@ const {
   const mockFrom = vi.fn().mockReturnValue({ where: mockSelectWhere })
   const mockSelect = vi.fn().mockReturnValue({ from: mockFrom })
   const mockFindFirst = vi.fn()
-  return {
-    mockInsertValues,
-    mockInsert,
-    mockLimit,
-    mockOrderBy,
-    mockSelectWhere,
-    mockFrom,
-    mockSelect,
-    mockFindFirst,
-  }
+  return { mockInsertValues, mockInsert, mockSelect, mockFindFirst }
 })
-/* eslint-enable @typescript-eslint/no-unused-vars */
 
 vi.mock('@/auth', () => ({ auth: vi.fn() }))
 vi.mock('@/db', () => ({
@@ -106,7 +86,7 @@ describe('POST /api/chat', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('returns 401 when not authenticated', async () => {
-    vi.mocked(auth).mockResolvedValue(null)
+    vi.mocked(auth).mockResolvedValue(null as never)
     const res = await POST(makeRequest({ messages: [], conversationId: 'conv-1' }))
     expect(res.status).toBe(401)
   })

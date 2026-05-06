@@ -40,4 +40,10 @@ export const handlers = [
   http.post('/api/push', () => {
     return HttpResponse.json({ success: true })
   }),
+
+  http.post('/api/chat', () =>
+    HttpResponse.text('0:"Hello!"\n', {
+      headers: { 'content-type': 'text/event-stream' },
+    }),
+  ),
 ]

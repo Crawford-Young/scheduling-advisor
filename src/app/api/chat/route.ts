@@ -46,6 +46,9 @@ export async function POST(req: NextRequest) {
 
   const decryptedKey = decrypt(user.anthropicApiKey)
   const lastMessage = incomingMessages[incomingMessages.length - 1]
+  if (!lastMessage) {
+    return Response.json({ error: 'Invalid request' }, { status: 400 })
+  }
 
   await db.insert(messages).values({
     conversationId,
