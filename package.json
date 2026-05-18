@@ -19,8 +19,9 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.5",
+    "@ai-sdk/google": "^3.0.75",
     "@auth/drizzle-adapter": "^1.11.2",
-    "@crawfordyoung/ui": "^0.4.0",
+    "@crawfordyoung/ui": "file:..\\component-library",
     "@neondatabase/serverless": "^1.1.0",
     "@sentry/nextjs": "^10.51.0",
     "@t3-oss/env-nextjs": "^0.13.11",
