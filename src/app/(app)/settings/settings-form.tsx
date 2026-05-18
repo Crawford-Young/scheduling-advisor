@@ -1,6 +1,10 @@
 'use client'
 import { useState, useTransition } from 'react'
-import { saveApiKey, clearApiKey, saveModelPreference } from '@/server/actions/user-settings'
+import {
+  saveAnthropicKey,
+  clearAnthropicKey,
+  saveModelPreference,
+} from '@/server/actions/user-settings'
 
 const MODELS = [
   {
@@ -36,7 +40,7 @@ export function SettingsForm({ maskedApiKey, currentModel }: SettingsFormProps) 
           {maskedApiKey && (
             <p className="text-muted-foreground font-mono text-sm">{maskedApiKey}</p>
           )}
-          <form action={(fd) => void saveApiKey(fd)} className="flex gap-2">
+          <form action={(fd) => void saveAnthropicKey(fd)} className="flex gap-2">
             <input
               id="apiKey"
               name="apiKey"
@@ -52,7 +56,7 @@ export function SettingsForm({ maskedApiKey, currentModel }: SettingsFormProps) 
             </button>
           </form>
           {maskedApiKey && (
-            <form action={() => void clearApiKey()}>
+            <form action={() => void clearAnthropicKey()}>
               <button
                 type="submit"
                 className="border-border hover:bg-muted rounded-md border px-3 py-1.5 text-sm"

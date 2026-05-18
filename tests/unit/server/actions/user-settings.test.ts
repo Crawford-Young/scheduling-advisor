@@ -20,37 +20,41 @@ vi.mock('@/lib/redis', () => ({
 import { auth } from '@/auth'
 import { encrypt } from '@/lib/encryption'
 import { ratelimit } from '@/lib/redis'
-import { saveApiKey, clearApiKey, saveModelPreference } from '@/server/actions/user-settings'
+import {
+  saveAnthropicKey,
+  clearAnthropicKey,
+  saveModelPreference,
+} from '@/server/actions/user-settings'
 
 const authedSession = { user: { id: 'user-1' } } as unknown as Awaited<ReturnType<typeof auth>>
 
-describe('saveApiKey', () => {
+describe('saveAnthropicKey', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('returns error when unauthenticated', async () => {
     vi.mocked(auth).mockResolvedValue(null as never)
     const fd = new FormData()
     fd.append('apiKey', 'sk-ant-test')
-    expect(await saveApiKey(fd)).toEqual({ error: 'Unauthorized' })
+    expect(await saveAnthropicKey(fd)).toEqual({ error: 'Unauthorized' })
   })
 
   it('returns error when key is empty string', async () => {
     vi.mocked(auth).mockResolvedValue(authedSession)
     const fd = new FormData()
     fd.append('apiKey', '   ')
-    expect(await saveApiKey(fd)).toEqual({ error: 'API key is required' })
+    expect(await saveAnthropicKey(fd)).toEqual({ error: 'API key is required' })
   })
 
   it('returns error when apiKey field is missing', async () => {
     vi.mocked(auth).mockResolvedValue(authedSession)
-    expect(await saveApiKey(new FormData())).toEqual({ error: 'API key is required' })
+    expect(await saveAnthropicKey(new FormData())).toEqual({ error: 'API key is required' })
   })
 
   it('encrypts the trimmed key and saves it', async () => {
     vi.mocked(auth).mockResolvedValue(authedSession)
     const fd = new FormData()
     fd.append('apiKey', '  sk-ant-api01-real  ')
-    await saveApiKey(fd)
+    await saveAnthropicKey(fd)
     expect(vi.mocked(encrypt)).toHaveBeenCalledWith('sk-ant-api01-real')
     expect(mockUpdate).toHaveBeenCalled()
     expect(mockSet).toHaveBeenCalledWith({ anthropicApiKey: 'iv:tag:ct' })
@@ -60,7 +64,7 @@ describe('saveApiKey', () => {
     vi.mocked(auth).mockResolvedValue(authedSession)
     const fd = new FormData()
     fd.append('apiKey', 'sk-ant-valid')
-    expect(await saveApiKey(fd)).toEqual({})
+    expect(await saveAnthropicKey(fd)).toEqual({})
   })
 
   it('returns error when rate limited', async () => {
@@ -68,35 +72,35 @@ describe('saveApiKey', () => {
     vi.mocked(ratelimit.limit).mockResolvedValueOnce({ success: false } as never)
     const fd = new FormData()
     fd.append('apiKey', 'sk-ant-test')
-    expect(await saveApiKey(fd)).toEqual({ error: 'Too many requests' })
+    expect(await saveAnthropicKey(fd)).toEqual({ error: 'Too many requests' })
   })
 })
 
-describe('clearApiKey', () => {
+describe('clearAnthropicKey', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('sets anthropicApiKey to null', async () => {
     vi.mocked(auth).mockResolvedValue(authedSession)
-    await clearApiKey()
+    await clearAnthropicKey()
     expect(mockSet).toHaveBeenCalledWith({ anthropicApiKey: null })
   })
 
   it('returns error when unauthenticated', async () => {
     vi.mocked(auth).mockResolvedValue(null as never)
-    const result = await clearApiKey()
+    const result = await clearAnthropicKey()
     expect(result).toEqual({ error: 'Unauthorized' })
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
   it('returns empty object on success', async () => {
     vi.mocked(auth).mockResolvedValue(authedSession)
-    expect(await clearApiKey()).toEqual({})
+    expect(await clearAnthropicKey()).toEqual({})
   })
 
   it('returns error when rate limited', async () => {
     vi.mocked(auth).mockResolvedValue(authedSession)
     vi.mocked(ratelimit.limit).mockResolvedValueOnce({ success: false } as never)
-    expect(await clearApiKey()).toEqual({ error: 'Too many requests' })
+    expect(await clearAnthropicKey()).toEqual({ error: 'Too many requests' })
   })
 })
 
