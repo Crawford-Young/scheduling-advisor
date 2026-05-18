@@ -15,6 +15,13 @@
       "when": 1747526400000,
       "tag": "0001_add_stripe_plan",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779112626574,
+      "tag": "0002_nice_wild_pack",
+      "breakpoints": true
     }
   ]
 }

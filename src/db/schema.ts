@@ -1,4 +1,14 @@
-import { pgTable, text, timestamp, integer, uuid, primaryKey, json } from 'drizzle-orm/pg-core'
+import {
+  pgTable,
+  text,
+  timestamp,
+  integer,
+  uuid,
+  primaryKey,
+  json,
+  numeric,
+  boolean,
+} from 'drizzle-orm/pg-core'
 
 // ── Auth.js v5 required tables ────────────────────────────────────────────────
 
@@ -17,6 +27,11 @@ export const users = pgTable('users', {
     .notNull()
     .default('free'),
   stripeCustomerId: text('stripe_customer_id').unique(),
+  googleAiApiKey: text('google_ai_api_key'),
+  activeProvider: text('active_provider', { enum: ['anthropic', 'google'] })
+    .notNull()
+    .default('anthropic'),
+  leaderboardOptOut: boolean('leaderboard_opt_out').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
@@ -109,6 +124,43 @@ export const calendarPrefs = pgTable('calendar_prefs', {
   workingHoursStart: integer('working_hours_start').notNull().default(9),
   workingHoursEnd: integer('working_hours_end').notNull().default(17),
   maxDailyTaskMinutes: integer('max_daily_task_minutes').notNull().default(120),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+export const pointEvents = pgTable('point_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  eventType: text('event_type', {
+    enum: [
+      'habit_complete',
+      'goal_milestone',
+      'goal_complete',
+      'perfect_day',
+      'perfect_week',
+      'level_up',
+    ],
+  }).notNull(),
+  points: integer('points').notNull(),
+  referenceId: uuid('reference_id'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+export const userStats = pgTable('user_stats', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  totalPoints: integer('total_points').notNull().default(0),
+  currentLevel: text('current_level', {
+    enum: ['seedling', 'growing', 'thriving', 'flourishing', 'evergreen'],
+  })
+    .notNull()
+    .default('seedling'),
+  weeklyPoints: integer('weekly_points').notNull().default(0),
+  currentStreak: integer('current_streak').notNull().default(0),
+  bestStreak: integer('best_streak').notNull().default(0),
+  multiplier: numeric('multiplier', { precision: 3, scale: 1 }).notNull().default('1.0'),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
