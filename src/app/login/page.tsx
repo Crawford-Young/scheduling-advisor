@@ -3,26 +3,30 @@ import { CalendarDays } from 'lucide-react'
 
 export default function LoginPage() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 px-4">
+    <main className="bg-background flex min-h-screen flex-col items-center justify-center px-4">
       <div className="flex w-full max-w-sm flex-col items-center gap-8">
         <div className="flex flex-col items-center gap-3">
-          <CalendarDays className="h-10 w-10 text-zinc-100" aria-hidden="true" />
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">
+          <div className="bg-accent-subtle flex h-12 w-12 items-center justify-center rounded-full">
+            <CalendarDays className="text-accent h-6 w-6" aria-hidden="true" />
+          </div>
+          <h1 className="text-foreground text-2xl font-semibold tracking-tight">
             Scheduling Advisor
           </h1>
-          <p className="text-center text-sm text-zinc-400">Your AI-powered scheduling companion</p>
+          <p className="text-muted-foreground text-center text-sm">
+            Your AI-powered scheduling companion
+          </p>
         </div>
 
         <form
           action={async () => {
             'use server'
-            await signIn('google', { redirectTo: '/dashboard' })
+            await signIn('google', { redirectTo: '/' })
           }}
           className="w-full"
         >
           <button
             type="submit"
-            className="flex w-full items-center justify-center gap-3 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-800 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
+            className="border-border bg-surface text-foreground hover:bg-surface-raised focus-visible:ring-ring flex w-full items-center justify-center gap-3 rounded-lg border px-4 py-3 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none"
           >
             <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
               <path
