@@ -17,7 +17,10 @@ const mockWhereUpdate = vi.hoisted(() =>
 const mockSetUpdate = vi.hoisted(() => vi.fn().mockReturnValue({ where: mockWhereUpdate }))
 const mockUpdate = vi.hoisted(() => vi.fn().mockReturnValue({ set: mockSetUpdate }))
 
-const mockWhereDelete = vi.hoisted(() => vi.fn().mockResolvedValue([]))
+const mockReturningDelete = vi.hoisted(() => vi.fn().mockResolvedValue([{ id: 'task-1' }]))
+const mockWhereDelete = vi.hoisted(() =>
+  vi.fn().mockReturnValue({ returning: mockReturningDelete }),
+)
 const mockDelete = vi.hoisted(() => vi.fn().mockReturnValue({ where: mockWhereDelete }))
 
 const mockWhereSelect = vi.hoisted(() => vi.fn().mockResolvedValue([{ status: 'pending' }]))
@@ -217,6 +220,16 @@ describe('updateTask', () => {
     expect(result).toMatchObject({ error: 'Unauthorized' })
   })
 
+  it('returns error when rate limited', async () => {
+    const { ratelimit } = await import('@/lib/redis')
+    vi.mocked(ratelimit.limit).mockResolvedValueOnce({ success: false } as never)
+    const result = await updateTask({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      status: 'completed',
+    })
+    expect(result).toMatchObject({ error: 'Too many requests' })
+  })
+
   it('returns not-found when task does not exist', async () => {
     mockReturningUpdate.mockResolvedValueOnce([])
     const result = await updateTask({
@@ -281,8 +294,15 @@ describe('deleteTask', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('deletes task with valid uuid', async () => {
+    mockReturningDelete.mockResolvedValueOnce([{ id: 'task-1' }])
     const result = await deleteTask({ id: '550e8400-e29b-41d4-a716-446655440000' })
     expect(result).toMatchObject({ data: { success: true } })
+  })
+
+  it('returns not-found when task does not exist', async () => {
+    mockReturningDelete.mockResolvedValueOnce([])
+    const result = await deleteTask({ id: '550e8400-e29b-41d4-a716-446655440000' })
+    expect(result).toMatchObject({ error: 'Not found' })
   })
 
   it('returns error when unauthenticated', async () => {
@@ -290,6 +310,13 @@ describe('deleteTask', () => {
     vi.mocked(auth).mockResolvedValueOnce(null as never)
     const result = await deleteTask({ id: '550e8400-e29b-41d4-a716-446655440000' })
     expect(result).toMatchObject({ error: 'Unauthorized' })
+  })
+
+  it('returns error when rate limited', async () => {
+    const { ratelimit } = await import('@/lib/redis')
+    vi.mocked(ratelimit.limit).mockResolvedValueOnce({ success: false } as never)
+    const result = await deleteTask({ id: '550e8400-e29b-41d4-a716-446655440000' })
+    expect(result).toMatchObject({ error: 'Too many requests' })
   })
 
   it('returns error for invalid uuid', async () => {

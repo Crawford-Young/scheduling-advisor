@@ -8,7 +8,11 @@ import { ratelimit } from '@/lib/redis'
 import { logger } from '@/lib/logger'
 import { awardPointsInternal } from '@/server/actions/points'
 
-export async function createTask(input: unknown) {
+type TaskActionResult = { data: (typeof tasks)['$inferSelect'] } | { error: unknown }
+
+const SUPPORTED_RECURRENCES = ['daily', 'weekly', 'monthly'] as const
+
+export async function createTask(input: unknown): Promise<TaskActionResult> {
   const session = await auth()
   if (!session?.user?.id) return { error: 'Unauthorized' }
 
@@ -25,6 +29,7 @@ export async function createTask(input: unknown) {
     recurrenceCount > 1 &&
     rest.recurrence !== null &&
     rest.recurrence !== undefined &&
+    (SUPPORTED_RECURRENCES as readonly string[]).includes(rest.recurrence) &&
     startAt !== null &&
     startAt !== undefined
 
@@ -56,8 +61,10 @@ export async function createTask(input: unknown) {
     })
 
     const inserted = await db.insert(tasks).values(rows).returning()
+    const first = inserted[0]
+    if (!first) return { error: 'Insert failed' }
     logger.info({ userId: session.user.id, count: rows.length }, 'Tasks created (fan-out)')
-    return { data: inserted[0] }
+    return { data: first }
   }
 
   const [task] = await db
@@ -73,13 +80,17 @@ export async function createTask(input: unknown) {
     })
     .returning()
 
-  logger.info({ userId: session.user.id, taskId: task!.id }, 'Task created')
+  if (!task) return { error: 'Insert failed' }
+  logger.info({ userId: session.user.id, taskId: task.id }, 'Task created')
   return { data: task }
 }
 
-export async function updateTask(input: unknown) {
+export async function updateTask(input: unknown): Promise<TaskActionResult> {
   const session = await auth()
   if (!session?.user?.id) return { error: 'Unauthorized' }
+
+  const { success } = await ratelimit.limit(session.user.id)
+  if (!success) return { error: 'Too many requests' }
 
   const parsed = updateTaskSchema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.flatten() }
@@ -128,14 +139,24 @@ export async function updateTask(input: unknown) {
   return { data: task }
 }
 
-export async function deleteTask(input: unknown) {
+export async function deleteTask(
+  input: unknown,
+): Promise<{ data: { success: boolean } } | { error: unknown }> {
   const session = await auth()
   if (!session?.user?.id) return { error: 'Unauthorized' }
+
+  const { success } = await ratelimit.limit(session.user.id)
+  if (!success) return { error: 'Too many requests' }
 
   const parsed = deleteTaskSchema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.flatten() }
 
-  await db.delete(tasks).where(and(eq(tasks.id, parsed.data.id), eq(tasks.userId, session.user.id)))
+  const deleted = await db
+    .delete(tasks)
+    .where(and(eq(tasks.id, parsed.data.id), eq(tasks.userId, session.user.id)))
+    .returning({ id: tasks.id })
+
+  if (deleted.length === 0) return { error: 'Not found' }
 
   return { data: { success: true } }
 }
