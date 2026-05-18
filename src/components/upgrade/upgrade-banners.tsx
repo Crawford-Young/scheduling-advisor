@@ -1,4 +1,5 @@
 'use client'
+import * as React from 'react'
 import { useState } from 'react'
 import { X } from 'lucide-react'
 
@@ -7,7 +8,7 @@ interface UpgradeBannersProps {
   readonly canceled: boolean
 }
 
-export function UpgradeBanners({ success, canceled }: UpgradeBannersProps) {
+export function UpgradeBanners({ success, canceled }: UpgradeBannersProps): React.JSX.Element {
   const [canceledDismissed, setCanceledDismissed] = useState(false)
 
   return (

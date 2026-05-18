@@ -1,7 +1,7 @@
-import React from 'react'
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { axe } from 'jest-axe'
 import { UpgradeBanners } from '@/components/upgrade/upgrade-banners'
 
 describe('UpgradeBanners', () => {
@@ -29,5 +29,10 @@ describe('UpgradeBanners', () => {
   it('renders nothing when both false', () => {
     const { container } = render(<UpgradeBanners success={false} canceled={false} />)
     expect(container).toBeEmptyDOMElement()
+  })
+
+  it('passes axe accessibility check', async () => {
+    const { container } = render(<UpgradeBanners success canceled={false} />)
+    expect(await axe(container)).toHaveNoViolations()
   })
 })
