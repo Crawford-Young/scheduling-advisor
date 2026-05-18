@@ -8,6 +8,9 @@ export const createTaskSchema = z.object({
   type: taskTypeSchema,
   recurrence: z.string().nullable().optional(),
   targetDate: z.string().datetime().nullable().optional(),
+  startAt: z.string().datetime().nullable().optional(),
+  endAt: z.string().datetime().nullable().optional(),
+  recurrenceCount: z.number().int().min(2).max(52).optional(),
 })
 
 export const updateTaskSchema = z.object({
@@ -16,6 +19,8 @@ export const updateTaskSchema = z.object({
   status: taskStatusSchema.optional(),
   recurrence: z.string().nullable().optional(),
   targetDate: z.string().datetime().nullable().optional(),
+  startAt: z.string().datetime().nullable().optional(),
+  endAt: z.string().datetime().nullable().optional(),
 })
 
 export const deleteTaskSchema = z.object({

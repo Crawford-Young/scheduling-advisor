@@ -9,7 +9,7 @@ const mockValuesInsert = vi.hoisted(() =>
 const mockInsert = vi.hoisted(() => vi.fn().mockReturnValue({ values: mockValuesInsert }))
 
 const mockReturningUpdate = vi.hoisted(() =>
-  vi.fn().mockResolvedValue([{ id: 'task-1', status: 'completed' }]),
+  vi.fn().mockResolvedValue([{ id: 'task-1', status: 'completed', type: 'task' }]),
 )
 const mockWhereUpdate = vi.hoisted(() =>
   vi.fn().mockReturnValue({ returning: mockReturningUpdate }),
@@ -19,6 +19,12 @@ const mockUpdate = vi.hoisted(() => vi.fn().mockReturnValue({ set: mockSetUpdate
 
 const mockWhereDelete = vi.hoisted(() => vi.fn().mockResolvedValue([]))
 const mockDelete = vi.hoisted(() => vi.fn().mockReturnValue({ where: mockWhereDelete }))
+
+const mockWhereSelect = vi.hoisted(() => vi.fn().mockResolvedValue([{ status: 'pending' }]))
+const mockFromSelect = vi.hoisted(() => vi.fn().mockReturnValue({ where: mockWhereSelect }))
+const mockSelect = vi.hoisted(() => vi.fn().mockReturnValue({ from: mockFromSelect }))
+
+const mockAwardPointsInternal = vi.hoisted(() => vi.fn().mockResolvedValue(10))
 
 vi.mock('@/auth', () => ({
   auth: vi.fn().mockResolvedValue({ user: { id: 'user-123' } }),
@@ -33,10 +39,15 @@ vi.mock('@/db', () => ({
     insert: mockInsert,
     update: mockUpdate,
     delete: mockDelete,
+    select: mockSelect,
   },
 }))
 
 vi.mock('@/db/schema', () => ({ tasks: {} }))
+
+vi.mock('@/server/actions/points', () => ({
+  awardPointsInternal: mockAwardPointsInternal,
+}))
 
 import { createTask, updateTask, deleteTask } from '@/server/actions/tasks'
 
@@ -86,6 +97,87 @@ describe('createTask', () => {
   })
 })
 
+describe('createTask fan-out', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('creates 3 daily tasks with correct startAt offsets', async () => {
+    const rows = [
+      {
+        id: 'task-1',
+        title: 'Meditate',
+        type: 'task',
+        startAt: new Date('2026-05-19T09:00:00.000Z'),
+      },
+      {
+        id: 'task-2',
+        title: 'Meditate',
+        type: 'task',
+        startAt: new Date('2026-05-20T09:00:00.000Z'),
+      },
+      {
+        id: 'task-3',
+        title: 'Meditate',
+        type: 'task',
+        startAt: new Date('2026-05-21T09:00:00.000Z'),
+      },
+    ]
+    mockReturningInsert.mockResolvedValueOnce(rows)
+
+    const result = await createTask({
+      title: 'Meditate',
+      type: 'task',
+      recurrence: 'daily',
+      startAt: '2026-05-19T09:00:00.000Z',
+      endAt: '2026-05-19T10:00:00.000Z',
+      recurrenceCount: 3,
+    })
+
+    const insertedRows = mockValuesInsert.mock.calls[0][0] as Array<{ startAt: Date }>
+    expect(insertedRows).toHaveLength(3)
+    expect(insertedRows[0].startAt.toISOString()).toBe('2026-05-19T09:00:00.000Z')
+    expect(insertedRows[1].startAt.toISOString()).toBe('2026-05-20T09:00:00.000Z')
+    expect(insertedRows[2].startAt.toISOString()).toBe('2026-05-21T09:00:00.000Z')
+    expect(result).toMatchObject({ data: { id: 'task-1' } })
+  })
+
+  it('creates 2 weekly tasks with correct startAt offsets', async () => {
+    const rows = [
+      { id: 'task-1', title: 'Run', type: 'task', startAt: new Date('2026-05-19T07:00:00.000Z') },
+      { id: 'task-2', title: 'Run', type: 'task', startAt: new Date('2026-05-26T07:00:00.000Z') },
+    ]
+    mockReturningInsert.mockResolvedValueOnce(rows)
+
+    await createTask({
+      title: 'Run',
+      type: 'task',
+      recurrence: 'weekly',
+      startAt: '2026-05-19T07:00:00.000Z',
+      endAt: '2026-05-19T08:00:00.000Z',
+      recurrenceCount: 2,
+    })
+
+    const insertedRows = mockValuesInsert.mock.calls[0][0] as Array<{ startAt: Date }>
+    expect(insertedRows).toHaveLength(2)
+    expect(insertedRows[0].startAt.toISOString()).toBe('2026-05-19T07:00:00.000Z')
+    expect(insertedRows[1].startAt.toISOString()).toBe('2026-05-26T07:00:00.000Z')
+  })
+
+  it('does not fan out when recurrenceCount is omitted', async () => {
+    mockReturningInsert.mockResolvedValueOnce([{ id: 'task-1', title: 'Run', type: 'task' }])
+
+    await createTask({
+      title: 'Run',
+      type: 'task',
+      recurrence: 'daily',
+      startAt: '2026-05-19T07:00:00.000Z',
+      endAt: '2026-05-19T08:00:00.000Z',
+    })
+
+    const insertArg = mockValuesInsert.mock.calls[0][0]
+    expect(Array.isArray(insertArg)).toBe(false)
+  })
+})
+
 describe('updateTask', () => {
   beforeEach(() => vi.clearAllMocks())
 
@@ -99,7 +191,7 @@ describe('updateTask', () => {
 
   it('updates task with all optional fields', async () => {
     mockReturningUpdate.mockResolvedValueOnce([
-      { id: 'task-1', title: 'Updated', recurrence: 'RRULE:FREQ=DAILY' },
+      { id: 'task-1', title: 'Updated', recurrence: 'RRULE:FREQ=DAILY', type: 'task' },
     ])
     const result = await updateTask({
       id: '550e8400-e29b-41d4-a716-446655440000',
@@ -135,12 +227,53 @@ describe('updateTask', () => {
   })
 
   it('clears targetDate when set to null', async () => {
-    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', targetDate: null }])
+    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', targetDate: null, type: 'task' }])
     const result = await updateTask({
       id: '550e8400-e29b-41d4-a716-446655440000',
       targetDate: null,
     })
     expect(result).toMatchObject({ data: { targetDate: null } })
+  })
+
+  it('awards habit_complete points when habit transitions to completed', async () => {
+    mockWhereSelect.mockResolvedValueOnce([{ status: 'pending' }])
+    mockReturningUpdate.mockResolvedValueOnce([
+      { id: 'task-1', status: 'completed', type: 'habit' },
+    ])
+    await updateTask({ id: '550e8400-e29b-41d4-a716-446655440000', status: 'completed' })
+    expect(mockAwardPointsInternal).toHaveBeenCalledWith('user-123', 'habit_complete', 'task-1')
+  })
+
+  it('awards goal_complete points when goal transitions to completed', async () => {
+    mockWhereSelect.mockResolvedValueOnce([{ status: 'in_progress' }])
+    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', status: 'completed', type: 'goal' }])
+    await updateTask({ id: '550e8400-e29b-41d4-a716-446655440000', status: 'completed' })
+    expect(mockAwardPointsInternal).toHaveBeenCalledWith('user-123', 'goal_complete', 'task-1')
+  })
+
+  it('awards no points when plain task transitions to completed', async () => {
+    mockWhereSelect.mockResolvedValueOnce([{ status: 'pending' }])
+    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', status: 'completed', type: 'task' }])
+    await updateTask({ id: '550e8400-e29b-41d4-a716-446655440000', status: 'completed' })
+    expect(mockAwardPointsInternal).not.toHaveBeenCalled()
+  })
+
+  it('does not re-award points when task is already completed', async () => {
+    mockWhereSelect.mockResolvedValueOnce([{ status: 'completed' }])
+    mockReturningUpdate.mockResolvedValueOnce([
+      { id: 'task-1', status: 'completed', type: 'habit' },
+    ])
+    await updateTask({ id: '550e8400-e29b-41d4-a716-446655440000', status: 'completed' })
+    expect(mockAwardPointsInternal).not.toHaveBeenCalled()
+  })
+
+  it('does not call select or award points when status is not changing to completed', async () => {
+    mockReturningUpdate.mockResolvedValueOnce([
+      { id: 'task-1', status: 'in_progress', type: 'habit' },
+    ])
+    await updateTask({ id: '550e8400-e29b-41d4-a716-446655440000', status: 'in_progress' })
+    expect(mockSelect).not.toHaveBeenCalled()
+    expect(mockAwardPointsInternal).not.toHaveBeenCalled()
   })
 })
 
