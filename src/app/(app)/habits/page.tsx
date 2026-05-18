@@ -1,5 +1,8 @@
 ﻿import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
+import { db } from '@/db'
+import { userStats } from '@/db/schema'
+import { eq } from 'drizzle-orm'
 import { getUserTasks } from '@/server/queries/tasks'
 import { HabitCard } from '@/components/cards/habit-card'
 import { PageHeader, EmptyState } from '@/lib/ui'
@@ -9,8 +12,13 @@ export default async function HabitsPage() {
   const session = await auth()
   if (!session?.user?.id) redirect('/login')
 
-  const allTasks = await getUserTasks()
+  const [allTasks, stats] = await Promise.all([
+    getUserTasks(),
+    db.query.userStats.findFirst({ where: eq(userStats.userId, session.user.id) }),
+  ])
+
   const habits = allTasks.filter((t) => t.type === 'habit')
+  const streak = stats?.currentStreak ?? 0
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -27,8 +35,8 @@ export default async function HabitsPage() {
               key={habit.id}
               taskId={habit.id}
               title={habit.title}
-              status={habit.status as 'pending' | 'in_progress' | 'completed'}
-              streak={0}
+              status={habit.status}
+              streak={streak}
             />
           ))}
         </div>
