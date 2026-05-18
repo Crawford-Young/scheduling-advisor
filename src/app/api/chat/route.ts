@@ -1,4 +1,4 @@
-﻿import { type NextRequest } from 'next/server'
+import { type NextRequest } from 'next/server'
 import { auth } from '@/auth'
 import { db } from '@/db'
 import { users, messages } from '@/db/schema'
@@ -6,7 +6,8 @@ import { eq, desc } from 'drizzle-orm'
 import { decrypt } from '@/lib/encryption'
 import { ratelimit } from '@/lib/redis'
 import { createAnthropic } from '@ai-sdk/anthropic'
-import { streamText, tool } from 'ai'
+import { createGoogleGenerativeAI } from '@ai-sdk/google'
+import { streamText, tool, type LanguageModelV1 } from 'ai'
 import { z } from 'zod'
 import { systemPrompt } from '@/lib/chat/system-prompt'
 import { chatRequestSchema } from '@/lib/schemas/chat'
@@ -22,7 +23,27 @@ import { reflectionCardPropsSchema } from '@/components/cards/reflection-card'
 import { weekCalendarViewPropsSchema } from '@/components/cards/week-calendar-view'
 import { lifeBalanceViewPropsSchema } from '@/components/cards/life-balance-view'
 
-export async function POST(req: NextRequest) {
+/** Resolves the LanguageModelV1 for the active provider/model. Returns error string if no key. */
+type ResolveModelResult = { ok: true; model: LanguageModelV1 } | { ok: false; error: string }
+
+function resolveModel(
+  provider: 'anthropic' | 'google',
+  encryptedKey: string | null | undefined,
+  model: string,
+): ResolveModelResult {
+  if (!encryptedKey) return { ok: false, error: 'no_api_key' }
+  const key = decrypt(encryptedKey)
+
+  if (provider === 'google') {
+    const google = createGoogleGenerativeAI({ apiKey: key })
+    return { ok: true, model: google(model) }
+  }
+
+  const anthropic = createAnthropic({ apiKey: key })
+  return { ok: true, model: anthropic(model) }
+}
+
+export async function POST(req: NextRequest): Promise<Response> {
   const session = await auth()
   if (!session?.user?.id) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
@@ -44,11 +65,14 @@ export async function POST(req: NextRequest) {
   const { messages: incomingMessages, conversationId } = parseResult.data
 
   const user = await db.query.users.findFirst({ where: eq(users.id, session.user.id) })
-  if (!user?.anthropicApiKey) {
-    return Response.json({ error: 'no_api_key' }, { status: 400 })
-  }
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const decryptedKey = decrypt(user.anthropicApiKey)
+  const encryptedKey = user.activeProvider === 'google' ? user.googleAiApiKey : user.anthropicApiKey
+
+  const resolved = resolveModel(user.activeProvider, encryptedKey, user.preferredModel)
+  if (!resolved.ok) return Response.json({ error: resolved.error }, { status: 400 })
+  const model = resolved.model
+
   const lastMessage = incomingMessages[incomingMessages.length - 1]
   if (!lastMessage) {
     return Response.json({ error: 'Invalid request' }, { status: 400 })
@@ -73,10 +97,9 @@ export async function POST(req: NextRequest) {
   }))
 
   const userId = session.user.id
-  const anthropic = createAnthropic({ apiKey: decryptedKey })
 
   const result = streamText({
-    model: anthropic(user.preferredModel),
+    model,
     system: systemPrompt,
     messages: contextMessages,
     maxSteps: 5,

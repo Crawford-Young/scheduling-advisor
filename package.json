@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.5",
-    "@ai-sdk/google": "^3.0.75",
+    "@ai-sdk/google": "^1.2.22",
     "@auth/drizzle-adapter": "^1.11.2",
     "@crawfordyoung/ui": "file:..\\component-library",
     "@neondatabase/serverless": "^1.1.0",
