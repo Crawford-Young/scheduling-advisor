@@ -13,6 +13,10 @@ export const users = pgTable('users', {
   anthropicApiKey: text('anthropic_api_key'),
   preferredModel: text('preferred_model').notNull().default('claude-sonnet-4-6'),
   timezone: text('timezone').notNull().default('UTC'),
+  plan: text('plan', { enum: ['free', 'pro', 'comped'] })
+    .notNull()
+    .default('free'),
+  stripeCustomerId: text('stripe_customer_id').unique(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 

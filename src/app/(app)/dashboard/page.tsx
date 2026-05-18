@@ -36,5 +36,11 @@ export default async function DashboardPage() {
     return { id: m.id, role: m.role as 'user' | 'assistant', content: text }
   })
 
-  return <DashboardChat conversationId={conversation.id} initialMessages={initialMessages} />
+  return (
+    <DashboardChat
+      conversationId={conversation.id}
+      initialMessages={initialMessages}
+      plan={session.user.plan}
+    />
+  )
 }

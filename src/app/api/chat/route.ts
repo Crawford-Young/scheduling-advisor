@@ -28,6 +28,10 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  if (session.user.plan === 'free') {
+    return Response.json({ error: 'upgrade_required' }, { status: 402 })
+  }
+
   const { success } = await ratelimit.limit(session.user.id)
   if (!success) {
     return Response.json({ error: 'Rate limited' }, { status: 429 })

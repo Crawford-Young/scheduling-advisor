@@ -20,10 +20,15 @@ export const env = createEnv({
       .string()
       .length(64)
       .regex(/^[0-9a-f]+$/i, 'Must be a 64-character hex string (32 bytes)'),
+    STRIPE_SECRET_KEY: z.string().min(1),
+    STRIPE_WEBHOOK_SECRET: z.string().min(1),
+    STRIPE_PRICE_ID: z.string().min(1),
+    COMPED_EMAILS: z.string().optional(),
   },
   client: {
     NEXT_PUBLIC_VAPID_PUBLIC_KEY: z.string().min(1),
     NEXT_PUBLIC_APP_URL: z.string().url(),
+    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().min(1),
   },
   runtimeEnv: {
     DATABASE_URL: process.env.DATABASE_URL,
@@ -40,7 +45,12 @@ export const env = createEnv({
     CALENDAR_SERVICE_IMPL: process.env.CALENDAR_SERVICE_IMPL,
     NOTIFICATION_SERVICE_IMPL: process.env.NOTIFICATION_SERVICE_IMPL,
     ENCRYPTION_KEY: process.env.ENCRYPTION_KEY,
+    STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+    STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
+    STRIPE_PRICE_ID: process.env.STRIPE_PRICE_ID,
+    COMPED_EMAILS: process.env.COMPED_EMAILS,
     NEXT_PUBLIC_VAPID_PUBLIC_KEY: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
   },
 })

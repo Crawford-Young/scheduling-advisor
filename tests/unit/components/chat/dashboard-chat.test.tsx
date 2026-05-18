@@ -58,13 +58,13 @@ describe('DashboardChat', () => {
   })
 
   it('renders the header with settings link', () => {
-    render(<DashboardChat conversationId="conv-1" initialMessages={[]} />)
+    render(<DashboardChat conversationId="conv-1" initialMessages={[]} plan="pro" />)
     expect(screen.getByText('Scheduling Advisor')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /settings/i })).toHaveAttribute('href', '/settings')
   })
 
   it('renders empty state message when no messages', () => {
-    render(<DashboardChat conversationId="conv-1" initialMessages={[]} />)
+    render(<DashboardChat conversationId="conv-1" initialMessages={[]} plan="pro" />)
     expect(screen.getByText(/start a conversation/i)).toBeInTheDocument()
   })
 
@@ -73,7 +73,7 @@ describe('DashboardChat', () => {
       ...defaultUseChat,
       messages: [{ id: '1', role: 'user', content: 'Hello!' }] as Message[],
     })
-    render(<DashboardChat conversationId="conv-1" initialMessages={[]} />)
+    render(<DashboardChat conversationId="conv-1" initialMessages={[]} plan="pro" />)
     expect(screen.getByText('Hello!')).toBeInTheDocument()
   })
 
@@ -82,18 +82,18 @@ describe('DashboardChat', () => {
       ...defaultUseChat,
       messages: [{ id: '2', role: 'assistant', content: 'How can I help?' }] as Message[],
     })
-    render(<DashboardChat conversationId="conv-1" initialMessages={[]} />)
+    render(<DashboardChat conversationId="conv-1" initialMessages={[]} plan="pro" />)
     expect(screen.getByText('How can I help?')).toBeInTheDocument()
   })
 
   it('shows bouncing dots when loading', () => {
     mockUseChat.mockReturnValue({ ...defaultUseChat, isLoading: true })
-    render(<DashboardChat conversationId="conv-1" initialMessages={[]} />)
+    render(<DashboardChat conversationId="conv-1" initialMessages={[]} plan="pro" />)
     expect(screen.getByTestId('loading-dots')).toBeInTheDocument()
   })
 
   it('hides loading indicator when not loading', () => {
-    render(<DashboardChat conversationId="conv-1" initialMessages={[]} />)
+    render(<DashboardChat conversationId="conv-1" initialMessages={[]} plan="pro" />)
     expect(screen.queryByTestId('loading-dots')).not.toBeInTheDocument()
   })
 
@@ -103,7 +103,7 @@ describe('DashboardChat', () => {
       errorCallback = onError
       return defaultUseChat
     })
-    render(<DashboardChat conversationId="conv-1" initialMessages={[]} />)
+    render(<DashboardChat conversationId="conv-1" initialMessages={[]} plan="pro" />)
     expect(screen.queryByText(/add your anthropic api key/i)).not.toBeInTheDocument()
     act(() => {
       errorCallback!(new Error('{"error":"no_api_key"}'))
@@ -118,7 +118,7 @@ describe('DashboardChat', () => {
       errorCallback = onError
       return defaultUseChat
     })
-    render(<DashboardChat conversationId="conv-1" initialMessages={[]} />)
+    render(<DashboardChat conversationId="conv-1" initialMessages={[]} plan="pro" />)
     act(() => {
       errorCallback!(new Error('{"error":"no_api_key"}'))
     })
@@ -128,7 +128,7 @@ describe('DashboardChat', () => {
 
   it('submits form on Enter key (no shift)', async () => {
     mockUseChat.mockReturnValue({ ...defaultUseChat, input: 'hello' })
-    render(<DashboardChat conversationId="conv-1" initialMessages={[]} />)
+    render(<DashboardChat conversationId="conv-1" initialMessages={[]} plan="pro" />)
     const textarea = screen.getByPlaceholderText(/ask about your schedule/i)
     await userEvent.type(textarea, '{Enter}')
     expect(mockHandleSubmit).toHaveBeenCalled()
@@ -148,12 +148,12 @@ describe('DashboardChat', () => {
         },
       ] as Message[],
     })
-    render(<DashboardChat conversationId="conv-1" initialMessages={[]} />)
+    render(<DashboardChat conversationId="conv-1" initialMessages={[]} plan="pro" />)
     expect(screen.getByTestId('tool-showTaskCard')).toBeInTheDocument()
   })
 
   it('passes conversationId in useChat body', () => {
-    render(<DashboardChat conversationId="my-conv-id" initialMessages={[]} />)
+    render(<DashboardChat conversationId="my-conv-id" initialMessages={[]} plan="pro" />)
     expect(mockUseChat).toHaveBeenCalledWith(
       expect.objectContaining({ body: { conversationId: 'my-conv-id' } }),
     )
@@ -165,7 +165,7 @@ describe('DashboardChat', () => {
       errorCallback = onError
       return defaultUseChat
     })
-    render(<DashboardChat conversationId="conv-1" initialMessages={[]} />)
+    render(<DashboardChat conversationId="conv-1" initialMessages={[]} plan="pro" />)
     act(() => {
       errorCallback!(new Error('some other error'))
     })
@@ -173,7 +173,7 @@ describe('DashboardChat', () => {
   })
 
   it('calls setInput when user types in the textarea', async () => {
-    render(<DashboardChat conversationId="conv-1" initialMessages={[]} />)
+    render(<DashboardChat conversationId="conv-1" initialMessages={[]} plan="pro" />)
     const textarea = screen.getByPlaceholderText(/ask about your schedule/i)
     await userEvent.type(textarea, 'hello')
     expect(mockSetInput).toHaveBeenCalled()
@@ -181,9 +181,19 @@ describe('DashboardChat', () => {
 
   it('does not submit on Shift+Enter', async () => {
     mockUseChat.mockReturnValue({ ...defaultUseChat, input: 'hello' })
-    render(<DashboardChat conversationId="conv-1" initialMessages={[]} />)
+    render(<DashboardChat conversationId="conv-1" initialMessages={[]} plan="pro" />)
     const textarea = screen.getByPlaceholderText(/ask about your schedule/i)
     await userEvent.type(textarea, '{Shift>}{Enter}{/Shift}')
     expect(mockHandleSubmit).not.toHaveBeenCalled()
+  })
+
+  it('shows upgrade prompt and hides chat input for free plan', () => {
+    render(<DashboardChat conversationId="conv-1" initialMessages={[]} plan="free" />)
+    expect(screen.getByText(/AI assistant is a Pro feature/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /upgrade to pro/i })).toHaveAttribute(
+      'href',
+      '/upgrade',
+    )
+    expect(screen.queryByPlaceholderText(/ask about your schedule/i)).not.toBeInTheDocument()
   })
 })
