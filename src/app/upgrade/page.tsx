@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Check, Sparkles, Zap } from 'lucide-react'
+import { use, useState } from 'react'
+import { Check, Sparkles, X, Zap } from 'lucide-react'
 
 const FREE_FEATURES = [
   'AI-generated daily schedule',
@@ -18,8 +18,14 @@ const PRO_FEATURES = [
   'Unlimited conversation history',
 ]
 
-export default function UpgradePage() {
+export default function UpgradePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ success?: string; canceled?: string }>
+}) {
+  const { success, canceled } = use(searchParams)
   const [loading, setLoading] = useState(false)
+  const [canceledDismissed, setCanceledDismissed] = useState(false)
 
   async function handleUpgrade() {
     setLoading(true)
@@ -33,16 +39,35 @@ export default function UpgradePage() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 px-4 py-16">
+    <main className="bg-background flex min-h-screen flex-col items-center justify-center px-4 py-16">
       <div className="flex w-full max-w-3xl flex-col items-center gap-12">
+        {success === '1' && (
+          <div className="w-full rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-400">
+            You&apos;re now on Pro! Enjoy unlimited AI access.
+          </div>
+        )}
+
+        {canceled === '1' && !canceledDismissed && (
+          <div className="border-border bg-surface text-muted-foreground flex w-full items-center justify-between rounded-lg border px-4 py-3 text-sm">
+            <span>Upgrade canceled. You can upgrade any time.</span>
+            <button
+              onClick={() => setCanceledDismissed(true)}
+              aria-label="Dismiss"
+              className="text-muted-foreground hover:text-foreground ml-3 shrink-0"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+        )}
+
         <div className="flex flex-col items-center gap-3 text-center">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/15 ring-1 ring-amber-500/30">
             <Sparkles className="h-6 w-6 text-amber-400" aria-hidden="true" />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight text-zinc-100">
+          <h1 className="text-foreground text-3xl font-bold tracking-tight">
             Unlock the AI assistant
           </h1>
-          <p className="max-w-md text-sm text-zinc-400">
+          <p className="text-muted-foreground max-w-md text-sm">
             Get personalized scheduling advice, smart conflict resolution, and an AI that actually
             understands your priorities.
           </p>
@@ -50,38 +75,40 @@ export default function UpgradePage() {
 
         <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
           {/* Free tier */}
-          <div className="flex flex-col gap-6 rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+          <div className="bg-surface border-border flex flex-col gap-6 rounded-xl border p-6">
             <div className="flex flex-col gap-1">
-              <p className="text-xs font-semibold tracking-widest text-zinc-500 uppercase">Free</p>
-              <p className="text-3xl font-bold text-zinc-100">$0</p>
-              <p className="text-sm text-zinc-400">No credit card required</p>
+              <p className="text-muted-foreground text-xs font-semibold tracking-widest uppercase">
+                Free
+              </p>
+              <p className="text-foreground text-3xl font-bold">$0</p>
+              <p className="text-muted-foreground text-sm">No credit card required</p>
             </div>
             <ul className="flex flex-col gap-3">
               {FREE_FEATURES.map((f) => (
-                <li key={f} className="flex items-center gap-2.5 text-sm text-zinc-300">
-                  <Check className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden="true" />
+                <li key={f} className="text-foreground flex items-center gap-2.5 text-sm">
+                  <Check className="text-muted-foreground h-4 w-4 shrink-0" aria-hidden="true" />
                   {f}
                 </li>
               ))}
             </ul>
-            <div className="mt-auto rounded-lg border border-zinc-700 py-2.5 text-center text-sm font-medium text-zinc-500">
+            <div className="border-border text-muted-foreground mt-auto rounded-lg border py-2.5 text-center text-sm font-medium">
               Current plan
             </div>
           </div>
 
           {/* Pro tier */}
-          <div className="flex flex-col gap-6 rounded-xl border border-amber-500/40 bg-zinc-900 p-6 shadow-lg shadow-amber-500/5">
+          <div className="bg-surface flex flex-col gap-6 rounded-xl border border-amber-500/40 p-6 shadow-lg shadow-amber-500/5">
             <div className="flex flex-col gap-1">
               <p className="text-xs font-semibold tracking-widest text-amber-400 uppercase">Pro</p>
               <div className="flex items-end gap-1">
-                <p className="text-3xl font-bold text-zinc-100">$9</p>
-                <p className="mb-1 text-sm text-zinc-400">/ month</p>
+                <p className="text-foreground text-3xl font-bold">$9</p>
+                <p className="text-muted-foreground mb-1 text-sm">/ month</p>
               </div>
-              <p className="text-sm text-zinc-400">Cancel anytime</p>
+              <p className="text-muted-foreground text-sm">Cancel anytime</p>
             </div>
             <ul className="flex flex-col gap-3">
               {PRO_FEATURES.map((f) => (
-                <li key={f} className="flex items-center gap-2.5 text-sm text-zinc-300">
+                <li key={f} className="text-foreground flex items-center gap-2.5 text-sm">
                   <Check className="h-4 w-4 shrink-0 text-amber-400" aria-hidden="true" />
                   {f}
                 </li>
