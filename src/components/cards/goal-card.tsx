@@ -1,49 +1,61 @@
 'use client'
+import * as React from 'react'
+import { useState, useTransition } from 'react'
 import { z } from 'zod'
-import { Card, CardHeader, CardContent, Progress, Badge } from '@crawfordyoung/ui'
-import { CheckCircle2, Circle } from 'lucide-react'
+import { Card, CardHeader, CardContent, Badge } from '@/lib/ui'
+import { updateTask } from '@/server/actions/tasks'
 
 export const goalCardPropsSchema = z.object({
   taskId: z.string().uuid(),
   title: z.string(),
-  progress: z.number().min(0).max(1),
-  milestones: z.array(z.object({ label: z.string(), completed: z.boolean() })),
+  status: z.enum(['pending', 'in_progress', 'completed']),
   targetDate: z.string().nullable().optional(),
 })
 
 export type GoalCardProps = z.infer<typeof goalCardPropsSchema>
 
-export function GoalCard({ title, progress, milestones, targetDate }: GoalCardProps) {
-  const pct = Math.round(progress * 100)
+const STATUS_LABELS: Record<string, string> = {
+  pending: 'Pending',
+  in_progress: 'In Progress',
+  completed: 'Completed',
+}
+
+export function GoalCard({
+  taskId,
+  title,
+  status: initialStatus,
+  targetDate,
+}: GoalCardProps): React.JSX.Element {
+  const [status, setStatus] = useState(initialStatus)
+  const [, startTransition] = useTransition()
+
+  function handleComplete() {
+    setStatus('completed')
+    startTransition(async () => {
+      await updateTask({ id: taskId, status: 'completed' })
+    })
+  }
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <span className="font-medium">{title}</span>
-          <Badge>{pct}%</Badge>
+          <Badge>{STATUS_LABELS[status]}</Badge>
         </div>
         {targetDate && <p className="text-muted-foreground text-xs">Target: {targetDate}</p>}
       </CardHeader>
-      <CardContent className="space-y-3">
-        <Progress value={pct} aria-label={`Goal ${pct}% complete`} />
-        {milestones.length > 0 && (
-          <ul className="space-y-1" aria-label="Milestones">
-            {milestones.map((m) => (
-              <li key={m.label} className="flex items-center gap-2 text-sm">
-                {m.completed ? (
-                  <CheckCircle2 className="h-4 w-4 text-green-500" aria-label="Completed" />
-                ) : (
-                  <Circle className="text-muted-foreground h-4 w-4" aria-label="Not completed" />
-                )}
-                <span className={m.completed ? 'text-muted-foreground line-through' : ''}>
-                  {m.label}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
+      {status !== 'completed' && (
+        <CardContent>
+          <button
+            type="button"
+            onClick={handleComplete}
+            className="bg-accent text-accent-foreground hover:bg-accent-hover rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+          >
+            Mark complete
+          </button>
+        </CardContent>
+      )}
     </Card>
   )
 }
