@@ -87,6 +87,8 @@ export const tasks = pgTable('tasks', {
     .notNull()
     .default('pending'),
   targetDate: timestamp('target_date', { mode: 'date' }),
+  startAt: timestamp('start_at', { withTimezone: true, mode: 'date' }),
+  endAt: timestamp('end_at', { withTimezone: true, mode: 'date' }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
