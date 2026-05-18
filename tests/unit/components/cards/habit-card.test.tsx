@@ -1,6 +1,7 @@
-﻿import React from 'react'
-import { describe, it, expect, vi } from 'vitest'
+import React from 'react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { axe } from 'jest-axe'
 import { HabitCard, habitCardPropsSchema } from '@/components/cards/habit-card'
 
@@ -13,33 +14,57 @@ vi.mock('@crawfordyoung/ui', () => ({
     React.createElement('div', p, children),
   Badge: ({ children, ...p }: React.HTMLAttributes<HTMLSpanElement>) =>
     React.createElement('span', p, children),
-  Progress: ({ value, ...p }: React.HTMLAttributes<HTMLDivElement> & { value?: number }) =>
-    React.createElement('div', { role: 'progressbar', 'aria-valuenow': value, ...p }),
+}))
+
+vi.mock('@/server/actions/tasks', () => ({
+  updateTask: vi.fn().mockResolvedValue({ data: { id: 'task-1' } }),
 }))
 
 const baseProps = {
   taskId: '550e8400-e29b-41d4-a716-446655440000',
   title: 'Meditate 10min',
+  status: 'pending' as const,
   streak: 7,
-  completionRate: 0.85,
-  nextPrompt: 'Tomorrow 8:00 AM',
 }
 
 describe('HabitCard', () => {
+  beforeEach(() => vi.clearAllMocks())
+
   it('renders title and streak', () => {
     render(<HabitCard {...baseProps} />)
     expect(screen.getByText('Meditate 10min')).toBeInTheDocument()
-    expect(screen.getByText('7 day streak')).toBeInTheDocument()
+    expect(screen.getByText(/7 day streak/)).toBeInTheDocument()
   })
 
-  it('renders completion rate as percentage', () => {
-    render(<HabitCard {...baseProps} />)
-    expect(screen.getByText('85%')).toBeInTheDocument()
+  it('shows Log today button when status is pending', () => {
+    render(<HabitCard {...baseProps} status="pending" />)
+    expect(screen.getByRole('button', { name: /Log today/ })).toBeInTheDocument()
   })
 
-  it('shows next prompt', () => {
+  it('shows Log today button when status is in_progress', () => {
+    render(<HabitCard {...baseProps} status="in_progress" />)
+    expect(screen.getByRole('button', { name: /Log today/ })).toBeInTheDocument()
+  })
+
+  it('hides Log today button when status is completed', () => {
+    render(<HabitCard {...baseProps} status="completed" />)
+    expect(screen.queryByRole('button', { name: /Log today/ })).not.toBeInTheDocument()
+  })
+
+  it('calls updateTask with completed status on click', async () => {
+    const { updateTask } = await import('@/server/actions/tasks')
     render(<HabitCard {...baseProps} />)
-    expect(screen.getByText(/Tomorrow 8:00 AM/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /Log today/ }))
+    expect(updateTask).toHaveBeenCalledWith({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      status: 'completed',
+    })
+  })
+
+  it('hides button optimistically after click', async () => {
+    render(<HabitCard {...baseProps} />)
+    await userEvent.click(screen.getByRole('button', { name: /Log today/ }))
+    expect(screen.queryByRole('button', { name: /Log today/ })).not.toBeInTheDocument()
   })
 
   it('passes axe accessibility check', async () => {
@@ -53,9 +78,11 @@ describe('habitCardPropsSchema', () => {
     expect(habitCardPropsSchema.safeParse(baseProps).success).toBe(true)
   })
 
-  it('rejects completionRate above 1', () => {
-    expect(habitCardPropsSchema.safeParse({ ...baseProps, completionRate: 1.5 }).success).toBe(
-      false,
-    )
+  it('rejects negative streak', () => {
+    expect(habitCardPropsSchema.safeParse({ ...baseProps, streak: -1 }).success).toBe(false)
+  })
+
+  it('rejects invalid status', () => {
+    expect(habitCardPropsSchema.safeParse({ ...baseProps, status: 'done' }).success).toBe(false)
   })
 })

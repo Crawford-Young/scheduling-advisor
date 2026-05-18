@@ -1,20 +1,35 @@
 'use client'
+import * as React from 'react'
+import { useState, useTransition } from 'react'
 import { z } from 'zod'
-import { Card, CardHeader, CardContent, Badge, Progress } from '@crawfordyoung/ui'
+import { Card, CardHeader, CardContent, Badge } from '@/lib/ui'
 import { Flame } from 'lucide-react'
+import { updateTask } from '@/server/actions/tasks'
 
 export const habitCardPropsSchema = z.object({
   taskId: z.string().uuid(),
   title: z.string(),
+  status: z.enum(['pending', 'in_progress', 'completed']),
   streak: z.number().int().min(0),
-  completionRate: z.number().min(0).max(1),
-  nextPrompt: z.string().nullable().optional(),
 })
 
 export type HabitCardProps = z.infer<typeof habitCardPropsSchema>
 
-export function HabitCard({ title, streak, completionRate, nextPrompt }: HabitCardProps) {
-  const pct = Math.round(completionRate * 100)
+export function HabitCard({
+  taskId,
+  title,
+  status: initialStatus,
+  streak,
+}: HabitCardProps): React.JSX.Element {
+  const [status, setStatus] = useState(initialStatus)
+  const [, startTransition] = useTransition()
+
+  function handleLog() {
+    setStatus('completed')
+    startTransition(async () => {
+      await updateTask({ id: taskId, status: 'completed' })
+    })
+  }
 
   return (
     <Card>
@@ -27,16 +42,17 @@ export function HabitCard({ title, streak, completionRate, nextPrompt }: HabitCa
           </Badge>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div>
-          <div className="text-muted-foreground mb-1 flex justify-between text-sm">
-            <span>Completion</span>
-            <span>{pct}%</span>
-          </div>
-          <Progress value={pct} aria-label={`${pct}% completion rate`} />
-        </div>
-        {nextPrompt && <p className="text-muted-foreground text-sm">Next: {nextPrompt}</p>}
-      </CardContent>
+      {status !== 'completed' && (
+        <CardContent>
+          <button
+            type="button"
+            onClick={handleLog}
+            className="bg-accent text-accent-foreground hover:bg-accent-hover rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+          >
+            Log today
+          </button>
+        </CardContent>
+      )}
     </Card>
   )
 }
