@@ -1,9 +1,10 @@
-﻿import { auth } from '@/auth'
+import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { getUserTasks } from '@/server/queries/tasks'
 import { GoalCard } from '@/components/cards/goal-card'
 import { PageHeader, EmptyState } from '@/lib/ui'
 import { OpenChatButton } from '@/components/chat/open-chat-button'
+import { GoalAddButton } from '@/components/goals/goal-add-button'
 
 export default async function GoalsPage() {
   const session = await auth()
@@ -14,10 +15,13 @@ export default async function GoalsPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <PageHeader title="Goals" />
+      <div className="flex items-center justify-between">
+        <PageHeader title="Goals" />
+        <GoalAddButton />
+      </div>
       {goals.length === 0 ? (
         <div className="flex flex-col items-center gap-4">
-          <EmptyState message="No goals yet. Ask the AI to help you set one." />
+          <EmptyState message="No goals yet. Add one or ask the AI to help you set one." />
           <OpenChatButton label="Set a goal with AI" />
         </div>
       ) : (
