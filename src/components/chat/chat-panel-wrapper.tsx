@@ -2,7 +2,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useChat } from 'ai/react'
 import type { Message, ToolInvocation } from 'ai'
-import { ChatPanel, ChatFab } from '@crawfordyoung/ui'
+import { ChatPanel, ChatFab, Textarea, Button } from '@/lib/ui'
+import { Send } from 'lucide-react'
 import { ToolResultRenderer } from './tool-result-renderer'
 import Link from 'next/link'
 
@@ -32,6 +33,14 @@ export function ChatPanelWrapper({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    function handleOpenChat() {
+      setOpen(true)
+    }
+    window.addEventListener('open-chat', handleOpenChat)
+    return () => window.removeEventListener('open-chat', handleOpenChat)
+  }, [])
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -139,35 +148,18 @@ export function ChatPanelWrapper({
 
               <form onSubmit={handleSubmit} className="border-border border-t p-3">
                 <div className="flex gap-2">
-                  <textarea
+                  <Textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={onKeyDown}
                     placeholder="Ask about your schedule..."
                     rows={1}
-                    className="border-border bg-background text-foreground placeholder:text-muted-foreground focus:ring-ring max-h-32 flex-1 resize-none rounded-md border px-3 py-2 text-sm focus:ring-2 focus:outline-none"
+                    className="max-h-32 flex-1 resize-none"
                   />
-                  <button
-                    type="submit"
-                    disabled={isLoading || !input.trim()}
-                    className="bg-accent text-accent-foreground hover:bg-accent-hover focus-visible:ring-ring inline-flex items-center justify-center rounded-md p-2 transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:opacity-50"
-                  >
-                    <svg
-                      aria-hidden="true"
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="h-4 w-4"
-                    >
-                      <path d="m22 2-7 20-4-9-9-4Z" />
-                      <path d="M22 2 11 13" />
-                    </svg>
+                  <Button type="submit" size="icon" disabled={isLoading || !input.trim()}>
+                    <Send className="h-4 w-4" aria-hidden />
                     <span className="sr-only">Send</span>
-                  </button>
+                  </Button>
                 </div>
               </form>
             </>
