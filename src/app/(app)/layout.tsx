@@ -3,11 +3,20 @@ import { redirect } from 'next/navigation'
 import { db } from '@/db'
 import { conversations, messages, userStats } from '@/db/schema'
 import { eq, desc } from 'drizzle-orm'
-import { AppShell, Sidebar, TopBar, XpBar } from '@crawfordyoung/ui'
+import { XpBar } from '@/lib/ui'
 import { ActiveSidebarItem } from '@/components/layout/active-sidebar-item'
 import { ChatPanelWrapper } from '@/components/chat/chat-panel-wrapper'
 import type { Message } from 'ai'
-import { Home, Target, RefreshCw, MessageSquare, Calendar, Trophy, Settings } from 'lucide-react'
+import {
+  Home,
+  Target,
+  RefreshCw,
+  CheckSquare,
+  MessageSquare,
+  Calendar,
+  Trophy,
+  Settings,
+} from 'lucide-react'
 
 const LEVEL_MAX_XP: Record<string, number> = {
   seedling: 500,
@@ -21,6 +30,7 @@ const NAV_ITEMS = [
   { label: 'Home', href: '/', icon: <Home className="h-4 w-4" /> },
   { label: 'Goals', href: '/goals', icon: <Target className="h-4 w-4" /> },
   { label: 'Habits', href: '/habits', icon: <RefreshCw className="h-4 w-4" /> },
+  { label: 'Tasks', href: '/tasks', icon: <CheckSquare className="h-4 w-4" /> },
   { label: 'Reflections', href: '/reflections', icon: <MessageSquare className="h-4 w-4" /> },
   { label: 'Calendar', href: '/calendar', icon: <Calendar className="h-4 w-4" /> },
   { label: 'Leaderboard', href: '/leaderboard', icon: <Trophy className="h-4 w-4" /> },
@@ -34,15 +44,14 @@ interface AppLayoutProps {
 export default async function AppLayout({ children }: AppLayoutProps) {
   const session = await auth()
   if (!session?.user?.id) redirect('/login')
-
   const userId = session.user.id
 
-  let [conversation] = await db
-    .select()
-    .from(conversations)
-    .where(eq(conversations.userId, userId))
-    .limit(1)
+  const [existingConversations, stats] = await Promise.all([
+    db.select().from(conversations).where(eq(conversations.userId, userId)).limit(1),
+    db.query.userStats.findFirst({ where: eq(userStats.userId, userId) }),
+  ])
 
+  let [conversation] = existingConversations
   if (!conversation) {
     const [created] = await db.insert(conversations).values({ userId }).returning()
     conversation = created
@@ -62,55 +71,61 @@ export default async function AppLayout({ children }: AppLayoutProps) {
     return { id: m.id, role: m.role as 'user' | 'assistant', content: text }
   })
 
-  const stats = await db.query.userStats.findFirst({ where: eq(userStats.userId, userId) })
   const levelName = stats?.currentLevel ?? 'seedling'
   const currentXp = stats?.totalPoints ?? 0
   const maxXp = LEVEL_MAX_XP[levelName] ?? 500
 
-  const sidebar = (
-    <Sidebar
-      footer={
-        <div className="px-1 py-2">
+  return (
+    <div className="bg-background flex h-screen overflow-hidden">
+      <aside className="border-border bg-surface flex h-full w-64 shrink-0 flex-col border-r">
+        <div className="border-border flex h-14 shrink-0 items-center gap-2.5 border-b px-4">
+          <div className="bg-accent flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
+            <span className="text-accent-foreground text-[10px] font-bold">SA</span>
+          </div>
+          <span className="text-foreground text-sm font-bold">Scheduling Advisor</span>
+        </div>
+        <nav className="flex-1 space-y-0.5 overflow-y-auto p-2" aria-label="Main navigation">
+          {NAV_ITEMS.map((item) => (
+            <ActiveSidebarItem
+              key={item.href}
+              icon={item.icon}
+              label={item.label}
+              href={item.href}
+            />
+          ))}
+        </nav>
+        <div className="border-border space-y-3 border-t p-3">
+          <div className="flex items-center gap-2.5">
+            {session.user.image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={session.user.image}
+                alt={session.user.name ?? 'User avatar'}
+                className="h-8 w-8 shrink-0 rounded-full object-cover"
+              />
+            ) : (
+              <div className="bg-accent-subtle text-accent flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold">
+                {(session.user.name ?? 'U')[0]}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-foreground truncate text-xs font-medium">
+                {session.user.name ?? 'User'}
+              </p>
+              <p className="text-muted-foreground truncate text-xs capitalize">{levelName}</p>
+            </div>
+          </div>
           <XpBar levelName={levelName} currentXp={currentXp} maxXp={maxXp} />
         </div>
-      }
-    >
-      {NAV_ITEMS.map((item) => (
-        <ActiveSidebarItem key={item.href} icon={item.icon} label={item.label} href={item.href} />
-      ))}
-    </Sidebar>
-  )
-
-  const topbar = (
-    <TopBar
-      logo={<span className="text-accent text-sm font-bold">SA</span>}
-      actions={
-        session.user.image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={session.user.image}
-            alt={session.user.name ?? 'User avatar'}
-            className="h-8 w-8 rounded-full object-cover"
-          />
-        ) : (
-          <div className="bg-accent-subtle text-accent flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold">
-            {(session.user.name ?? 'U')[0]}
-          </div>
-        )
-      }
-    />
-  )
-
-  return (
-    <AppShell sidebar={sidebar} topbar={topbar}>
-      <div className="relative h-full">
-        <div className="p-6">{children}</div>
-        <ChatPanelWrapper
-          conversationId={conversation.id}
-          initialMessages={initialMessages}
-          plan={session.user.plan}
-        />
+      </aside>
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
-    </AppShell>
+      <ChatPanelWrapper
+        conversationId={conversation.id}
+        initialMessages={initialMessages}
+        plan={session.user.plan}
+      />
+    </div>
   )
 }
