@@ -135,11 +135,11 @@ describe('createTask fan-out', () => {
       recurrenceCount: 3,
     })
 
-    const insertedRows = mockValuesInsert.mock.calls[0][0] as Array<{ startAt: Date }>
+    const insertedRows = mockValuesInsert.mock.calls[0]![0] as Array<{ startAt: Date }>
     expect(insertedRows).toHaveLength(3)
-    expect(insertedRows[0].startAt.toISOString()).toBe('2026-05-19T09:00:00.000Z')
-    expect(insertedRows[1].startAt.toISOString()).toBe('2026-05-20T09:00:00.000Z')
-    expect(insertedRows[2].startAt.toISOString()).toBe('2026-05-21T09:00:00.000Z')
+    expect(insertedRows[0]!.startAt.toISOString()).toBe('2026-05-19T09:00:00.000Z')
+    expect(insertedRows[1]!.startAt.toISOString()).toBe('2026-05-20T09:00:00.000Z')
+    expect(insertedRows[2]!.startAt.toISOString()).toBe('2026-05-21T09:00:00.000Z')
     expect(result).toMatchObject({ data: { id: 'task-1' } })
   })
 
@@ -159,10 +159,10 @@ describe('createTask fan-out', () => {
       recurrenceCount: 2,
     })
 
-    const insertedRows = mockValuesInsert.mock.calls[0][0] as Array<{ startAt: Date }>
+    const insertedRows = mockValuesInsert.mock.calls[0]![0] as Array<{ startAt: Date }>
     expect(insertedRows).toHaveLength(2)
-    expect(insertedRows[0].startAt.toISOString()).toBe('2026-05-19T07:00:00.000Z')
-    expect(insertedRows[1].startAt.toISOString()).toBe('2026-05-26T07:00:00.000Z')
+    expect(insertedRows[0]!.startAt.toISOString()).toBe('2026-05-19T07:00:00.000Z')
+    expect(insertedRows[1]!.startAt.toISOString()).toBe('2026-05-26T07:00:00.000Z')
   })
 
   it('does not fan out when recurrenceCount is omitted', async () => {
@@ -176,7 +176,7 @@ describe('createTask fan-out', () => {
       endAt: '2026-05-19T08:00:00.000Z',
     })
 
-    const insertArg = mockValuesInsert.mock.calls[0][0]
+    const insertArg = mockValuesInsert.mock.calls[0]![0]
     expect(Array.isArray(insertArg)).toBe(false)
   })
 })
