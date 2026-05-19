@@ -1,6 +1,11 @@
 'use client'
+import * as React from 'react'
 
-export default function TasksError({ reset }: { reset: () => void }) {
+interface TasksErrorProps {
+  readonly reset: () => void
+}
+
+export default function TasksError({ reset }: TasksErrorProps): React.JSX.Element {
   return (
     <div className="flex flex-col items-center gap-4 py-16">
       <p className="text-muted-foreground text-sm">Failed to load tasks.</p>

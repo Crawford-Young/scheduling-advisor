@@ -1,6 +1,7 @@
+import * as React from 'react'
 import { Skeleton } from '@/lib/ui'
 
-export default function TasksLoading() {
+export default function TasksLoading(): React.JSX.Element {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <Skeleton className="h-8 w-24" />

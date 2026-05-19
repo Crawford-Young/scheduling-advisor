@@ -1,3 +1,4 @@
+import * as React from 'react'
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { getUserTasks } from '@/server/queries/tasks'
@@ -22,7 +23,7 @@ const STATUS_LABELS: Record<string, string> = {
   completed: 'Completed',
 }
 
-export default async function TasksPage() {
+export default async function TasksPage(): Promise<React.JSX.Element> {
   const session = await auth()
   if (!session?.user?.id) redirect('/login')
 
