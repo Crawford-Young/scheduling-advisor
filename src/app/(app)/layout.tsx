@@ -3,19 +3,19 @@ import { redirect } from 'next/navigation'
 import { db } from '@/db'
 import { conversations, messages, userStats } from '@/db/schema'
 import { eq, desc } from 'drizzle-orm'
-import { XpBar } from '@/lib/ui'
+import { AppShell, Avatar, AvatarFallback, AvatarImage, Sidebar, XpBar } from '@/lib/ui'
 import { ActiveSidebarItem } from '@/components/layout/active-sidebar-item'
 import { ChatPanelWrapper } from '@/components/chat/chat-panel-wrapper'
 import type { Message } from 'ai'
 import {
-  Home,
-  Target,
-  RefreshCw,
-  CheckSquare,
-  MessageSquare,
   Calendar,
-  Trophy,
+  CheckSquare,
+  Home,
+  MessageSquare,
+  RefreshCw,
   Settings,
+  Target,
+  Trophy,
 } from 'lucide-react'
 
 const LEVEL_MAX_XP: Record<string, number> = {
@@ -75,57 +75,57 @@ export default async function AppLayout({ children }: AppLayoutProps) {
   const currentXp = stats?.totalPoints ?? 0
   const maxXp = LEVEL_MAX_XP[levelName] ?? 500
 
-  return (
-    <div className="bg-background flex h-screen overflow-hidden">
-      <aside className="border-border bg-surface flex h-full w-64 shrink-0 flex-col border-r">
-        <div className="border-border flex h-14 shrink-0 items-center gap-2.5 border-b px-4">
-          <div className="bg-accent flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
-            <span className="text-accent-foreground text-[10px] font-bold">SA</span>
-          </div>
-          <span className="text-foreground text-sm font-bold">Scheduling Advisor</span>
-        </div>
-        <nav className="flex-1 space-y-0.5 overflow-y-auto p-2" aria-label="Main navigation">
-          {NAV_ITEMS.map((item) => (
-            <ActiveSidebarItem
-              key={item.href}
-              icon={item.icon}
-              label={item.label}
-              href={item.href}
-            />
-          ))}
-        </nav>
-        <div className="border-border space-y-3 border-t p-3">
-          <div className="flex items-center gap-2.5">
-            {session.user.image ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={session.user.image}
-                alt={session.user.name ?? 'User avatar'}
-                className="h-8 w-8 shrink-0 rounded-full object-cover"
-              />
-            ) : (
-              <div className="bg-accent-subtle text-accent flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold">
-                {(session.user.name ?? 'U')[0]}
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="text-foreground truncate text-xs font-medium">
-                {session.user.name ?? 'User'}
-              </p>
-              <p className="text-muted-foreground truncate text-xs capitalize">{levelName}</p>
-            </div>
-          </div>
-          <XpBar levelName={levelName} currentXp={currentXp} maxXp={maxXp} />
-        </div>
-      </aside>
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+  const sidebarHeader = (
+    <div className="border-border flex h-14 shrink-0 items-center gap-2.5 border-b px-4">
+      <div className="bg-accent flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
+        <span className="text-accent-foreground text-[10px] font-bold">SA</span>
       </div>
+      <span className="text-foreground text-sm font-bold">Scheduling Advisor</span>
+    </div>
+  )
+
+  const sidebarFooter = (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2.5">
+        <Avatar size="sm">
+          <AvatarImage src={session.user.image ?? undefined} alt={session.user.name ?? 'User'} />
+          <AvatarFallback>{(session.user.name ?? 'U')[0]}</AvatarFallback>
+        </Avatar>
+        <div className="min-w-0 flex-1">
+          <p className="text-foreground truncate text-xs font-medium">
+            {session.user.name ?? 'User'}
+          </p>
+          <p className="text-muted-foreground truncate text-xs capitalize">{levelName}</p>
+        </div>
+      </div>
+      <XpBar levelName={levelName} currentXp={currentXp} maxXp={maxXp} />
+    </div>
+  )
+
+  return (
+    <>
+      <AppShell
+        sidebar={
+          <Sidebar header={sidebarHeader} footer={sidebarFooter}>
+            {NAV_ITEMS.map((item) => (
+              <ActiveSidebarItem
+                key={item.href}
+                icon={item.icon}
+                label={item.label}
+                href={item.href}
+              />
+            ))}
+          </Sidebar>
+        }
+        topbar={null}
+      >
+        <div className="p-6">{children}</div>
+      </AppShell>
       <ChatPanelWrapper
         conversationId={conversation.id}
         initialMessages={initialMessages}
         plan={session.user.plan}
       />
-    </div>
+    </>
   )
 }
