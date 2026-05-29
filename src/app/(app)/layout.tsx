@@ -10,20 +10,21 @@ import type { Message } from 'ai'
 import {
   Calendar,
   CheckSquare,
-  Home,
   MessageSquare,
   RefreshCw,
+  Rss,
   Settings,
   Target,
 } from 'lucide-react'
+import React from 'react'
 
 const NAV_ITEMS = [
-  { label: 'Home', href: '/', icon: <Home className="h-4 w-4" /> },
+  { label: 'Calendar', href: '/calendar', icon: <Calendar className="h-4 w-4" /> },
   { label: 'Goals', href: '/goals', icon: <Target className="h-4 w-4" /> },
   { label: 'Habits', href: '/habits', icon: <RefreshCw className="h-4 w-4" /> },
   { label: 'Tasks', href: '/tasks', icon: <CheckSquare className="h-4 w-4" /> },
   { label: 'Reflections', href: '/reflections', icon: <MessageSquare className="h-4 w-4" /> },
-  { label: 'Calendar', href: '/calendar', icon: <Calendar className="h-4 w-4" /> },
+  { label: 'Feed', href: '/feed', icon: <Rss className="h-4 w-4" /> },
   { label: 'Settings', href: '/settings', icon: <Settings className="h-4 w-4" /> },
 ] as const
 
@@ -31,7 +32,7 @@ interface AppLayoutProps {
   readonly children: React.ReactNode
 }
 
-export default async function AppLayout({ children }: AppLayoutProps) {
+export default async function AppLayout({ children }: AppLayoutProps): Promise<React.JSX.Element> {
   const session = await auth()
   if (!session?.user?.id) redirect('/login')
   const userId = session.user.id
@@ -65,9 +66,9 @@ export default async function AppLayout({ children }: AppLayoutProps) {
   const sidebarHeader = (
     <div className="border-border flex h-14 shrink-0 items-center gap-2.5 border-b px-4">
       <div className="bg-accent flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
-        <span className="text-accent-foreground text-[10px] font-bold">SA</span>
+        <span className="text-accent-foreground text-[10px] font-bold">CR</span>
       </div>
-      <span className="text-foreground text-sm font-bold">Scheduling Advisor</span>
+      <span className="text-foreground text-sm font-bold">CyRein</span>
     </div>
   )
 
@@ -77,11 +78,7 @@ export default async function AppLayout({ children }: AppLayoutProps) {
         <AvatarImage src={session.user.image ?? undefined} alt={session.user.name ?? 'User'} />
         <AvatarFallback>{(session.user.name ?? 'U')[0]}</AvatarFallback>
       </Avatar>
-      <div className="min-w-0 flex-1">
-        <p className="text-foreground truncate text-xs font-medium">
-          {session.user.name ?? 'User'}
-        </p>
-      </div>
+      <p className="text-foreground truncate text-xs font-medium">{session.user.name ?? 'User'}</p>
     </div>
   )
 
