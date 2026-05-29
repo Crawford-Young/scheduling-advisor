@@ -6,11 +6,11 @@ import { UpgradeBanners } from '@/components/upgrade/upgrade-banners'
 import { UpgradeButton, ManageSubscriptionButton } from '@/components/upgrade/upgrade-actions'
 
 const FREE_FEATURES = [
-  'Goal & habit tracking',
+  'Goal, habit & task tracking',
   'Daily check-ins & reflections',
   'Calendar view',
-  'Leaderboard',
-  'Task management',
+  'Activity feed & friends',
+  'Per-habit streak tracking',
 ]
 
 const PRO_FEATURES = [
