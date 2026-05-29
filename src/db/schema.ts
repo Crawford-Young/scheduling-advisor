@@ -6,8 +6,7 @@ import {
   uuid,
   primaryKey,
   json,
-  numeric,
-  boolean,
+  unique,
 } from 'drizzle-orm/pg-core'
 
 // ── Auth.js v5 required tables ────────────────────────────────────────────────
@@ -31,7 +30,6 @@ export const users = pgTable('users', {
   activeProvider: text('active_provider', { enum: ['anthropic', 'google'] })
     .notNull()
     .default('anthropic'),
-  leaderboardOptOut: boolean('leaderboard_opt_out').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
@@ -89,6 +87,17 @@ export const tasks = pgTable('tasks', {
   targetDate: timestamp('target_date', { mode: 'date' }),
   startAt: timestamp('start_at', { withTimezone: true, mode: 'date' }),
   endAt: timestamp('end_at', { withTimezone: true, mode: 'date' }),
+  // Activity settings
+  activityType: text('activity_type', { enum: ['solo', 'group'] })
+    .notNull()
+    .default('solo'),
+  visibility: text('visibility', {
+    enum: ['everyone', 'friends', 'busy', 'only_me'],
+  })
+    .notNull()
+    .default('only_me'),
+  joinability: text('joinability', { enum: ['open', 'request', 'closed'] }),
+  maxParticipants: integer('max_participants'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
@@ -129,43 +138,6 @@ export const calendarPrefs = pgTable('calendar_prefs', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
-export const pointEvents = pgTable('point_events', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  userId: text('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  eventType: text('event_type', {
-    enum: [
-      'habit_complete',
-      'goal_milestone',
-      'goal_complete',
-      'perfect_day',
-      'perfect_week',
-      'level_up',
-    ],
-  }).notNull(),
-  points: integer('points').notNull(),
-  referenceId: uuid('reference_id'),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-})
-
-export const userStats = pgTable('user_stats', {
-  userId: text('user_id')
-    .primaryKey()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  totalPoints: integer('total_points').notNull().default(0),
-  currentLevel: text('current_level', {
-    enum: ['seedling', 'growing', 'thriving', 'flourishing', 'evergreen'],
-  })
-    .notNull()
-    .default('seedling'),
-  weeklyPoints: integer('weekly_points').notNull().default(0),
-  currentStreak: integer('current_streak').notNull().default(0),
-  bestStreak: integer('best_streak').notNull().default(0),
-  multiplier: numeric('multiplier', { precision: 3, scale: 1 }).notNull().default('1.0'),
-  updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
-
 export const conversations = pgTable('conversations', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: text('user_id')
@@ -184,3 +156,23 @@ export const messages = pgTable('messages', {
   content: json('content').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
+
+// ── Consistency tables ──────────────────────────────────────────────────────────
+
+export const streaks = pgTable(
+  'streaks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    currentStreak: integer('current_streak').notNull().default(0),
+    bestStreak: integer('best_streak').notNull().default(0),
+    lastCompletedAt: timestamp('last_completed_at', { mode: 'date' }),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.taskId)],
+)
