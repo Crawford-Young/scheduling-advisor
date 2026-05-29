@@ -4,6 +4,8 @@ import './globals.css'
 import { ThemeProvider } from '@/components/providers/theme-provider'
 import { Analytics } from '@vercel/analytics/next'
 import { SpeedInsights } from '@vercel/speed-insights/next'
+import { Suspense } from 'react'
+import { SplashWrapper } from '@/components/splash/splash-wrapper'
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -16,11 +18,11 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Scheduling Advisor',
-  description: 'AI-powered scheduling and life balance advisor',
+  title: 'CyRein',
+  description: 'Reinforce the habits that matter.',
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
     <html
       lang="en"
@@ -29,6 +31,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <body className="bg-background text-foreground flex min-h-full flex-col">
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+          <Suspense>
+            <SplashWrapper />
+          </Suspense>
           {children}
           <Analytics />
           <SpeedInsights />
