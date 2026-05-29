@@ -71,6 +71,13 @@ describe('CheckInSheet', () => {
     expect(onPerfectWeek).toHaveBeenCalled()
   })
 
+  it('disables Done button after first click', async () => {
+    render(<CheckInSheet item={item} onClose={() => {}} onPerfectWeek={() => {}} />)
+    const doneBtn = screen.getByRole('button', { name: /done/i })
+    await userEvent.click(doneBtn)
+    expect(doneBtn).toBeDisabled()
+  })
+
   it('passes axe', async () => {
     const { container } = render(
       <CheckInSheet item={item} onClose={() => {}} onPerfectWeek={() => {}} />,
