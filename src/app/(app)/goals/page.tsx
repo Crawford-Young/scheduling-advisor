@@ -1,3 +1,4 @@
+import * as React from 'react'
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { getUserTasks } from '@/server/queries/tasks'
@@ -5,8 +6,9 @@ import { GoalCard } from '@/components/cards/goal-card'
 import { PageHeader, EmptyState } from '@/lib/ui'
 import { OpenChatButton } from '@/components/chat/open-chat-button'
 import { GoalAddButton } from '@/components/goals/goal-add-button'
+import { ActivitySettingsMenu } from '@/components/activity/activity-settings-menu'
 
-export default async function GoalsPage() {
+export default async function GoalsPage(): Promise<React.JSX.Element> {
   const session = await auth()
   if (!session?.user?.id) redirect('/login')
 
@@ -27,13 +29,26 @@ export default async function GoalsPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {goals.map((goal) => (
-            <GoalCard
-              key={goal.id}
-              taskId={goal.id}
-              title={goal.title}
-              status={goal.status}
-              targetDate={goal.targetDate?.toISOString().slice(0, 10) ?? null}
-            />
+            <div key={goal.id} className="space-y-1">
+              <GoalCard
+                taskId={goal.id}
+                title={goal.title}
+                status={goal.status}
+                targetDate={goal.targetDate?.toISOString().slice(0, 10) ?? null}
+              />
+              <details className="text-xs">
+                <summary className="text-muted-foreground hover:text-foreground cursor-pointer px-1">
+                  Activity settings
+                </summary>
+                <ActivitySettingsMenu
+                  taskId={goal.id}
+                  activityType={goal.activityType}
+                  visibility={goal.visibility}
+                  joinability={goal.joinability ?? undefined}
+                  maxParticipants={goal.maxParticipants ?? undefined}
+                />
+              </details>
+            </div>
           ))}
         </div>
       )}
