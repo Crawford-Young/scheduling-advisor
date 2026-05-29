@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { db } from '@/db'
 import { users } from '@/db/schema'
 import { eq } from 'drizzle-orm'
+import { PageHeader } from '@/lib/ui'
 import { SettingsForm } from './settings-form'
 
 function maskKey(encrypted: string | null | undefined): string | null {
@@ -19,13 +20,12 @@ export default async function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <h1 className="text-foreground mb-8 text-2xl font-semibold tracking-tight">Settings</h1>
+      <PageHeader title="Settings" />
       <SettingsForm
         maskedAnthropicKey={maskKey(user.anthropicApiKey)}
         maskedGoogleKey={maskKey(user.googleAiApiKey)}
         activeProvider={user.activeProvider as 'anthropic' | 'google'}
         currentModel={user.preferredModel}
-        leaderboardOptOut={user.leaderboardOptOut ?? false}
       />
     </div>
   )

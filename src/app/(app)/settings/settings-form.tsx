@@ -7,7 +7,6 @@ import {
   clearGoogleAiKey,
   saveProvider,
   saveModelPreference,
-  saveLeaderboardOptOut,
 } from '@/server/actions/user-settings'
 import { MODELS_BY_PROVIDER } from '@/lib/schemas/user-settings'
 import type { Provider } from '@/lib/schemas/user-settings'
@@ -31,7 +30,6 @@ interface SettingsFormProps {
   readonly maskedGoogleKey: string | null
   readonly activeProvider: Provider
   readonly currentModel: string
-  readonly leaderboardOptOut: boolean
 }
 
 export function SettingsForm({
@@ -39,11 +37,9 @@ export function SettingsForm({
   maskedGoogleKey,
   activeProvider,
   currentModel,
-  leaderboardOptOut,
 }: SettingsFormProps) {
   const [provider, setProvider] = useState<Provider>(activeProvider)
   const [model, setModel] = useState(currentModel)
-  const [optOut, setOptOut] = useState(leaderboardOptOut)
   const [, startTransition] = useTransition()
 
   const models = MODELS_BY_PROVIDER[provider]
@@ -59,13 +55,6 @@ export function SettingsForm({
     setModel(m)
     startTransition(async () => {
       await saveModelPreference(m)
-    })
-  }
-
-  function handleOptOutChange(v: boolean) {
-    setOptOut(v)
-    startTransition(async () => {
-      await saveLeaderboardOptOut(v)
     })
   }
 
@@ -186,22 +175,6 @@ export function SettingsForm({
             </button>
           ))}
         </div>
-      </section>
-
-      {/* Leaderboard opt-out */}
-      <section className="space-y-4">
-        <h2 className="border-border text-foreground border-b pb-2 text-lg font-semibold">
-          Privacy
-        </h2>
-        <label className="flex cursor-pointer items-center gap-3">
-          <input
-            type="checkbox"
-            checked={optOut}
-            onChange={(e) => handleOptOutChange(e.target.checked)}
-            className="border-border accent-accent h-4 w-4 rounded"
-          />
-          <span className="text-foreground text-sm">Hide me from the global leaderboard</span>
-        </label>
       </section>
     </div>
   )

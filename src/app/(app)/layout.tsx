@@ -1,9 +1,9 @@
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { db } from '@/db'
-import { conversations, messages, userStats } from '@/db/schema'
+import { conversations, messages } from '@/db/schema'
 import { eq, desc } from 'drizzle-orm'
-import { AppShell, Avatar, AvatarFallback, AvatarImage, Sidebar, XpBar } from '@/lib/ui'
+import { AppShell, Avatar, AvatarFallback, AvatarImage, Sidebar } from '@/lib/ui'
 import { ActiveSidebarItem } from '@/components/layout/active-sidebar-item'
 import { ChatPanelWrapper } from '@/components/chat/chat-panel-wrapper'
 import type { Message } from 'ai'
@@ -15,16 +15,7 @@ import {
   RefreshCw,
   Settings,
   Target,
-  Trophy,
 } from 'lucide-react'
-
-const LEVEL_MAX_XP: Record<string, number> = {
-  seedling: 500,
-  growing: 2000,
-  thriving: 5000,
-  flourishing: 10000,
-  evergreen: 10000,
-}
 
 const NAV_ITEMS = [
   { label: 'Home', href: '/', icon: <Home className="h-4 w-4" /> },
@@ -33,7 +24,6 @@ const NAV_ITEMS = [
   { label: 'Tasks', href: '/tasks', icon: <CheckSquare className="h-4 w-4" /> },
   { label: 'Reflections', href: '/reflections', icon: <MessageSquare className="h-4 w-4" /> },
   { label: 'Calendar', href: '/calendar', icon: <Calendar className="h-4 w-4" /> },
-  { label: 'Leaderboard', href: '/leaderboard', icon: <Trophy className="h-4 w-4" /> },
   { label: 'Settings', href: '/settings', icon: <Settings className="h-4 w-4" /> },
 ] as const
 
@@ -46,10 +36,11 @@ export default async function AppLayout({ children }: AppLayoutProps) {
   if (!session?.user?.id) redirect('/login')
   const userId = session.user.id
 
-  const [existingConversations, stats] = await Promise.all([
-    db.select().from(conversations).where(eq(conversations.userId, userId)).limit(1),
-    db.query.userStats.findFirst({ where: eq(userStats.userId, userId) }),
-  ])
+  const existingConversations = await db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.userId, userId))
+    .limit(1)
 
   let [conversation] = existingConversations
   if (!conversation) {
@@ -71,10 +62,6 @@ export default async function AppLayout({ children }: AppLayoutProps) {
     return { id: m.id, role: m.role as 'user' | 'assistant', content: text }
   })
 
-  const levelName = stats?.currentLevel ?? 'seedling'
-  const currentXp = stats?.totalPoints ?? 0
-  const maxXp = LEVEL_MAX_XP[levelName] ?? 500
-
   const sidebarHeader = (
     <div className="border-border flex h-14 shrink-0 items-center gap-2.5 border-b px-4">
       <div className="bg-accent flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
@@ -85,20 +72,16 @@ export default async function AppLayout({ children }: AppLayoutProps) {
   )
 
   const sidebarFooter = (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2.5">
-        <Avatar size="sm">
-          <AvatarImage src={session.user.image ?? undefined} alt={session.user.name ?? 'User'} />
-          <AvatarFallback>{(session.user.name ?? 'U')[0]}</AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1">
-          <p className="text-foreground truncate text-xs font-medium">
-            {session.user.name ?? 'User'}
-          </p>
-          <p className="text-muted-foreground truncate text-xs capitalize">{levelName}</p>
-        </div>
+    <div className="flex items-center gap-2.5">
+      <Avatar size="sm">
+        <AvatarImage src={session.user.image ?? undefined} alt={session.user.name ?? 'User'} />
+        <AvatarFallback>{(session.user.name ?? 'U')[0]}</AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 flex-1">
+        <p className="text-foreground truncate text-xs font-medium">
+          {session.user.name ?? 'User'}
+        </p>
       </div>
-      <XpBar levelName={levelName} currentXp={currentXp} maxXp={maxXp} />
     </div>
   )
 

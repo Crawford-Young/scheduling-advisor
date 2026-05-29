@@ -23,12 +23,6 @@ const mockWhereDelete = vi.hoisted(() =>
 )
 const mockDelete = vi.hoisted(() => vi.fn().mockReturnValue({ where: mockWhereDelete }))
 
-const mockWhereSelect = vi.hoisted(() => vi.fn().mockResolvedValue([{ status: 'pending' }]))
-const mockFromSelect = vi.hoisted(() => vi.fn().mockReturnValue({ where: mockWhereSelect }))
-const mockSelect = vi.hoisted(() => vi.fn().mockReturnValue({ from: mockFromSelect }))
-
-const mockAwardPointsInternal = vi.hoisted(() => vi.fn().mockResolvedValue(10))
-
 vi.mock('@/auth', () => ({
   auth: vi.fn().mockResolvedValue({ user: { id: 'user-123' } }),
 }))
@@ -42,15 +36,10 @@ vi.mock('@/db', () => ({
     insert: mockInsert,
     update: mockUpdate,
     delete: mockDelete,
-    select: mockSelect,
   },
 }))
 
 vi.mock('@/db/schema', () => ({ tasks: {} }))
-
-vi.mock('@/server/actions/points', () => ({
-  awardPointsInternal: mockAwardPointsInternal,
-}))
 
 import { createTask, updateTask, deleteTask } from '@/server/actions/tasks'
 
@@ -246,47 +235,6 @@ describe('updateTask', () => {
       targetDate: null,
     })
     expect(result).toMatchObject({ data: { targetDate: null } })
-  })
-
-  it('awards habit_complete points when habit transitions to completed', async () => {
-    mockWhereSelect.mockResolvedValueOnce([{ status: 'pending' }])
-    mockReturningUpdate.mockResolvedValueOnce([
-      { id: 'task-1', status: 'completed', type: 'habit' },
-    ])
-    await updateTask({ id: '550e8400-e29b-41d4-a716-446655440000', status: 'completed' })
-    expect(mockAwardPointsInternal).toHaveBeenCalledWith('user-123', 'habit_complete', 'task-1')
-  })
-
-  it('awards goal_complete points when goal transitions to completed', async () => {
-    mockWhereSelect.mockResolvedValueOnce([{ status: 'in_progress' }])
-    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', status: 'completed', type: 'goal' }])
-    await updateTask({ id: '550e8400-e29b-41d4-a716-446655440000', status: 'completed' })
-    expect(mockAwardPointsInternal).toHaveBeenCalledWith('user-123', 'goal_complete', 'task-1')
-  })
-
-  it('awards no points when plain task transitions to completed', async () => {
-    mockWhereSelect.mockResolvedValueOnce([{ status: 'pending' }])
-    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', status: 'completed', type: 'task' }])
-    await updateTask({ id: '550e8400-e29b-41d4-a716-446655440000', status: 'completed' })
-    expect(mockAwardPointsInternal).not.toHaveBeenCalled()
-  })
-
-  it('does not re-award points when task is already completed', async () => {
-    mockWhereSelect.mockResolvedValueOnce([{ status: 'completed' }])
-    mockReturningUpdate.mockResolvedValueOnce([
-      { id: 'task-1', status: 'completed', type: 'habit' },
-    ])
-    await updateTask({ id: '550e8400-e29b-41d4-a716-446655440000', status: 'completed' })
-    expect(mockAwardPointsInternal).not.toHaveBeenCalled()
-  })
-
-  it('does not call select or award points when status is not changing to completed', async () => {
-    mockReturningUpdate.mockResolvedValueOnce([
-      { id: 'task-1', status: 'in_progress', type: 'habit' },
-    ])
-    await updateTask({ id: '550e8400-e29b-41d4-a716-446655440000', status: 'in_progress' })
-    expect(mockSelect).not.toHaveBeenCalled()
-    expect(mockAwardPointsInternal).not.toHaveBeenCalled()
   })
 })
 

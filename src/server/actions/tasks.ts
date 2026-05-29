@@ -6,7 +6,6 @@ import { createTaskSchema, updateTaskSchema, deleteTaskSchema } from '@/lib/sche
 import { eq, and } from 'drizzle-orm'
 import { ratelimit } from '@/lib/redis'
 import { logger } from '@/lib/logger'
-import { awardPointsInternal } from '@/server/actions/points'
 
 type TaskActionResult = { data: (typeof tasks)['$inferSelect'] } | { error: unknown }
 
@@ -97,15 +96,6 @@ export async function updateTask(input: unknown): Promise<TaskActionResult> {
 
   const { id, ...fields } = parsed.data
 
-  let previousStatus: string | undefined
-  if (fields.status === 'completed') {
-    const [current] = await db
-      .select({ status: tasks.status })
-      .from(tasks)
-      .where(and(eq(tasks.id, id), eq(tasks.userId, session.user.id)))
-    previousStatus = current?.status
-  }
-
   const [task] = await db
     .update(tasks)
     .set({
@@ -127,14 +117,6 @@ export async function updateTask(input: unknown): Promise<TaskActionResult> {
     .returning()
 
   if (!task) return { error: 'Not found' }
-
-  if (task.status === 'completed' && previousStatus !== 'completed') {
-    if (task.type === 'habit') {
-      await awardPointsInternal(session.user.id, 'habit_complete', task.id)
-    } else if (task.type === 'goal') {
-      await awardPointsInternal(session.user.id, 'goal_complete', task.id)
-    }
-  }
 
   return { data: task }
 }

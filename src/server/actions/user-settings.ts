@@ -118,16 +118,3 @@ export async function saveModelPreference(model: string): Promise<ActionResult> 
   revalidatePath('/settings')
   return {}
 }
-
-/** Toggles the user's visibility on the global leaderboard. */
-export async function saveLeaderboardOptOut(optOut: boolean): Promise<ActionResult> {
-  const session = await auth()
-  if (!session?.user?.id) return { error: 'Unauthorized' }
-
-  const { success } = await ratelimit.limit(session.user.id)
-  if (!success) return { error: 'Too many requests' }
-
-  await db.update(users).set({ leaderboardOptOut: optOut }).where(eq(users.id, session.user.id))
-  revalidatePath('/settings')
-  return {}
-}
