@@ -10,7 +10,11 @@ export const weekCalendarViewPropsSchema = z.object({
       title: z.string(),
       start: z.string(),
       end: z.string(),
-      type: z.enum(['calendar', 'task']),
+      type: z.enum(['calendar', 'task', 'goal', 'habit']),
+      streak: z.number().optional(),
+      activityType: z.string().optional(),
+      visibility: z.string().optional(),
+      status: z.string().optional(),
     }),
   ),
 })
@@ -93,7 +97,11 @@ export function WeekCalendarView({ weekStart, events }: WeekCalendarViewProps) {
                     className={`absolute right-0 left-0 mx-0.5 overflow-hidden rounded px-1 text-[10px] font-medium ${
                       evt.type === 'task'
                         ? 'bg-primary/20 text-primary'
-                        : 'bg-blue-500/20 text-blue-600 dark:text-blue-400'
+                        : evt.type === 'goal'
+                          ? 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-400'
+                          : evt.type === 'habit'
+                            ? 'bg-green-500/20 text-green-600 dark:text-green-400'
+                            : 'bg-blue-500/20 text-blue-600 dark:text-blue-400'
                     }`}
                     style={{ top: `${top}%`, height: `${height}%` }}
                     aria-label={evt.title}
