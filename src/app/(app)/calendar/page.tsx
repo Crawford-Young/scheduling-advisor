@@ -3,8 +3,8 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { getUserTasks } from '@/server/queries/tasks'
 import { getWeeklyConsistency, getTaskStreaks } from '@/server/queries/consistency'
-import { WeekCalendarView } from '@/components/cards/week-calendar-view'
 import { ConsistencyBar } from '@/components/calendar/consistency-bar'
+import { CalendarClient } from '@/components/calendar/calendar-client'
 import { PageHeader } from '@/lib/ui'
 
 function getCurrentWeekStart(): string {
@@ -57,9 +57,7 @@ export default async function CalendarPage(): Promise<React.JSX.Element> {
         completedCount={consistency.completedCount}
         consistencyPct={consistency.consistencyPct}
       />
-      <div data-testid="week-calendar">
-        <WeekCalendarView weekStart={weekStart} events={events} />
-      </div>
+      <CalendarClient weekStart={weekStart} events={events} />
     </div>
   )
 }

@@ -45,6 +45,12 @@ vi.mock('@/server/actions/tasks', () => ({
   deleteTask: vi.fn().mockResolvedValue({ data: { success: true } }),
 }))
 
+vi.mock('@/server/actions/consistency', () => ({
+  recordCompletion: vi
+    .fn()
+    .mockResolvedValue({ data: { currentStreak: 1, bestStreak: 1, isPerfectWeek: false } }),
+}))
+
 vi.mock('@/components/habits/habit-form-dialog', () => ({
   HabitFormDialog: ({ open }: { open: boolean; onOpenChange: (v: boolean) => void }) =>
     open ? React.createElement('div', { role: 'dialog', 'aria-label': 'edit-habit-dialog' }) : null,
@@ -80,13 +86,13 @@ describe('HabitCard', () => {
     expect(screen.queryByRole('button', { name: /log today/i })).not.toBeInTheDocument()
   })
 
-  it('calls updateTask on log today', async () => {
-    const { updateTask } = await import('@/server/actions/tasks')
+  it('calls recordCompletion on log today', async () => {
+    const { recordCompletion } = await import('@/server/actions/consistency')
     render(<HabitCard {...baseProps} />)
     await userEvent.click(screen.getByRole('button', { name: /log today/i }))
-    expect(updateTask).toHaveBeenCalledWith({
-      id: '550e8400-e29b-41d4-a716-446655440000',
-      status: 'completed',
+    expect(recordCompletion).toHaveBeenCalledWith({
+      taskId: '550e8400-e29b-41d4-a716-446655440000',
+      outcome: 'done',
     })
   })
 

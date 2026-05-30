@@ -19,7 +19,11 @@ export const weekCalendarViewPropsSchema = z.object({
   ),
 })
 
-export type WeekCalendarViewProps = z.infer<typeof weekCalendarViewPropsSchema>
+export type CalendarEvent = z.infer<typeof weekCalendarViewPropsSchema>['events'][number]
+
+export type WeekCalendarViewProps = z.infer<typeof weekCalendarViewPropsSchema> & {
+  readonly onEventClick?: (event: CalendarEvent) => void
+}
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const HOUR_START = 8
@@ -42,7 +46,7 @@ function isSameDay(a: Date, b: Date) {
   )
 }
 
-export function WeekCalendarView({ weekStart, events }: WeekCalendarViewProps) {
+export function WeekCalendarView({ weekStart, events, onEventClick }: WeekCalendarViewProps) {
   const days = useMemo(() => getWeekDays(weekStart), [weekStart])
 
   return (
@@ -102,9 +106,15 @@ export function WeekCalendarView({ weekStart, events }: WeekCalendarViewProps) {
                           : evt.type === 'habit'
                             ? 'bg-green-500/20 text-green-600 dark:text-green-400'
                             : 'bg-blue-500/20 text-blue-600 dark:text-blue-400'
-                    }`}
+                    } ${onEventClick ? 'cursor-pointer' : ''}`}
                     style={{ top: `${top}%`, height: `${height}%` }}
                     aria-label={evt.title}
+                    role={onEventClick ? 'button' : undefined}
+                    tabIndex={onEventClick ? 0 : undefined}
+                    onClick={() => onEventClick?.(evt)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') onEventClick?.(evt)
+                    }}
                   >
                     {evt.title}
                   </div>

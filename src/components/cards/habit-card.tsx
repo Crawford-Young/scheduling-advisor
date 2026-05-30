@@ -19,7 +19,8 @@ import {
   CardHeader,
 } from '@/lib/ui'
 import { Flame, Pencil, Trash2 } from 'lucide-react'
-import { updateTask, deleteTask } from '@/server/actions/tasks'
+import { deleteTask } from '@/server/actions/tasks'
+import { recordCompletion } from '@/server/actions/consistency'
 import { HabitFormDialog } from '@/components/habits/habit-form-dialog'
 
 export const habitCardPropsSchema = z.object({
@@ -46,7 +47,8 @@ export function HabitCard({
   function handleLog(): void {
     setStatus('completed')
     startTransition(async () => {
-      await updateTask({ id: taskId, status: 'completed' })
+      await recordCompletion({ taskId, outcome: 'done' })
+      router.refresh()
     })
   }
 
