@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
 const { mockInsertValues, mockInsert, mockSelect, mockFindFirst } = vi.hoisted(() => {
@@ -22,7 +22,7 @@ vi.mock('@/db', () => ({
   },
 }))
 vi.mock('@/db/schema', () => ({ users: {}, messages: {} }))
-vi.mock('@/lib/encryption', () => ({ decrypt: vi.fn(() => 'sk-ant-decrypted') }))
+vi.mock('@/lib/ai', () => ({ defaultModel: 'fake-model' }))
 vi.mock('@/lib/redis', () => ({
   ratelimit: { limit: vi.fn().mockResolvedValue({ success: true }) },
 }))
@@ -33,8 +33,15 @@ vi.mock('ai', async () => {
     streamText: vi.fn().mockReturnValue({ toDataStreamResponse: vi.fn(() => new Response('ok')) }),
   }
 })
-vi.mock('@ai-sdk/anthropic', () => ({
-  createAnthropic: vi.fn(() => () => 'model-instance'),
+vi.mock('@/server/queries/tokens', () => ({
+  getTokenBalance: vi.fn().mockResolvedValue(100),
+  deductTokens: vi.fn().mockResolvedValue(undefined),
+}))
+vi.mock('@/lib/chat/context-builder', () => ({
+  buildContextBlock: vi.fn().mockResolvedValue('test-context-block'),
+}))
+vi.mock('@/lib/chat/system-prompt', () => ({
+  buildSystemPrompt: vi.fn(() => 'test-system-prompt'),
 }))
 vi.mock('@/server/services', () => ({
   getCalendarService: vi.fn().mockResolvedValue({
@@ -50,22 +57,17 @@ vi.mock('@/server/services', () => ({
 }))
 vi.mock('@/server/queries/tasks', () => ({ getUserTasks: vi.fn().mockResolvedValue([]) }))
 vi.mock('@/server/queries/check-ins', () => ({ getUserCheckIns: vi.fn().mockResolvedValue([]) }))
-vi.mock('@/lib/chat/system-prompt', () => ({ systemPrompt: 'test-system-prompt' }))
+vi.mock('@/server/actions/items', () => ({
+  markItemComplete: vi.fn().mockResolvedValue({}),
+  markItemSkipped: vi.fn().mockResolvedValue({}),
+  rescheduleItem: vi.fn().mockResolvedValue({}),
+  createHabit: vi.fn().mockResolvedValue({}),
+  createGoal: vi.fn().mockResolvedValue({}),
+  createTask: vi.fn().mockResolvedValue({}),
+  updateItem: vi.fn().mockResolvedValue({}),
+}))
 vi.mock('@/lib/logger', () => ({ logger: { error: vi.fn(), info: vi.fn() } }))
 vi.mock('drizzle-orm', () => ({ eq: vi.fn(), desc: vi.fn() }))
-vi.mock('@/components/cards/task-card', () => ({ taskCardPropsSchema: { _def: {} } }))
-vi.mock('@/components/cards/habit-card', () => ({ habitCardPropsSchema: { _def: {} } }))
-vi.mock('@/components/cards/goal-card', () => ({ goalCardPropsSchema: { _def: {} } }))
-vi.mock('@/components/cards/schedule-suggestion', () => ({
-  scheduleSuggestionPropsSchema: { _def: {} },
-}))
-vi.mock('@/components/cards/reflection-card', () => ({ reflectionCardPropsSchema: { _def: {} } }))
-vi.mock('@/components/cards/week-calendar-view', () => ({
-  weekCalendarViewPropsSchema: { _def: {} },
-}))
-vi.mock('@/components/cards/life-balance-view', () => ({
-  lifeBalanceViewPropsSchema: { _def: {} },
-}))
 
 import { auth } from '@/auth'
 import { ratelimit } from '@/lib/redis'
@@ -91,15 +93,35 @@ describe('POST /api/chat', () => {
     expect(res.status).toBe(401)
   })
 
+  it('returns 402 when user has no plan', async () => {
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1', plan: null } } as never)
+    const res = await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: VALID_UUID }),
+    )
+    expect(res.status).toBe(402)
+    expect(await res.json()).toMatchObject({ error: 'subscription_required' })
+  })
+
+  it('returns 402 when token balance is insufficient', async () => {
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1', plan: 'pro' } } as never)
+    const { getTokenBalance } = await import('@/server/queries/tokens')
+    vi.mocked(getTokenBalance).mockResolvedValueOnce(0)
+    const res = await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: VALID_UUID }),
+    )
+    expect(res.status).toBe(402)
+    expect(await res.json()).toMatchObject({ error: 'insufficient_tokens' })
+  })
+
   it('returns 400 when request body is invalid', async () => {
-    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1' } } as never)
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1', plan: 'pro' } } as never)
     vi.mocked(ratelimit.limit).mockResolvedValueOnce({ success: true } as never)
     const res = await POST(makeRequest({ messages: [], conversationId: 'not-a-uuid' }))
     expect(res.status).toBe(400)
   })
 
   it('returns 429 when rate limited', async () => {
-    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1' } } as never)
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1', plan: 'pro' } } as never)
     vi.mocked(ratelimit.limit).mockResolvedValueOnce({ success: false } as never)
     const res = await POST(
       makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: VALID_UUID }),
@@ -107,35 +129,19 @@ describe('POST /api/chat', () => {
     expect(res.status).toBe(429)
   })
 
-  it('returns 400 with no_api_key when user has no key', async () => {
-    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1' } } as never)
-    mockFindFirst.mockResolvedValueOnce({
-      anthropicApiKey: null,
-      preferredModel: 'claude-sonnet-4-6',
-    })
-    const res = await POST(
-      makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: VALID_UUID }),
-    )
-    expect(res.status).toBe(400)
-    expect(await res.json()).toMatchObject({ error: 'no_api_key' })
-  })
-
-  it('returns 400 with no_api_key when user record not found', async () => {
-    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1' } } as never)
+  it('returns 401 when user record not found in db', async () => {
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1', plan: 'pro' } } as never)
     mockFindFirst.mockResolvedValueOnce(null)
     const res = await POST(
       makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: VALID_UUID }),
     )
-    expect(res.status).toBe(400)
-    expect(await res.json()).toMatchObject({ error: 'no_api_key' })
+    expect(res.status).toBe(401)
+    expect(await res.json()).toMatchObject({ error: 'Unauthorized' })
   })
 
   it('calls streamText with correct system prompt and maxSteps', async () => {
-    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1' } } as never)
-    mockFindFirst.mockResolvedValueOnce({
-      anthropicApiKey: 'enc-key',
-      preferredModel: 'claude-sonnet-4-6',
-    })
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1', plan: 'pro' } } as never)
+    mockFindFirst.mockResolvedValueOnce({ timezone: 'UTC' })
     await POST(
       makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: VALID_UUID }),
     )
@@ -145,11 +151,8 @@ describe('POST /api/chat', () => {
   })
 
   it('persists incoming user message before streaming', async () => {
-    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1' } } as never)
-    mockFindFirst.mockResolvedValueOnce({
-      anthropicApiKey: 'enc-key',
-      preferredModel: 'claude-sonnet-4-6',
-    })
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1', plan: 'pro' } } as never)
+    mockFindFirst.mockResolvedValueOnce({ timezone: 'UTC' })
     await POST(
       makeRequest({ messages: [{ role: 'user', content: 'hello' }], conversationId: VALID_UUID }),
     )
