@@ -35,7 +35,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     async session({ session, user }) {
       session.user.id = user.id
       const dbUser = await db.query.users.findFirst({ where: eq(users.id, user.id) })
-      session.user.plan = dbUser?.plan ?? 'free'
+      session.user.plan = dbUser?.plan ?? null
       return session
     },
     async signIn({ user }) {

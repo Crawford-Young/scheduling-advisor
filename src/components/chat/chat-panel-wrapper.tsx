@@ -10,7 +10,7 @@ import Link from 'next/link'
 interface ChatPanelWrapperProps {
   readonly conversationId: string
   readonly initialMessages: ReadonlyArray<Message>
-  readonly plan: 'free' | 'pro' | 'comped'
+  readonly plan: 'starter' | 'growth' | 'pro' | 'comped' | null
   readonly pageContext?: string
 }
 
@@ -21,7 +21,7 @@ export function ChatPanelWrapper({
   pageContext,
 }: ChatPanelWrapperProps) {
   const [open, setOpen] = useState(false)
-  const isFree = plan === 'free'
+  const isFree = plan === null
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const { messages, input, setInput, handleSubmit, isLoading } = useChat({
