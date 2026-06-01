@@ -23,6 +23,7 @@ export default defineConfig({
         'src/db/migrations/**',
         'src/lib/redis.ts',
         'src/lib/logger.ts',
+        'src/lib/ai.ts',
         'src/lib/chat/system-prompt.ts',
       ],
       thresholds: {
