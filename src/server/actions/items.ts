@@ -12,7 +12,6 @@ interface ActionResult {
 interface MarkItemInput {
   readonly taskId: string
   readonly date: string
-  readonly time?: string
 }
 
 interface RescheduleInput {
