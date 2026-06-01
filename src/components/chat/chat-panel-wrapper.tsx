@@ -24,7 +24,7 @@ export function ChatPanelWrapper({
   const isFree = plan === null
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  const { messages, input, setInput, handleSubmit, isLoading } = useChat({
+  const { messages, input, setInput, handleSubmit, isLoading, append } = useChat({
     api: '/api/chat',
     initialMessages: initialMessages as Message[],
     body: { conversationId },
@@ -119,6 +119,7 @@ export function ChatPanelWrapper({
                             <ToolResultRenderer
                               key={t.toolCallId}
                               toolInvocation={t as ToolInvocation & { state: 'result' }}
+                              append={append}
                             />
                           ))}
                       </div>
