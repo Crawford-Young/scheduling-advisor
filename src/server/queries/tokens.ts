@@ -7,7 +7,7 @@ export async function getTokenBalance(userId: string): Promise<number> {
     .select({ balance: sql<number>`COALESCE(SUM(${tokenLedger.amount}), 0)` })
     .from(tokenLedger)
     .where(eq(tokenLedger.userId, userId))
-  return row?.balance ?? 0
+  return Number(row?.balance) || 0
 }
 
 export async function deductTokens(userId: string, totalTokens: number): Promise<void> {

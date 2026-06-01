@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 
+vi.mock('@/auth', () => ({ auth: vi.fn().mockResolvedValue({ user: { id: 'user-1' } }) }))
+
 vi.mock('@/server/queries/tasks', () => ({
   getUserTasks: vi.fn().mockResolvedValue([
     {
@@ -40,18 +42,14 @@ import { buildContextBlock } from '@/lib/chat/context-builder'
 
 describe('buildContextBlock', () => {
   it('includes date, timezone, and credit balance', async () => {
-    const ctx = await buildContextBlock(
-      'user-1',
-      'America/New_York',
-      new Date('2026-06-01T12:00:00Z'),
-    )
+    const ctx = await buildContextBlock('America/New_York', new Date('2026-06-01T12:00:00Z'))
     expect(ctx).toContain('2026-06-01')
     expect(ctx).toContain('America/New_York')
     expect(ctx).toContain('847')
   })
 
   it('lists planned items with IDs', async () => {
-    const ctx = await buildContextBlock('user-1', 'UTC', new Date('2026-06-01T12:00:00Z'))
+    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
     expect(ctx).toContain('[habit:task-1]')
     expect(ctx).toContain('Morning Run')
     expect(ctx).toContain('[goal:goal-1]')
@@ -59,14 +57,21 @@ describe('buildContextBlock', () => {
   })
 
   it('marks completed items as done', async () => {
-    const ctx = await buildContextBlock('user-1', 'UTC', new Date('2026-06-01T12:00:00Z'))
+    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
     expect(ctx).toContain('Morning Run')
     expect(ctx).toMatch(/Morning Run.*done|done.*Morning Run/)
   })
 
   it('marks uncompleted items as pending', async () => {
-    const ctx = await buildContextBlock('user-1', 'UTC', new Date('2026-06-01T12:00:00Z'))
+    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
     expect(ctx).toContain('Finish proposal')
     expect(ctx).toContain('pending')
+  })
+
+  it('shows (none) when no tasks', async () => {
+    const { getUserTasks } = await import('@/server/queries/tasks')
+    vi.mocked(getUserTasks).mockResolvedValueOnce([])
+    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
+    expect(ctx).toContain('(none)')
   })
 })

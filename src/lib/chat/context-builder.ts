@@ -1,30 +1,42 @@
+import { auth } from '@/auth'
 import { getUserTasks } from '@/server/queries/tasks'
 import { getUserCheckIns } from '@/server/queries/check-ins'
 import { getTokenBalance } from '@/server/queries/tokens'
 
-export async function buildContextBlock(
-  userId: string,
-  timezone: string,
-  now: Date = new Date(),
-): Promise<string> {
+export async function buildContextBlock(timezone: string, now: Date = new Date()): Promise<string> {
+  const session = await auth()
+  const userId = session?.user?.id ?? ''
+
   const [tasks, checkIns, balance] = await Promise.all([
     getUserTasks(),
     getUserCheckIns(50),
     getTokenBalance(userId),
   ])
 
-  const todayStr = now.toISOString().split('T')[0]
+  // Use Intl to get today's date in the user's timezone
+  const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: timezone })
+  const todayStr = formatter.format(now) // returns YYYY-MM-DD format
 
-  const monday = new Date(now)
-  const day = monday.getDay()
-  monday.setDate(now.getDate() - ((day + 6) % 7))
-  const sunday = new Date(monday)
-  sunday.setDate(monday.getDate() + 6)
-  const weekRange = `${monday.toISOString().split('T')[0]} – ${sunday.toISOString().split('T')[0]}`
+  // Compute week bounds in user's timezone
+  const nowInTz = new Date(now.toLocaleString('en-US', { timeZone: timezone }))
+  const day = nowInTz.getDay()
+  const mondayInTz = new Date(nowInTz)
+  mondayInTz.setDate(nowInTz.getDate() - ((day + 6) % 7))
+  const sundayInTz = new Date(mondayInTz)
+  sundayInTz.setDate(mondayInTz.getDate() + 6)
+  const mondayStr = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(mondayInTz)
+  const sundayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(sundayInTz)
+  const weekRange = `${mondayStr} – ${sundayFmt}`
 
   const checkInMap = new Map(
     checkIns
-      .filter((c) => c.taskId && c.scheduledAt.toISOString().startsWith(todayStr))
+      .filter((c) => {
+        if (!c.taskId) return false
+        const ciDate = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(
+          c.scheduledAt,
+        )
+        return ciDate === todayStr
+      })
       .map((c) => [c.taskId, c.completedAt ? 'done' : c.skippedAt ? 'skipped' : 'pending']),
   )
 
@@ -34,7 +46,7 @@ export async function buildContextBlock(
       const timeStr = t.startAt
         ? ` · ${t.startAt.toISOString().slice(11, 16)} UTC`
         : t.targetDate
-          ? ` · due ${t.targetDate.toISOString().split('T')[0]}`
+          ? ` · due ${new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(t.targetDate)}`
           : ''
       return `  [${t.type}:${t.id}] ${t.title}${timeStr} — ${status}`
     })

@@ -36,6 +36,12 @@ describe('getTokenBalance', () => {
     const balance = await getTokenBalance('user-2')
     expect(balance).toBe(0)
   })
+
+  it('returns 0 when query returns empty array', async () => {
+    mockSelect.mockWhere.mockResolvedValueOnce([])
+    const balance = await getTokenBalance('user-3')
+    expect(balance).toBe(0)
+  })
 })
 
 describe('deductTokens', () => {
