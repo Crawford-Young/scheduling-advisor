@@ -19,17 +19,10 @@ export const users = pgTable('users', {
   email: text('email').notNull().unique(),
   emailVerified: timestamp('email_verified', { mode: 'date' }),
   image: text('image'),
-  anthropicApiKey: text('anthropic_api_key'),
-  preferredModel: text('preferred_model').notNull().default('claude-sonnet-4-6'),
   timezone: text('timezone').notNull().default('UTC'),
-  plan: text('plan', { enum: ['free', 'pro', 'comped'] })
-    .notNull()
-    .default('free'),
+  plan: text('plan', { enum: ['starter', 'growth', 'pro', 'comped'] }),
   stripeCustomerId: text('stripe_customer_id').unique(),
-  googleAiApiKey: text('google_ai_api_key'),
-  activeProvider: text('active_provider', { enum: ['anthropic', 'google'] })
-    .notNull()
-    .default('anthropic'),
+  tokenResetAt: timestamp('token_reset_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
@@ -87,7 +80,6 @@ export const tasks = pgTable('tasks', {
   targetDate: timestamp('target_date', { mode: 'date' }),
   startAt: timestamp('start_at', { withTimezone: true, mode: 'date' }),
   endAt: timestamp('end_at', { withTimezone: true, mode: 'date' }),
-  // Activity settings
   activityType: text('activity_type', { enum: ['solo', 'group'] })
     .notNull()
     .default('solo'),
@@ -102,18 +94,23 @@ export const tasks = pgTable('tasks', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
-export const checkIns = pgTable('check_ins', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  userId: text('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'set null' }),
-  scheduledAt: timestamp('scheduled_at', { mode: 'date' }).notNull(),
-  completedAt: timestamp('completed_at', { mode: 'date' }),
-  reflectionText: text('reflection_text'),
-  rating: integer('rating'),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+export const checkIns = pgTable(
+  'check_ins',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'set null' }),
+    scheduledAt: timestamp('scheduled_at', { mode: 'date' }).notNull(),
+    completedAt: timestamp('completed_at', { mode: 'date' }),
+    skippedAt: timestamp('skipped_at', { mode: 'date' }),
+    reflectionText: text('reflection_text'),
+    rating: integer('rating'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.taskId, t.scheduledAt)],
+)
 
 export const pushSubscriptions = pgTable('push_subscriptions', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -157,8 +154,6 @@ export const messages = pgTable('messages', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
-// ── Consistency tables ──────────────────────────────────────────────────────────
-
 export const streaks = pgTable(
   'streaks',
   {
@@ -177,3 +172,13 @@ export const streaks = pgTable(
   },
   (t) => [unique().on(t.userId, t.taskId)],
 )
+
+export const tokenLedger = pgTable('token_ledger', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  type: text('type', { enum: ['monthly_grant', 'purchase', 'usage'] }).notNull(),
+  amount: integer('amount').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
