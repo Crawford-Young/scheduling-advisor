@@ -32,6 +32,19 @@ export default defineConfig({
       NEXT_PUBLIC_VAPID_PUBLIC_KEY:
         process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? 'playwright-vapid-public',
       NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000',
+      STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ?? 'sk_test_playwright',
+      STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET ?? 'whsec_playwright',
+      STRIPE_PRICE_ID_STARTER: process.env.STRIPE_PRICE_ID_STARTER ?? 'price_playwright_starter',
+      STRIPE_PRICE_ID_GROWTH: process.env.STRIPE_PRICE_ID_GROWTH ?? 'price_playwright_growth',
+      STRIPE_PRICE_ID_PRO: process.env.STRIPE_PRICE_ID_PRO ?? 'price_playwright_pro',
+      STRIPE_PACK_PRICE_ID_SMALL:
+        process.env.STRIPE_PACK_PRICE_ID_SMALL ?? 'price_playwright_pack_small',
+      STRIPE_PACK_PRICE_ID_MEDIUM:
+        process.env.STRIPE_PACK_PRICE_ID_MEDIUM ?? 'price_playwright_pack_medium',
+      STRIPE_PACK_PRICE_ID_LARGE:
+        process.env.STRIPE_PACK_PRICE_ID_LARGE ?? 'price_playwright_pack_large',
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:
+        process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? 'pk_test_playwright',
     },
   },
 })
