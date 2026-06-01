@@ -7,6 +7,7 @@ import {
   primaryKey,
   json,
   unique,
+  index,
 } from 'drizzle-orm/pg-core'
 
 // ── Auth.js v5 required tables ────────────────────────────────────────────────
@@ -173,12 +174,16 @@ export const streaks = pgTable(
   (t) => [unique().on(t.userId, t.taskId)],
 )
 
-export const tokenLedger = pgTable('token_ledger', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  userId: text('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  type: text('type', { enum: ['monthly_grant', 'purchase', 'usage'] }).notNull(),
-  amount: integer('amount').notNull(),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+export const tokenLedger = pgTable(
+  'token_ledger',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type', { enum: ['monthly_grant', 'purchase', 'usage'] }).notNull(),
+    amount: integer('amount').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('token_ledger_user_id_idx').on(t.userId)],
+)

@@ -43,6 +43,13 @@
       "when": 1780336406179,
       "tag": "0005_chubby_rogue",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780337438477,
+      "tag": "0006_tranquil_charles_xavier",
+      "breakpoints": true
     }
   ]
 }

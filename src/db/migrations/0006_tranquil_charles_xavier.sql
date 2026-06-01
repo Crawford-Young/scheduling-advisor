@@ -1,0 +1,1 @@
+CREATE INDEX "token_ledger_user_id_idx" ON "token_ledger" USING btree ("user_id");
