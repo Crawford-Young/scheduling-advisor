@@ -26,7 +26,6 @@ export const env = createEnv({
     STRIPE_PACK_PRICE_ID_MEDIUM: z.string().min(1),
     STRIPE_PACK_PRICE_ID_LARGE: z.string().min(1),
     COMPED_EMAILS: z.string().optional(),
-    ENCRYPTION_KEY: z.string().optional(),
   },
   client: {
     NEXT_PUBLIC_VAPID_PUBLIC_KEY: z.string().min(1),
@@ -57,7 +56,6 @@ export const env = createEnv({
     STRIPE_PACK_PRICE_ID_MEDIUM: process.env.STRIPE_PACK_PRICE_ID_MEDIUM,
     STRIPE_PACK_PRICE_ID_LARGE: process.env.STRIPE_PACK_PRICE_ID_LARGE,
     COMPED_EMAILS: process.env.COMPED_EMAILS,
-    ENCRYPTION_KEY: process.env.ENCRYPTION_KEY,
     NEXT_PUBLIC_VAPID_PUBLIC_KEY: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,

@@ -1,17 +1,32 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { mockSet, mockUpdate, mockValues, mockInsert, mockConflict } = vi.hoisted(() => {
-  const mockWhere = vi.fn().mockResolvedValue(undefined)
-  const mockSet = vi.fn().mockReturnValue({ where: mockWhere })
-  const mockUpdate = vi.fn().mockReturnValue({ set: mockSet })
-  const mockConflict = vi.fn().mockResolvedValue(undefined)
-  const mockValues = vi.fn().mockReturnValue({ onConflictDoUpdate: mockConflict })
-  const mockInsert = vi.fn().mockReturnValue({ values: mockValues })
-  return { mockSet, mockUpdate, mockValues, mockInsert, mockConflict }
-})
+const { mockSet, mockUpdate, mockValues, mockInsert, mockConflict, mockSelect, mockSelectLimit } =
+  vi.hoisted(() => {
+    const mockWhere = vi.fn().mockResolvedValue(undefined)
+    const mockSet = vi.fn().mockReturnValue({ where: mockWhere })
+    const mockUpdate = vi.fn().mockReturnValue({ set: mockSet })
+    const mockConflict = vi.fn().mockResolvedValue(undefined)
+    const mockValues = vi.fn().mockReturnValue({ onConflictDoUpdate: mockConflict })
+    const mockInsert = vi.fn().mockReturnValue({ values: mockValues })
+
+    const mockSelectLimit = vi.fn().mockResolvedValue([{ id: 'task-1' }])
+    const mockSelectWhere = vi.fn().mockReturnValue({ limit: mockSelectLimit })
+    const mockSelectFrom = vi.fn().mockReturnValue({ where: mockSelectWhere })
+    const mockSelect = vi.fn().mockReturnValue({ from: mockSelectFrom })
+
+    return {
+      mockSet,
+      mockUpdate,
+      mockValues,
+      mockInsert,
+      mockConflict,
+      mockSelect,
+      mockSelectLimit,
+    }
+  })
 
 vi.mock('@/auth', () => ({ auth: vi.fn() }))
-vi.mock('@/db', () => ({ db: { update: mockUpdate, insert: mockInsert } }))
+vi.mock('@/db', () => ({ db: { update: mockUpdate, insert: mockInsert, select: mockSelect } }))
 vi.mock('@/db/schema', () => ({ tasks: {}, checkIns: {} }))
 vi.mock('drizzle-orm', () => ({ eq: vi.fn(), and: vi.fn(), sql: vi.fn() }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
@@ -38,6 +53,15 @@ describe('markItemComplete', () => {
     expect(await markItemComplete({ taskId: 'task-1', date: '2026-06-01' })).toEqual({
       error: 'Unauthorized',
     })
+  })
+
+  it('returns not found when task does not belong to user', async () => {
+    vi.mocked(auth).mockResolvedValue(authedSession)
+    mockSelectLimit.mockResolvedValueOnce([])
+    expect(await markItemComplete({ taskId: 'other-task', date: '2026-06-01' })).toEqual({
+      error: 'Not found',
+    })
+    expect(mockInsert).not.toHaveBeenCalled()
   })
 
   it('upserts check-in with completedAt', async () => {
@@ -75,6 +99,15 @@ describe('markItemSkipped', () => {
     expect(await markItemSkipped({ taskId: 'task-1', date: '2026-06-01' })).toEqual({
       error: 'Unauthorized',
     })
+  })
+
+  it('returns not found when task does not belong to user', async () => {
+    vi.mocked(auth).mockResolvedValue(authedSession)
+    mockSelectLimit.mockResolvedValueOnce([])
+    expect(await markItemSkipped({ taskId: 'other-task', date: '2026-06-01' })).toEqual({
+      error: 'Not found',
+    })
+    expect(mockInsert).not.toHaveBeenCalled()
   })
 
   it('upserts check-in with skippedAt', async () => {

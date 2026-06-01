@@ -54,6 +54,13 @@ export async function markItemComplete(input: MarkItemInput): Promise<ActionResu
   const session = await auth()
   if (!session?.user?.id) return { error: 'Unauthorized' }
 
+  const [task] = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(and(eq(tasks.id, input.taskId), eq(tasks.userId, session.user.id)))
+    .limit(1)
+  if (!task) return { error: 'Not found' }
+
   const scheduledAt = new Date(input.date)
   const now = new Date()
 
@@ -77,6 +84,13 @@ export async function markItemComplete(input: MarkItemInput): Promise<ActionResu
 export async function markItemSkipped(input: MarkItemInput): Promise<ActionResult> {
   const session = await auth()
   if (!session?.user?.id) return { error: 'Unauthorized' }
+
+  const [task] = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(and(eq(tasks.id, input.taskId), eq(tasks.userId, session.user.id)))
+    .limit(1)
+  if (!task) return { error: 'Not found' }
 
   const scheduledAt = new Date(input.date)
   const now = new Date()

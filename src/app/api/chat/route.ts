@@ -348,7 +348,11 @@ export async function POST(req: NextRequest): Promise<Response> {
       }
 
       if (usage) {
-        await deductTokens(userId, usage.promptTokens + usage.completionTokens)
+        try {
+          await deductTokens(userId, usage.promptTokens + usage.completionTokens)
+        } catch (err) {
+          logger.error({ err, userId }, 'Failed to deduct tokens — user may have free usage')
+        }
       }
     },
   })
