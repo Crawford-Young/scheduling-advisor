@@ -1,4 +1,4 @@
-import { Skeleton } from '@crawfordyoung/ui'
+﻿import { Skeleton } from '@/lib/ui'
 
 export default function GoalsLoading() {
   return (
