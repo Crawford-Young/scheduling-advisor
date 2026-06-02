@@ -1,11 +1,11 @@
 'use client'
 import * as React from 'react'
 import { useState } from 'react'
-import { WeekCalendarView } from '@/components/cards/week-calendar-view'
+import { WeekCalendarView, type CalendarEvent as LibraryCalendarEvent } from '@/lib/ui'
 import { CheckInSheet } from '@/components/calendar/check-in-sheet'
 import { PerfectWeekCelebration } from '@/components/calendar/perfect-week-celebration'
 
-interface CalendarEvent {
+interface AppCalendarEvent {
   readonly id: string
   readonly title: string
   readonly start: string
@@ -17,9 +17,20 @@ interface CalendarEvent {
   readonly visibility: string
 }
 
+function toLibraryColor(type: string): LibraryCalendarEvent['color'] {
+  if (type === 'task') return 'blue'
+  if (type === 'goal') return 'amber'
+  if (type === 'habit') return 'green'
+  return 'default'
+}
+
+function toLibraryEvent(e: AppCalendarEvent): LibraryCalendarEvent {
+  return { id: e.id, title: e.title, start: e.start, end: e.end, color: toLibraryColor(e.type) }
+}
+
 interface CalendarClientProps {
   readonly weekStart: string
-  readonly events: readonly CalendarEvent[]
+  readonly events: readonly AppCalendarEvent[]
 }
 
 export function CalendarClient({ weekStart, events }: CalendarClientProps): React.JSX.Element {
@@ -32,10 +43,11 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
     <>
       <div data-testid="week-calendar">
         <WeekCalendarView
-          weekStart={weekStart}
-          events={events as CalendarEvent[]}
-          onEventClick={(event) => {
-            if (event.status !== 'completed') setSelectedId(event.id)
+          defaultWeekStart={weekStart}
+          events={events.map(toLibraryEvent)}
+          onEventClick={(libEvent) => {
+            const appEvent = events.find((e) => e.id === libEvent.id)
+            if (appEvent && appEvent.status !== 'completed') setSelectedId(libEvent.id)
           }}
         />
       </div>

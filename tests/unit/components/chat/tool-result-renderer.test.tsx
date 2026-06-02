@@ -18,7 +18,7 @@ vi.mock('@/components/cards/schedule-suggestion', () => ({
 vi.mock('@/components/cards/reflection-card', () => ({
   ReflectionCard: () => <div data-testid="reflection-card" />,
 }))
-vi.mock('@/components/cards/week-calendar-view', () => ({
+vi.mock('@/lib/ui', () => ({
   WeekCalendarView: () => <div data-testid="week-calendar-view" />,
 }))
 vi.mock('@/components/cards/life-balance-view', () => ({
