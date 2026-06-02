@@ -2,6 +2,7 @@
   "name": "scheduling-advisor",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -46,7 +47,19 @@
     "stripe": "^22.1.1",
     "tailwind-merge": "^3.5.0",
     "web-push": "^3.6.7",
-    "zod": "^4.3.6"
+    "zod": "3"
+  },
+  "pnpm": {
+    "overrides": {
+      "zod": "3"
+    },
+    "peerDependencyRules": {
+      "allowedVersions": {
+        "eslint-plugin-import>eslint": "10",
+        "eslint-plugin-jsx-a11y>eslint": "10",
+        "eslint-plugin-react>eslint": "10"
+      }
+    }
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.2",
