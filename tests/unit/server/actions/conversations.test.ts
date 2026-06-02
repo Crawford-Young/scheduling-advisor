@@ -139,12 +139,19 @@ describe('setConversationTitle', () => {
     mockSelectWhere.mockResolvedValueOnce([{ id: 'conv-1', userId: 'other-user', title: null }])
     await expect(setConversationTitle('conv-1', 'Title')).rejects.toThrow('Forbidden')
   })
+
+  it('is a no-op if conversation does not exist', async () => {
+    mockSelectWhere.mockResolvedValueOnce([])
+    await setConversationTitle('missing-id', 'Title')
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
 })
 
 // ── bumpConversationExpiry ────────────────────────────────────────────────────
 describe('bumpConversationExpiry', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockSelectWhere.mockResolvedValue([{ id: 'conv-1', userId: 'user-1' }])
     mockUpdateWhere.mockResolvedValue(undefined)
   })
 
@@ -159,7 +166,20 @@ describe('bumpConversationExpiry', () => {
   })
 
   it('updates the correct conversation', async () => {
-    await bumpConversationExpiry('conv-42')
+    await bumpConversationExpiry('conv-1')
     expect(mockUpdate).toHaveBeenCalledOnce()
+  })
+
+  it('throws Unauthorized if unauthenticated', async () => {
+    const { auth } = await import('@/auth')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(auth).mockResolvedValueOnce(null as any)
+    await expect(bumpConversationExpiry('conv-1')).rejects.toThrow('Unauthorized')
+  })
+
+  it('is a no-op if conversation does not exist or caller does not own it', async () => {
+    mockSelectWhere.mockResolvedValueOnce([{ id: 'conv-1', userId: 'other-user' }])
+    await bumpConversationExpiry('conv-1')
+    expect(mockUpdate).not.toHaveBeenCalled()
   })
 })

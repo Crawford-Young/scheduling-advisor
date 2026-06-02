@@ -52,7 +52,7 @@ export async function deleteConversation(conversationId: string): Promise<void> 
 
   await db
     .update(conversations)
-    .set({ deletedAt: new Date() })
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
     .where(eq(conversations.id, conversationId))
 }
 
@@ -66,12 +66,22 @@ export async function setConversationTitle(conversationId: string, title: string
   if (row.userId !== session.user.id) throw new Error('Forbidden')
   if (row.title !== null) return
 
-  await db.update(conversations).set({ title }).where(eq(conversations.id, conversationId))
+  await db
+    .update(conversations)
+    .set({ title, updatedAt: new Date() })
+    .where(eq(conversations.id, conversationId))
 }
 
 export async function bumpConversationExpiry(conversationId: string): Promise<void> {
+  const session = await auth()
+  if (!session?.user?.id) throw new Error('Unauthorized')
+
+  const [row] = await db.select().from(conversations).where(eq(conversations.id, conversationId))
+
+  if (!row || row.userId !== session.user.id) return // silent — called from AI pipeline
+
   await db
     .update(conversations)
-    .set({ expiresAt: thirtyDaysFromNow() })
+    .set({ expiresAt: thirtyDaysFromNow(), updatedAt: new Date() })
     .where(eq(conversations.id, conversationId))
 }
