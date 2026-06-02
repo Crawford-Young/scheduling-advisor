@@ -1,6 +1,6 @@
-'use client'
+﻿'use client'
 import { z } from 'zod'
-import { Card, CardHeader, CardContent, Badge, Button } from '@crawfordyoung/ui'
+import { Card, CardHeader, CardContent, Badge, Button } from '@/lib/ui'
 import { updateTask } from '@/server/actions/tasks'
 
 export const taskCardPropsSchema = z.object({

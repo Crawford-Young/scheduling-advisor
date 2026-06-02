@@ -1,7 +1,6 @@
-'use client'
+﻿'use client'
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
-import { HeroCard } from '@crawfordyoung/ui'
+import { HeroCard } from '@/lib/ui'
 
 interface HeroCardCtaProps {
   readonly headline: string
@@ -10,13 +9,12 @@ interface HeroCardCtaProps {
 }
 
 export function HeroCardCta({ headline, subtitle, ctaLabel }: HeroCardCtaProps): React.JSX.Element {
-  const router = useRouter()
   return (
     <HeroCard
       headline={headline}
       subtitle={subtitle}
       ctaLabel={ctaLabel}
-      onCtaClick={() => router.push('/?chat=1')}
+      onCtaClick={() => window.dispatchEvent(new CustomEvent('open-chat'))}
     />
   )
 }

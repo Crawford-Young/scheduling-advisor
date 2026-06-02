@@ -1,7 +1,7 @@
-'use client'
+﻿'use client'
 import { z } from 'zod'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import { Card, CardHeader, CardContent } from '@crawfordyoung/ui'
+import { Card, CardHeader, CardContent } from '@/lib/ui'
 
 export const lifeBalanceViewPropsSchema = z.object({
   categories: z.array(

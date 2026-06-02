@@ -1,7 +1,7 @@
-'use client'
+﻿'use client'
 import { z } from 'zod'
 import { useState } from 'react'
-import { Card, CardHeader, CardContent, Button } from '@crawfordyoung/ui'
+import { Card, CardHeader, CardContent, Button } from '@/lib/ui'
 
 export const scheduleSuggestionPropsSchema = z.object({
   taskId: z.string().uuid(),

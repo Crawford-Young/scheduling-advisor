@@ -1,7 +1,7 @@
-'use client'
+﻿'use client'
 import { z } from 'zod'
 import { useState } from 'react'
-import { Card, CardHeader, CardContent, CardFooter, Button, Textarea } from '@crawfordyoung/ui'
+import { Card, CardHeader, CardContent, CardFooter, Button, Textarea } from '@/lib/ui'
 import { completeCheckIn } from '@/server/actions/check-ins'
 
 export const reflectionCardPropsSchema = z.object({

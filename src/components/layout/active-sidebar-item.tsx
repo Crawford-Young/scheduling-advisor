@@ -1,6 +1,6 @@
-'use client'
+﻿'use client'
 import { usePathname } from 'next/navigation'
-import { SidebarItem } from '@crawfordyoung/ui'
+import { SidebarItem } from '@/lib/ui'
 
 interface ActiveSidebarItemProps {
   readonly icon: React.ReactNode
