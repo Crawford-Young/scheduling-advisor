@@ -50,8 +50,8 @@ test.describe('Onboarding flow', () => {
     await expect(page.getByRole('button', { name: /Continue with Google/i })).toBeVisible()
   })
 
-  test('unauthenticated user redirected to login from /dashboard', async ({ page }) => {
-    await page.goto('/dashboard')
+  test('unauthenticated user redirected to login from /', async ({ page }) => {
+    await page.goto('/')
     await expect(page).toHaveURL(/\/login/)
   })
 })
