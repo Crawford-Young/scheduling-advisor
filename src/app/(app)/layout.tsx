@@ -1,12 +1,8 @@
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
-import { db } from '@/db'
-import { conversations, messages } from '@/db/schema'
-import { eq, desc } from 'drizzle-orm'
 import { AppShell, Avatar, AvatarFallback, AvatarImage, Sidebar } from '@/lib/ui'
 import { ActiveSidebarItem } from '@/components/layout/active-sidebar-item'
-import { ChatPanelWrapper } from '@/components/chat/chat-panel-wrapper'
-import type { Message } from 'ai'
+import { ChatFab } from '@/components/chat/chat-fab'
 import {
   Calendar,
   CheckSquare,
@@ -35,33 +31,6 @@ interface AppLayoutProps {
 export default async function AppLayout({ children }: AppLayoutProps): Promise<React.JSX.Element> {
   const session = await auth()
   if (!session?.user?.id) redirect('/login')
-  const userId = session.user.id
-
-  const existingConversations = await db
-    .select()
-    .from(conversations)
-    .where(eq(conversations.userId, userId))
-    .limit(1)
-
-  let [conversation] = existingConversations
-  if (!conversation) {
-    const [created] = await db.insert(conversations).values({ userId }).returning()
-    conversation = created
-  }
-  if (!conversation) redirect('/login')
-
-  const dbMessages = await db
-    .select()
-    .from(messages)
-    .where(eq(messages.conversationId, conversation.id))
-    .orderBy(desc(messages.createdAt))
-    .limit(50)
-
-  const initialMessages: Message[] = dbMessages.reverse().map((m) => {
-    const content = m.content
-    const text = typeof content === 'string' ? content : ''
-    return { id: m.id, role: m.role as 'user' | 'assistant', content: text }
-  })
 
   const sidebarHeader = (
     <div className="border-border flex h-14 shrink-0 items-center gap-2.5 border-b px-4">
@@ -101,11 +70,7 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
       >
         <div className="p-6">{children}</div>
       </AppShell>
-      <ChatPanelWrapper
-        conversationId={conversation.id}
-        initialMessages={initialMessages}
-        plan={session.user.plan}
-      />
+      <ChatFab />
     </>
   )
 }
