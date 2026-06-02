@@ -24,6 +24,7 @@ import {
   createTask,
   updateItem,
 } from '@/server/actions/items'
+import { bumpConversationExpiry } from '@/server/actions/conversations'
 
 const MIN_CREDITS = 1
 
@@ -353,6 +354,12 @@ export async function POST(req: NextRequest): Promise<Response> {
         } catch (err) {
           logger.error({ err, userId }, 'Failed to deduct tokens — user may have free usage')
         }
+      }
+
+      try {
+        await bumpConversationExpiry(conversationId)
+      } catch (err) {
+        logger.error({ err, conversationId }, 'Failed to bump conversation expiry')
       }
     },
   })
