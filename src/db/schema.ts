@@ -137,22 +137,30 @@ export const calendarPrefs = pgTable('calendar_prefs', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
-export const conversations = pgTable('conversations', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  userId: text('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  type: text('type', { enum: ['check_in', 'general'] })
-    .notNull()
-    .default('general'),
-  title: text('title'),
-  deletedAt: timestamp('deleted_at'),
-  expiresAt: timestamp('expires_at')
-    .notNull()
-    .default(sql`now() + interval '30 days'`),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+export const conversations = pgTable(
+  'conversations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type', { enum: ['check_in', 'general'] })
+      .notNull()
+      .default('general'),
+    title: text('title'),
+    deletedAt: timestamp('deleted_at', { mode: 'date' }),
+    expiresAt: timestamp('expires_at', { mode: 'date' })
+      .notNull()
+      .default(sql`now() + interval '30 days'`),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('conversations_user_id_idx').on(t.userId),
+    index('conversations_expires_at_idx').on(t.expiresAt),
+    index('conversations_deleted_at_idx').on(t.deletedAt),
+  ],
+)
 
 export const messages = pgTable('messages', {
   id: uuid('id').primaryKey().defaultRandom(),
