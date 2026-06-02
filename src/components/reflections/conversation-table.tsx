@@ -4,6 +4,16 @@ import { useTransition, useState } from 'react'
 import { deleteConversation } from '@/server/actions/conversations'
 import type { ConversationRow } from '@/server/queries/conversations'
 import { Trash2 } from 'lucide-react'
+import {
+  Badge,
+  Button,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/lib/ui'
 
 interface ConversationTableProps {
   readonly conversations: ConversationRow[]
@@ -12,15 +22,15 @@ interface ConversationTableProps {
 function TypeBadge({ type }: { readonly type: 'check_in' | 'general' }) {
   if (type === 'check_in') {
     return (
-      <span className="inline-flex items-center rounded-full bg-blue-500/15 px-2 py-0.5 text-xs font-medium text-blue-400 ring-1 ring-blue-500/30">
+      <Badge variant="outline" className="border-blue-500/30 bg-blue-500/15 text-blue-400">
         Daily Check-in
-      </span>
+      </Badge>
     )
   }
   return (
-    <span className="inline-flex items-center rounded-full bg-purple-500/15 px-2 py-0.5 text-xs font-medium text-purple-400 ring-1 ring-purple-500/30">
+    <Badge variant="outline" className="border-purple-500/30 bg-purple-500/15 text-purple-400">
       General
-    </span>
+    </Badge>
   )
 }
 
@@ -54,50 +64,48 @@ export function ConversationTable({ conversations }: ConversationTableProps) {
   }
 
   return (
-    <div className="border-border overflow-hidden rounded-lg border">
-      <table className="w-full text-sm">
-        <thead className="bg-surface-raised">
-          <tr>
-            <th className="text-muted-foreground px-4 py-3 text-left font-medium">Type</th>
-            <th className="text-muted-foreground px-4 py-3 text-left font-medium">Title</th>
-            <th className="text-muted-foreground px-4 py-3 text-left font-medium">Date</th>
-            <th className="text-muted-foreground px-4 py-3 text-left font-medium">Preview</th>
-            <th className="px-4 py-3" />
-          </tr>
-        </thead>
-        <tbody className="divide-border divide-y">
-          {rows.map((row) => (
-            <tr
-              key={row.id}
-              onClick={() => router.push(`/chat/${row.id}`)}
-              className="hover:bg-surface-raised cursor-pointer transition-colors"
-            >
-              <td className="px-4 py-3">
-                <TypeBadge type={row.type} />
-              </td>
-              <td className="text-foreground max-w-[200px] truncate px-4 py-3 font-medium">
-                {row.title ?? 'Untitled'}
-              </td>
-              <td className="text-muted-foreground px-4 py-3 whitespace-nowrap">
-                {formatDate(row.updatedAt)}
-              </td>
-              <td className="text-muted-foreground max-w-[300px] truncate px-4 py-3">
-                {row.lastMessagePreview || '—'}
-              </td>
-              <td className="px-4 py-3">
-                <button
-                  onClick={(e) => handleDelete(e, row.id)}
-                  disabled={isPending}
-                  aria-label="Delete conversation"
-                  className="text-muted-foreground hover:text-destructive rounded p-1 transition-colors disabled:opacity-50"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Type</TableHead>
+          <TableHead>Title</TableHead>
+          <TableHead>Date</TableHead>
+          <TableHead>Preview</TableHead>
+          <TableHead />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((row) => (
+          <TableRow
+            key={row.id}
+            onClick={() => router.push(`/chat/${row.id}`)}
+            className="cursor-pointer"
+          >
+            <TableCell>
+              <TypeBadge type={row.type} />
+            </TableCell>
+            <TableCell className="max-w-[200px] truncate font-medium">
+              {row.title ?? 'Untitled'}
+            </TableCell>
+            <TableCell className="whitespace-nowrap">{formatDate(row.updatedAt)}</TableCell>
+            <TableCell className="text-muted-foreground max-w-[300px] truncate">
+              {row.lastMessagePreview || '—'}
+            </TableCell>
+            <TableCell>
+              <Button
+                variant="ghost"
+                size="icon"
+                disabled={isPending}
+                aria-label="Delete conversation"
+                onClick={(e) => handleDelete(e, row.id)}
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   )
 }
