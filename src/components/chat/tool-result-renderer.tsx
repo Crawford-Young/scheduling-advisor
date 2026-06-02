@@ -7,7 +7,7 @@ import { ScheduleSuggestion } from '@/components/cards/schedule-suggestion'
 import { ReflectionCard } from '@/components/cards/reflection-card'
 import { WeekCalendarView } from '@/components/cards/week-calendar-view'
 import { LifeBalanceView } from '@/components/cards/life-balance-view'
-import { ActionConfirmCard } from '@/components/ui/action-confirm-card'
+import { ActionConfirmCard } from '@/components/chat/action-confirm-card'
 
 const componentMap = {
   showTaskCard: TaskCard,

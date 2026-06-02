@@ -1,7 +1,6 @@
-import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { ActionConfirmCard } from '@/components/ui/action-confirm-card'
+import { ActionConfirmCard } from '@/components/chat/action-confirm-card'
 
 describe('ActionConfirmCard', () => {
   const baseProps = {
