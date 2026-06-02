@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm'
 import {
   pgTable,
   text,
@@ -141,6 +142,14 @@ export const conversations = pgTable('conversations', {
   userId: text('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
+  type: text('type', { enum: ['check_in', 'general'] })
+    .notNull()
+    .default('general'),
+  title: text('title'),
+  deletedAt: timestamp('deleted_at'),
+  expiresAt: timestamp('expires_at')
+    .notNull()
+    .default(sql`now() + interval '30 days'`),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
