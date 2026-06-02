@@ -1,7 +1,7 @@
 'use client'
 import * as React from 'react'
 import { Check, X } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { Badge, Button, Card, CardContent, Input } from '@/lib/ui'
 
 export interface ActionConfirmCardProps {
   readonly action: string
@@ -14,6 +14,12 @@ export interface ActionConfirmCardProps {
 }
 
 type CardState = 'pending' | 'denying' | 'confirmed' | 'denied'
+
+const entityBadgeClass: Record<ActionConfirmCardProps['entityType'], string> = {
+  habit: 'border-blue-500/30 bg-blue-500/10 text-blue-500',
+  goal: 'border-purple-500/30 bg-purple-500/10 text-purple-500',
+  event: 'border-green-500/30 bg-green-500/10 text-green-500',
+}
 
 export function ActionConfirmCard({
   action,
@@ -49,87 +55,81 @@ export function ActionConfirmCard({
   const dateTime = [date, time].filter(Boolean).join(' · ')
 
   return (
-    <div className="border-border bg-card rounded-lg border p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <p className="text-card-foreground truncate text-sm font-medium">{action}</p>
-          {dateTime && (
-            <p className="text-muted-foreground mt-0.5 text-xs">
-              {dateTime}
-              <span
-                className={cn(
-                  'ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wide uppercase',
-                  entityType === 'habit' && 'bg-blue-500/10 text-blue-500',
-                  entityType === 'goal' && 'bg-purple-500/10 text-purple-500',
-                  entityType === 'event' && 'bg-green-500/10 text-green-500',
-                )}
+    <Card className="shadow-sm">
+      <CardContent className="pt-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-card-foreground truncate text-sm font-medium">{action}</p>
+            {dateTime && (
+              <p className="text-muted-foreground mt-0.5 text-xs">
+                {dateTime}
+                <Badge
+                  variant="outline"
+                  className={`ml-2 text-[10px] tracking-wide uppercase ${entityBadgeClass[entityType]}`}
+                >
+                  {entityType}
+                </Badge>
+              </p>
+            )}
+            {detail && <p className="text-muted-foreground mt-1 text-xs">{detail}</p>}
+          </div>
+
+          {state === 'pending' || state === 'denying' ? (
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Confirm"
+                onClick={handleConfirm}
+                className="h-8 w-8 rounded-full bg-green-500/10 text-green-500 hover:bg-green-500/20"
               >
-                {entityType}
-              </span>
-            </p>
+                <Check className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Deny"
+                onClick={handleDenyClick}
+                className="h-8 w-8 rounded-full bg-red-500/10 text-red-500 hover:bg-red-500/20"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : state === 'confirmed' ? (
+            <Badge
+              variant="outline"
+              className="shrink-0 rounded-full border-green-500/30 bg-green-500/10 text-green-500"
+            >
+              Confirmed
+            </Badge>
+          ) : (
+            <Badge
+              variant="outline"
+              className="shrink-0 rounded-full border-red-500/30 bg-red-500/10 text-red-500"
+            >
+              Declined
+            </Badge>
           )}
-          {detail && <p className="text-muted-foreground mt-1 text-xs">{detail}</p>}
         </div>
 
-        {state === 'pending' || state === 'denying' ? (
-          <div className="flex shrink-0 items-center gap-1">
-            <button
-              type="button"
-              aria-label="Confirm"
-              onClick={handleConfirm}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-green-500/10 text-green-500 transition-colors hover:bg-green-500/20"
-            >
-              <Check className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              aria-label="Deny"
-              onClick={handleDenyClick}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-red-500/10 text-red-500 transition-colors hover:bg-red-500/20"
-            >
-              <X className="h-4 w-4" />
-            </button>
+        {state === 'denying' && (
+          <div className="mt-3 space-y-2">
+            <Input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Why not? (optional)"
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" aria-label="Cancel" onClick={handleCancel}>
+                Cancel
+              </Button>
+              <Button size="sm" aria-label="Send" onClick={handleSend}>
+                Send
+              </Button>
+            </div>
           </div>
-        ) : state === 'confirmed' ? (
-          <span className="shrink-0 rounded-full bg-green-500/10 px-2 py-1 text-xs font-medium text-green-500">
-            Confirmed
-          </span>
-        ) : (
-          <span className="shrink-0 rounded-full bg-red-500/10 px-2 py-1 text-xs font-medium text-red-500">
-            Declined
-          </span>
         )}
-      </div>
-
-      {state === 'denying' && (
-        <div className="mt-3 space-y-2">
-          <input
-            type="text"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Why not? (optional)"
-            className="border-input bg-background text-foreground placeholder:text-muted-foreground focus:ring-ring w-full rounded-md border px-3 py-1.5 text-sm focus:ring-1 focus:outline-none"
-          />
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              aria-label="Cancel"
-              onClick={handleCancel}
-              className="text-muted-foreground hover:text-foreground rounded-md px-3 py-1 text-xs transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              aria-label="Send"
-              onClick={handleSend}
-              className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-3 py-1 text-xs font-medium transition-colors"
-            >
-              Send
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+      </CardContent>
+    </Card>
   )
 }
