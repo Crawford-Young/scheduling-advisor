@@ -4,8 +4,11 @@ import './globals.css'
 import { ThemeProvider } from '@/components/providers/theme-provider'
 import { Analytics } from '@vercel/analytics/next'
 import { SpeedInsights } from '@vercel/speed-insights/next'
-import { Suspense } from 'react'
-import { SplashWrapper } from '@/components/splash/splash-wrapper'
+import { auth } from '@/auth'
+import { db } from '@/db'
+import { checkIns } from '@/db/schema'
+import { eq, and, isNull } from 'drizzle-orm'
+import { SplashAnimationClient } from '@/components/splash/splash-animation-client'
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -22,7 +25,23 @@ export const metadata: Metadata = {
   description: 'Reinforce the habits that matter.',
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }): React.JSX.Element {
+export default async function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}): Promise<React.JSX.Element> {
+  const session = await auth()
+
+  let checkInDone = true
+  if (session?.user?.id) {
+    const [pending] = await db
+      .select()
+      .from(checkIns)
+      .where(and(eq(checkIns.userId, session.user.id), isNull(checkIns.completedAt)))
+      .limit(1)
+    checkInDone = !pending
+  }
+
   return (
     <html
       lang="en"
@@ -31,9 +50,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }):
     >
       <body className="bg-background text-foreground flex min-h-full flex-col">
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
-          <Suspense>
-            <SplashWrapper />
-          </Suspense>
+          <SplashAnimationClient checkInDone={checkInDone} />
           {children}
           <Analytics />
           <SpeedInsights />
