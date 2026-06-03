@@ -28,7 +28,7 @@ test.describe('Home page', () => {
 
   test('login page shows app name and Google sign-in', async ({ page }) => {
     await page.goto('/login')
-    await expect(page.getByText('CyRein')).toBeVisible()
+    await expect(page.getByText('Cybond')).toBeVisible()
     await expect(page.getByRole('button', { name: /Continue with Google/i })).toBeVisible()
   })
 

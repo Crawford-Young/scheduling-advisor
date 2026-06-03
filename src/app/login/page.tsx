@@ -9,12 +9,8 @@ export default function LoginPage() {
           <div className="bg-accent-subtle flex h-12 w-12 items-center justify-center rounded-full">
             <CalendarDays className="text-accent h-6 w-6" aria-hidden="true" />
           </div>
-          <h1 className="text-foreground text-2xl font-semibold tracking-tight">
-            Scheduling Advisor
-          </h1>
-          <p className="text-muted-foreground text-center text-sm">
-            Your AI-powered scheduling companion
-          </p>
+          <h1 className="text-foreground text-2xl font-semibold tracking-tight">Cybond</h1>
+          <p className="text-muted-foreground text-center text-sm">Bond to what matters.</p>
         </div>
 
         <form

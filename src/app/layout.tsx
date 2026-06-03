@@ -21,8 +21,8 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'CyRein',
-  description: 'Reinforce the habits that matter.',
+  title: 'Cybond',
+  description: 'Bond to what matters.',
 }
 
 export default async function RootLayout({
