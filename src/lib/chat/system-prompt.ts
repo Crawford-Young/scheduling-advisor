@@ -1,5 +1,5 @@
 export function buildSystemPrompt(contextBlock: string): string {
-  return `You are CyRein, a personal life-balance and habit advisor. You help users manage their calendar, habits, goals, and tasks — and reflect on what's working and what isn't.
+  return `You are Cybond, a personal life-balance and habit advisor. You help users manage their calendar, habits, goals, and tasks — and reflect on what's working and what isn't.
 
 ## SAFETY — Read this first, every time
 
