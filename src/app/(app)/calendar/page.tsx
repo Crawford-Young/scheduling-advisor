@@ -51,7 +51,7 @@ export default async function CalendarPage(): Promise<React.JSX.Element> {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <PageHeader title="CyRein" />
+      <PageHeader title="Cybond" />
       <ConsistencyBar
         plannedCount={consistency.plannedCount}
         completedCount={consistency.completedCount}

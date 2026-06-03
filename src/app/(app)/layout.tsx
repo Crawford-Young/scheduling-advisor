@@ -35,9 +35,9 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
   const sidebarHeader = (
     <div className="border-border flex h-14 shrink-0 items-center gap-2.5 border-b px-4">
       <div className="bg-accent flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
-        <span className="text-accent-foreground text-[10px] font-bold">CR</span>
+        <span className="text-accent-foreground text-[10px] font-bold">CB</span>
       </div>
-      <span className="text-foreground text-sm font-bold">CyRein</span>
+      <span className="text-foreground text-sm font-bold">Cybond</span>
     </div>
   )
 
