@@ -53,7 +53,7 @@ export function SplashAnimation({
   return (
     <div
       role="status"
-      aria-label="Loading CyRein"
+      aria-label="Loading Cybond"
       className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-8"
       style={{ backgroundColor: 'rgb(var(--background))' }}
     >
@@ -80,7 +80,7 @@ export function SplashAnimation({
             textShadow: isSignal && checkInDone ? '0 0 20px rgba(16, 185, 129, 0.8)' : 'none',
           }}
         >
-          Rein
+          bond
         </span>
       </div>
 

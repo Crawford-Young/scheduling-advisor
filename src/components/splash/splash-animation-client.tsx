@@ -44,7 +44,7 @@ const QUOTES: readonly Quote[] = [
   },
 ]
 
-const SPLASH_KEY = 'cyrein-splash-v1'
+const SPLASH_KEY = 'cybond-splash-v1'
 
 interface SplashAnimationClientProps {
   readonly checkInDone: boolean
