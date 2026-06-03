@@ -12,6 +12,7 @@ import {
   Settings,
   Target,
 } from 'lucide-react'
+import Image from 'next/image'
 import React from 'react'
 
 const NAV_ITEMS = [
@@ -34,9 +35,13 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
 
   const sidebarHeader = (
     <div className="border-border flex h-14 shrink-0 items-center gap-2.5 border-b px-4">
-      <div className="bg-accent flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
-        <span className="text-accent-foreground text-[10px] font-bold">CB</span>
-      </div>
+      <Image
+        src="/cybond.png"
+        alt="Cybond"
+        width={28}
+        height={28}
+        className="shrink-0 rounded-lg"
+      />
       <span className="text-foreground text-sm font-bold">Cybond</span>
     </div>
   )

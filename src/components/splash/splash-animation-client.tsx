@@ -1,6 +1,6 @@
 'use client'
 import * as React from 'react'
-import { useState } from 'react'
+import { startTransition, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { SplashAnimation } from '@/components/splash/splash-animation'
 
@@ -54,13 +54,14 @@ export function SplashAnimationClient({
   checkInDone,
 }: SplashAnimationClientProps): React.JSX.Element | null {
   const router = useRouter()
-  const [visible, setVisible] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false
-    if (sessionStorage.getItem(SPLASH_KEY)) return false
-    sessionStorage.setItem(SPLASH_KEY, '1')
-    return true
-  })
+  const [visible, setVisible] = useState<boolean>(false)
   const [quote] = useState<Quote>(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]!)
+
+  useEffect(() => {
+    if (sessionStorage.getItem(SPLASH_KEY)) return
+    sessionStorage.setItem(SPLASH_KEY, '1')
+    startTransition(() => setVisible(true))
+  }, [])
 
   if (!visible) return null
 
