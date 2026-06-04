@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 import * as React from 'react'
 import type { Message, ToolInvocation } from 'ai'
 import { TaskCard } from '@/components/cards/task-card'
@@ -10,7 +10,7 @@ import { LifeBalanceView } from '@/components/cards/life-balance-view'
 import { ActionConfirmCard } from '@/components/chat/action-confirm-card'
 import { WeekCalendarView, type CalendarEvent as LibraryCalendarEvent } from '@/lib/ui'
 
-interface AppEvent {
+export interface AppEvent {
   readonly id: string
   readonly title: string
   readonly start: string
@@ -44,18 +44,35 @@ const componentMap = {
   showGoalCard: GoalCard,
   showScheduleSuggestion: ScheduleSuggestion,
   showReflectionCard: ReflectionCard,
-  showWeekCalendar: WeekCalendarRenderer,
   showLifeBalance: LifeBalanceView,
 } as const
 
-interface ToolResultRendererProps {
+export interface ToolResultRendererProps {
   readonly toolInvocation: ToolInvocation & { state: 'result' }
   readonly append?: (message: Pick<Message, 'role' | 'content'>) => void
+  readonly onScheduleUpdate?: (weekStart: string, events: readonly AppEvent[]) => void
+  readonly onItemConfirmed?: (
+    action: string,
+    entityType: 'habit' | 'goal' | 'event',
+    date?: string,
+    time?: string,
+  ) => void
 }
 
-export function ToolResultRenderer({ toolInvocation, append }: ToolResultRendererProps) {
+export function ToolResultRenderer({
+  toolInvocation,
+  append,
+  onScheduleUpdate,
+  onItemConfirmed,
+}: ToolResultRendererProps) {
+  if (toolInvocation.toolName === 'showWeekCalendar') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = toolInvocation.result as any
+    onScheduleUpdate?.(result.weekStart, result.events ?? [])
+    return <WeekCalendarRenderer weekStart={result.weekStart} events={result.events} />
+  }
+
   if (toolInvocation.toolName === 'proposeAction') {
-    // Dynamic — result shape is defined by AI tool schema; validated at runtime
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = toolInvocation.result as any
     return (
@@ -67,6 +84,7 @@ export function ToolResultRenderer({ toolInvocation, append }: ToolResultRendere
         detail={result.detail}
         onConfirm={() => {
           append?.({ role: 'user', content: `[CONFIRM] ${result.action}` })
+          onItemConfirmed?.(result.action, result.entityType, result.date, result.time)
         }}
         onDeny={(reason: string) => {
           append?.({ role: 'user', content: reason ? `[DENY] reason: ${reason}` : '[DENY]' })
@@ -77,7 +95,6 @@ export function ToolResultRenderer({ toolInvocation, append }: ToolResultRendere
 
   const Component = componentMap[toolInvocation.toolName as keyof typeof componentMap]
   if (!Component) return null
-  // Dynamic dispatch — props match Component requirements by construction; union prevents precise typing
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return <Component {...(toolInvocation.result as any)} />
 }
