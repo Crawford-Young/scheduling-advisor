@@ -1,5 +1,11 @@
 import { auth } from '@/auth'
-import { redirect } from 'next/navigation'
+import { redirect, notFound } from 'next/navigation'
+import { db } from '@/db'
+import { conversations } from '@/db/schema'
+import { eq, and, isNull } from 'drizzle-orm'
+import { getConversationMessages } from '@/server/queries/conversations'
+import { getTokenBalance } from '@/server/queries/tokens'
+import { FullPageChatLayout } from '@/components/chat/full-page-chat-layout'
 import React from 'react'
 
 interface PageProps {
@@ -12,11 +18,36 @@ export default async function ChatPage({ params }: PageProps): Promise<React.JSX
 
   const { conversationId } = await params
 
+  const [conversation] = await db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.userId, session.user.id),
+        isNull(conversations.deletedAt),
+      ),
+    )
+
+  if (!conversation) notFound()
+
+  const [initialMessages, tokenBalance] = await Promise.all([
+    getConversationMessages(conversationId),
+    getTokenBalance(session.user.id),
+  ])
+
   return (
-    <div className="flex h-full items-center justify-center">
-      <p className="text-muted-foreground text-sm">
-        Chat {conversationId} — full layout coming in subsystem 2
-      </p>
-    </div>
+    <FullPageChatLayout
+      conversation={{
+        id: conversation.id,
+        type: conversation.type,
+        title: conversation.title,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+        lastMessagePreview: '',
+      }}
+      initialMessages={initialMessages}
+      tokenBalance={tokenBalance}
+    />
   )
 }

@@ -42,6 +42,7 @@
     "pino": "^10.3.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.11.2",
     "recharts": "^3.8.1",
     "sonner": "^2.0.7",
     "stripe": "^22.1.1",
