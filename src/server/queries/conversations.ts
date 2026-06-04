@@ -1,7 +1,40 @@
 import { auth } from '@/auth'
 import { db } from '@/db'
 import { conversations, messages } from '@/db/schema'
-import { eq, and, isNull, gt, desc } from 'drizzle-orm'
+import { eq, and, isNull, gt, desc, asc } from 'drizzle-orm'
+
+export interface ConversationMessage {
+  readonly id: string
+  readonly role: 'user' | 'assistant'
+  readonly content: string
+}
+
+function extractTextContent(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content
+      .filter((p): p is { type: 'text'; text: string } => p?.type === 'text')
+      .map((p) => p.text)
+      .join('')
+  }
+  return ''
+}
+
+export async function getConversationMessages(
+  conversationId: string,
+): Promise<ConversationMessage[]> {
+  const rows = await db
+    .select()
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(asc(messages.createdAt))
+
+  return rows.map((m) => ({
+    id: m.id,
+    role: m.role as 'user' | 'assistant',
+    content: extractTextContent(m.content),
+  }))
+}
 
 export interface ConversationRow {
   readonly id: string
