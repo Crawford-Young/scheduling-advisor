@@ -1,4 +1,4 @@
-import { auth } from '@/auth'
+import { auth, signOut } from '@/auth'
 import { redirect } from 'next/navigation'
 import { AppShell, Avatar, AvatarFallback, AvatarImage, Sidebar } from '@/lib/ui'
 import { ActiveSidebarItem } from '@/components/layout/active-sidebar-item'
@@ -6,6 +6,7 @@ import { ChatFab } from '@/components/chat/chat-fab'
 import {
   Calendar,
   CheckSquare,
+  LogOut,
   MessageSquare,
   RefreshCw,
   Rss,
@@ -47,12 +48,28 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
   )
 
   const sidebarFooter = (
-    <div className="flex items-center gap-2.5">
+    <div className="flex w-full items-center gap-2.5">
       <Avatar size="sm">
         <AvatarImage src={session.user.image ?? undefined} alt={session.user.name ?? 'User'} />
         <AvatarFallback>{(session.user.name ?? 'U')[0]}</AvatarFallback>
       </Avatar>
-      <p className="text-foreground truncate text-xs font-medium">{session.user.name ?? 'User'}</p>
+      <p className="text-foreground flex-1 truncate text-xs font-medium">
+        {session.user.name ?? 'User'}
+      </p>
+      <form
+        action={async () => {
+          'use server'
+          await signOut({ redirectTo: '/login' })
+        }}
+      >
+        <button
+          type="submit"
+          aria-label="Sign out"
+          className="text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <LogOut className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </form>
     </div>
   )
 
