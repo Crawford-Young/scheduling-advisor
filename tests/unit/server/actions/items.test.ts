@@ -292,4 +292,19 @@ describe('updateItem', () => {
     await updateItem({ taskId: 'task-1', fields: { title: 'New title' } })
     expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith('/calendar')
   })
+
+  it('updates status, targetDate, and visibility fields', async () => {
+    vi.mocked(auth).mockResolvedValue(authedSession)
+    await updateItem({
+      taskId: 'task-1',
+      fields: { status: 'completed', targetDate: '2026-07-01', visibility: 'everyone' },
+    })
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'completed',
+        targetDate: new Date('2026-07-01'),
+        visibility: 'everyone',
+      }),
+    )
+  })
 })

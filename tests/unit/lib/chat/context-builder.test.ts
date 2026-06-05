@@ -74,4 +74,69 @@ describe('buildContextBlock', () => {
     const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
     expect(ctx).toContain('(none)')
   })
+
+  it('marks skipped check-in as skipped', async () => {
+    const { getUserCheckIns } = await import('@/server/queries/check-ins')
+    vi.mocked(getUserCheckIns).mockResolvedValueOnce([
+      {
+        taskId: 'task-1',
+        scheduledAt: new Date('2026-06-01T00:00:00Z'),
+        completedAt: null,
+        skippedAt: new Date('2026-06-01T08:00:00Z'),
+      },
+    ] as never)
+    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
+    expect(ctx).toContain('skipped')
+  })
+
+  it('includes check-in with null taskId without error', async () => {
+    const { getUserCheckIns } = await import('@/server/queries/check-ins')
+    vi.mocked(getUserCheckIns).mockResolvedValueOnce([
+      {
+        taskId: null,
+        scheduledAt: new Date('2026-06-01T00:00:00Z'),
+        completedAt: null,
+        skippedAt: null,
+      },
+    ] as never)
+    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
+    expect(ctx).toContain('--- Current Context ---')
+  })
+
+  it('uses empty string for userId when unauthenticated', async () => {
+    const { auth } = await import('@/auth')
+    vi.mocked(auth).mockResolvedValueOnce(null as never)
+    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
+    expect(ctx).toContain('--- Current Context ---')
+  })
+
+  it('marks pending check-in (no completedAt or skippedAt) as pending', async () => {
+    const { getUserCheckIns } = await import('@/server/queries/check-ins')
+    vi.mocked(getUserCheckIns).mockResolvedValueOnce([
+      {
+        taskId: 'task-1',
+        scheduledAt: new Date('2026-06-01T00:00:00Z'),
+        completedAt: null,
+        skippedAt: null,
+      },
+    ] as never)
+    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
+    expect(ctx).toContain('pending')
+  })
+
+  it('shows task with no startAt or targetDate as pending with no time', async () => {
+    const { getUserTasks } = await import('@/server/queries/tasks')
+    vi.mocked(getUserTasks).mockResolvedValueOnce([
+      {
+        id: 'task-x',
+        title: 'Floating task',
+        type: 'task',
+        status: 'pending',
+        startAt: null,
+        targetDate: null,
+      },
+    ] as never)
+    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
+    expect(ctx).toContain('[task:task-x] Floating task — pending')
+  })
 })

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ChatMessagesPanel } from './chat-messages-panel'
 import type { Message } from 'ai'
@@ -57,5 +57,64 @@ describe('ChatMessagesPanel', () => {
   it('renders send button', () => {
     render(<ChatMessagesPanel messages={[]} {...noopFns} />)
     expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument()
+  })
+
+  it('calls setInput when typing in textarea', () => {
+    const setInput = vi.fn()
+    render(<ChatMessagesPanel messages={[]} {...noopFns} setInput={setInput} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'hello' } })
+    expect(setInput).toHaveBeenCalledWith('hello')
+  })
+
+  it('calls handleSubmit on Enter key in textarea', () => {
+    const handleSubmit = vi.fn()
+    render(<ChatMessagesPanel messages={[]} {...noopFns} handleSubmit={handleSubmit} />)
+    const textarea = screen.getByRole('textbox')
+    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false })
+    expect(handleSubmit).toHaveBeenCalled()
+  })
+
+  it('does not submit on Shift+Enter', () => {
+    const handleSubmit = vi.fn()
+    render(<ChatMessagesPanel messages={[]} {...noopFns} handleSubmit={handleSubmit} />)
+    const textarea = screen.getByRole('textbox')
+    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true })
+    expect(handleSubmit).not.toHaveBeenCalled()
+  })
+
+  it('renders tool invocations from assistant message', () => {
+    const messages = [
+      {
+        id: '1',
+        role: 'assistant' as const,
+        content: '',
+        toolInvocations: [
+          {
+            toolCallId: 'tc1',
+            toolName: 'showTaskCard',
+            args: {},
+            state: 'result' as const,
+            result: {},
+          },
+        ],
+      },
+    ]
+    render(<ChatMessagesPanel messages={messages} {...noopFns} />)
+    expect(screen.getByTestId('tool-result')).toBeInTheDocument()
+  })
+
+  it('filters out non-result tool invocations', () => {
+    const messages = [
+      {
+        id: '1',
+        role: 'assistant' as const,
+        content: '',
+        toolInvocations: [
+          { toolCallId: 'tc1', toolName: 'showTaskCard', args: {}, state: 'call' as const },
+        ],
+      },
+    ]
+    render(<ChatMessagesPanel messages={messages} {...noopFns} />)
+    expect(screen.queryByTestId('tool-result')).not.toBeInTheDocument()
   })
 })

@@ -72,6 +72,17 @@ const events = [
     activityType: 'solo',
     visibility: 'only_me',
   },
+  {
+    id: 'e3',
+    title: 'Write book',
+    start: '2026-05-29T10:00:00',
+    end: '2026-05-29T11:00:00',
+    type: 'goal' as const,
+    status: 'pending' as const,
+    streak: 0,
+    activityType: 'solo',
+    visibility: 'only_me',
+  },
 ]
 
 describe('CalendarClient', () => {
@@ -106,6 +117,15 @@ describe('CalendarClient', () => {
     await userEvent.click(screen.getByText('Morning run'))
     await userEvent.click(screen.getByText('Perfect week'))
     expect(screen.getByTestId('perfect-week')).toBeInTheDocument()
+  })
+
+  it('dismisses PerfectWeekCelebration on dismiss button click', async () => {
+    render(<CalendarClient weekStart="2026-05-25" events={events} />)
+    await userEvent.click(screen.getByText('Morning run'))
+    await userEvent.click(screen.getByText('Perfect week'))
+    expect(screen.getByTestId('perfect-week')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByTestId('perfect-week')).not.toBeInTheDocument()
   })
 
   it('passes axe', async () => {

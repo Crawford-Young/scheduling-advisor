@@ -95,4 +95,10 @@ describe('HabitFormDialog', () => {
     render(<HabitFormDialog {...baseProps} />)
     expect(screen.getByRole('button', { name: /save/i })).toBeDisabled()
   })
+
+  it('calls onOpenChange(false) on cancel', async () => {
+    render(<HabitFormDialog {...baseProps} />)
+    await userEvent.click(screen.getByRole('button', { name: /cancel/i }))
+    expect(baseProps.onOpenChange).toHaveBeenCalledWith(false)
+  })
 })

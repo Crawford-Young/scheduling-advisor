@@ -69,6 +69,11 @@ describe('createConversation', () => {
     vi.mocked(auth).mockResolvedValueOnce(null as any)
     await expect(createConversation('general')).rejects.toThrow('Unauthorized')
   })
+
+  it('throws Insert failed when insert returns empty', async () => {
+    mockReturning.mockResolvedValueOnce([])
+    await expect(createConversation('general')).rejects.toThrow('Insert failed')
+  })
 })
 
 // ── deleteConversation ────────────────────────────────────────────────────────

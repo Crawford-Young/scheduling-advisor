@@ -25,6 +25,7 @@ vi.mock('@/components/chat/action-confirm-card', () => ({
     <div>
       <button onClick={onConfirm}>confirm</button>
       <button onClick={() => onDeny('')}>deny</button>
+      <button onClick={() => onDeny('wrong time')}>deny-with-reason</button>
     </div>
   ),
 }))
@@ -63,6 +64,76 @@ describe('ToolResultRenderer', () => {
     expect(onScheduleUpdate).toHaveBeenCalledWith('2026-06-02', expect.any(Array))
   })
 
+  it('renders showWeekCalendar with task/goal/habit event types', () => {
+    render(
+      <ToolResultRenderer
+        toolInvocation={makeInvocation('showWeekCalendar', {
+          weekStart: '2026-06-02',
+          events: [
+            {
+              id: '1',
+              title: 'A',
+              start: '2026-06-02T09:00:00',
+              end: '2026-06-02T10:00:00',
+              type: 'task',
+            },
+            {
+              id: '2',
+              title: 'B',
+              start: '2026-06-02T10:00:00',
+              end: '2026-06-02T11:00:00',
+              type: 'goal',
+            },
+            {
+              id: '3',
+              title: 'C',
+              start: '2026-06-02T11:00:00',
+              end: '2026-06-02T12:00:00',
+              type: 'habit',
+            },
+          ],
+        })}
+      />,
+    )
+    expect(screen.getByTestId('week-cal')).toBeInTheDocument()
+  })
+
+  it('renders showWeekCalendar without onScheduleUpdate', () => {
+    render(
+      <ToolResultRenderer
+        toolInvocation={makeInvocation('showWeekCalendar', {
+          weekStart: '2026-06-02',
+          events: [],
+        })}
+      />,
+    )
+    expect(screen.getByTestId('week-cal')).toBeInTheDocument()
+  })
+
+  it('renders showWeekCalendar with undefined events (uses empty array fallback)', () => {
+    render(
+      <ToolResultRenderer
+        toolInvocation={makeInvocation('showWeekCalendar', {
+          weekStart: '2026-06-02',
+        })}
+      />,
+    )
+    expect(screen.getByTestId('week-cal')).toBeInTheDocument()
+  })
+
+  it('deny without append prop does not throw', async () => {
+    const user = userEvent.setup()
+    render(
+      <ToolResultRenderer
+        toolInvocation={makeInvocation('proposeAction', {
+          action: 'Run daily',
+          entityType: 'habit',
+        })}
+      />,
+    )
+    await user.click(screen.getByText('deny'))
+  })
+
   it('calls onItemConfirmed when ActionConfirmCard confirmed', async () => {
     const user = userEvent.setup()
     const onItemConfirmed = vi.fn()
@@ -79,5 +150,21 @@ describe('ToolResultRenderer', () => {
     )
     await user.click(screen.getByText('confirm'))
     expect(onItemConfirmed).toHaveBeenCalledWith('Run daily', 'habit', '2026-06-02', '07:00')
+  })
+
+  it('sends [DENY] reason: text when deny has a reason', async () => {
+    const user = userEvent.setup()
+    const append = vi.fn()
+    render(
+      <ToolResultRenderer
+        toolInvocation={makeInvocation('proposeAction', {
+          action: 'Run daily',
+          entityType: 'habit',
+        })}
+        append={append}
+      />,
+    )
+    await user.click(screen.getByText('deny-with-reason'))
+    expect(append).toHaveBeenCalledWith({ role: 'user', content: '[DENY] reason: wrong time' })
   })
 })

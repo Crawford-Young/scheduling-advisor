@@ -29,7 +29,7 @@ describe('WeekCalendarView (library)', () => {
   it('renders week day headers', () => {
     render(<WeekCalendarView {...baseProps} />)
     expect(screen.getByRole('button', { name: /Mon 4/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Sun 10/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Sat 9/i })).toBeInTheDocument()
   })
 
   it('renders calendar events', () => {

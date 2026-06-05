@@ -72,4 +72,28 @@ describe('getConversationMessages', () => {
 
     expect(result[2]).toMatchObject({ id: 'msg-3', role: 'assistant', content: '' })
   })
+
+  it('returns empty string for null or object content', async () => {
+    mockOrderBy.mockResolvedValueOnce([
+      {
+        id: 'msg-null',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: null,
+        createdAt: new Date(),
+      },
+      {
+        id: 'msg-obj',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: { unexpected: true },
+        createdAt: new Date(),
+      },
+    ])
+    const { getConversationMessages } = await import('./conversations')
+    const result = await getConversationMessages('conv-1')
+
+    expect(result[0]!.content).toBe('')
+    expect(result[1]!.content).toBe('')
+  })
 })

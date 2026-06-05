@@ -17,7 +17,7 @@ describe('getTokenBalanceAction', () => {
 
   it('throws if unauthenticated', async () => {
     const { auth } = await import('@/auth')
-    vi.mocked(auth).mockResolvedValueOnce(null)
+    vi.mocked(auth).mockResolvedValueOnce(null as never)
     const { getTokenBalanceAction } = await import('./tokens')
     await expect(getTokenBalanceAction()).rejects.toThrow('Unauthorized')
   })

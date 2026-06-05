@@ -95,4 +95,31 @@ describe('ActionConfirmCard', () => {
     expect(screen.getByText('December 31st')).toBeInTheDocument()
     expect(screen.queryByText(/7:00 AM/)).not.toBeInTheDocument()
   })
+
+  it('renders without date or time (no dateTime block shown)', () => {
+    render(
+      <ActionConfirmCard
+        action="Create event"
+        entityType="event"
+        onConfirm={vi.fn()}
+        onDeny={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Create event')).toBeInTheDocument()
+    expect(screen.queryByText('event')).not.toBeInTheDocument()
+  })
+
+  it('renders detail when provided', () => {
+    render(
+      <ActionConfirmCard
+        action="Create event"
+        entityType="event"
+        date="June 1st"
+        detail="Retroactive — originally June 1st"
+        onConfirm={vi.fn()}
+        onDeny={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Retroactive — originally June 1st')).toBeInTheDocument()
+  })
 })

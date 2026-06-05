@@ -136,4 +136,61 @@ describe('TaskFormDialog', () => {
     )
     expect(screen.getByRole('textbox')).toHaveValue('Run 5k')
   })
+
+  it('does nothing when save clicked without date selected', async () => {
+    const { createTask } = await import('@/server/actions/tasks')
+    render(<TaskFormDialog {...baseProps} />)
+    await userEvent.type(screen.getByRole('textbox'), 'No date task')
+    await userEvent.click(screen.getByRole('button', { name: /save/i }))
+    expect(createTask).not.toHaveBeenCalled()
+  })
+
+  it('calls updateTask on submit when taskId provided', async () => {
+    const { updateTask } = await import('@/server/actions/tasks')
+    render(
+      <TaskFormDialog
+        {...baseProps}
+        taskId="550e8400-e29b-41d4-a716-446655440000"
+        initialTitle="Build app"
+        initialStartAt="2026-05-19T09:00:00Z"
+        initialEndAt="2026-05-19T10:00:00Z"
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: /save/i }))
+    await vi.waitFor(() => {
+      expect(updateTask).toHaveBeenCalledWith(
+        expect.objectContaining({ id: '550e8400-e29b-41d4-a716-446655440000', title: 'Build app' }),
+      )
+    })
+  })
+
+  it('calls createTask on submit without taskId when date selected', async () => {
+    const { createTask } = await import('@/server/actions/tasks')
+    render(<TaskFormDialog {...baseProps} />)
+    await userEvent.type(screen.getByRole('textbox'), 'New task')
+    await userEvent.click(screen.getByRole('button', { name: 'date-picker' }))
+    await userEvent.click(screen.getByRole('button', { name: /save/i }))
+    await vi.waitFor(() => {
+      expect(createTask).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'task', title: 'New task' }),
+      )
+    })
+  })
+
+  it('calls createTask for each defaultDate when multiple dates', async () => {
+    const { createTask } = await import('@/server/actions/tasks')
+    const defaultDates = [new Date('2026-06-01T00:00:00Z'), new Date('2026-06-02T00:00:00Z')]
+    render(<TaskFormDialog {...baseProps} defaultDates={defaultDates} />)
+    await userEvent.type(screen.getByRole('textbox'), 'Multi-day task')
+    await userEvent.click(screen.getByRole('button', { name: /save/i }))
+    await vi.waitFor(() => {
+      expect(createTask).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  it('shows date chips when defaultDates provided', () => {
+    const defaultDates = [new Date('2026-06-01T00:00:00Z')]
+    render(<TaskFormDialog {...baseProps} defaultDates={defaultDates} />)
+    expect(screen.getByText('Date(s)')).toBeInTheDocument()
+  })
 })

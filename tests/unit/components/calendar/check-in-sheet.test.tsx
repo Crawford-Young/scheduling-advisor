@@ -78,6 +78,13 @@ describe('CheckInSheet', () => {
     expect(doneBtn).toBeDisabled()
   })
 
+  it('calls onClose on Reschedule click', async () => {
+    const onClose = vi.fn()
+    render(<CheckInSheet item={item} onClose={onClose} onPerfectWeek={() => {}} />)
+    await userEvent.click(screen.getByRole('button', { name: /reschedule/i }))
+    expect(onClose).toHaveBeenCalled()
+  })
+
   it('passes axe', async () => {
     const { container } = render(
       <CheckInSheet item={item} onClose={() => {}} onPerfectWeek={() => {}} />,

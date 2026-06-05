@@ -95,4 +95,10 @@ describe('listConversations', () => {
     const result = await listConversations()
     expect(result[0]!.lastMessagePreview).toBe('')
   })
+
+  it('handles null message content gracefully', async () => {
+    mockMsgLimit.mockResolvedValueOnce([{ content: null, role: 'assistant' }])
+    const result = await listConversations()
+    expect(result[0]!.lastMessagePreview).toBe('')
+  })
 })

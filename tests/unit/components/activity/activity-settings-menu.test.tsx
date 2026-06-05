@@ -71,6 +71,11 @@ describe('ActivitySettingsMenu', () => {
     expect(screen.queryByText(/joinability/i)).not.toBeInTheDocument()
   })
 
+  it('shows joinability label for group type with public visibility', () => {
+    render(<ActivitySettingsMenu {...baseProps} activityType="group" visibility="everyone" />)
+    expect(screen.getByText(/joinability/i)).toBeInTheDocument()
+  })
+
   it('passes axe', async () => {
     const { container } = render(<ActivitySettingsMenu {...baseProps} />)
     expect(await axe(container)).toHaveNoViolations()

@@ -120,4 +120,27 @@ describe('GoalFormDialog', () => {
     render(<GoalFormDialog {...baseProps} />)
     expect(screen.getByRole('button', { name: /save/i })).toBeDisabled()
   })
+
+  it('initializes with targetDate when initialTargetDate provided', () => {
+    render(
+      <GoalFormDialog
+        {...baseProps}
+        taskId="550e8400-e29b-41d4-a716-446655440000"
+        initialTitle="Run marathon"
+        initialTargetDate="2026-06-15"
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'date-picker' })).toHaveTextContent(/2026/)
+  })
+
+  it('includes targetDate in createTask when date picker used', async () => {
+    const { createTask } = await import('@/server/actions/tasks')
+    render(<GoalFormDialog {...baseProps} />)
+    await userEvent.type(screen.getByRole('textbox'), 'Run marathon')
+    await userEvent.click(screen.getByRole('button', { name: 'date-picker' }))
+    await userEvent.click(screen.getByRole('button', { name: /save/i }))
+    expect(createTask).toHaveBeenCalledWith(
+      expect.objectContaining({ targetDate: expect.stringContaining('2026-06') }),
+    )
+  })
 })

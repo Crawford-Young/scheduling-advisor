@@ -74,6 +74,12 @@ describe('createTask', () => {
     expect(result).toHaveProperty('error')
   })
 
+  it('returns insert-failed when single insert returns empty', async () => {
+    mockReturningInsert.mockResolvedValueOnce([])
+    const result = await createTask({ title: 'Run 5k', type: 'goal' })
+    expect(result).toMatchObject({ error: 'Insert failed' })
+  })
+
   it('returns error when unauthenticated', async () => {
     const { auth } = await import('@/auth')
     vi.mocked(auth).mockResolvedValueOnce(null as never)
@@ -154,6 +160,132 @@ describe('createTask fan-out', () => {
     expect(insertedRows[1]!.startAt.toISOString()).toBe('2026-05-26T07:00:00.000Z')
   })
 
+  it('creates 2 monthly tasks with correct month offsets', async () => {
+    const rows = [
+      {
+        id: 'task-1',
+        title: 'Review',
+        type: 'task',
+        startAt: new Date('2026-05-01T09:00:00.000Z'),
+      },
+      {
+        id: 'task-2',
+        title: 'Review',
+        type: 'task',
+        startAt: new Date('2026-06-01T09:00:00.000Z'),
+      },
+    ]
+    mockReturningInsert.mockResolvedValueOnce(rows)
+
+    await createTask({
+      title: 'Review',
+      type: 'task',
+      recurrence: 'monthly',
+      startAt: '2026-05-01T09:00:00.000Z',
+      endAt: '2026-05-01T10:00:00.000Z',
+      recurrenceCount: 2,
+    })
+
+    const insertedRows = mockValuesInsert.mock.calls[0]![0] as Array<{ startAt: Date }>
+    expect(insertedRows).toHaveLength(2)
+    expect(insertedRows[0]!.startAt.getUTCMonth()).toBe(4) // May
+    expect(insertedRows[1]!.startAt.getUTCMonth()).toBe(5) // June
+  })
+
+  it('fan-out without endAt sets null end dates (daily)', async () => {
+    mockReturningInsert.mockResolvedValueOnce([
+      {
+        id: 'task-1',
+        title: 'Daily meditation',
+        type: 'task',
+        startAt: new Date('2026-05-19T09:00:00.000Z'),
+      },
+    ])
+    await createTask({
+      title: 'Daily meditation',
+      type: 'task',
+      recurrence: 'daily',
+      startAt: '2026-05-19T09:00:00.000Z',
+      recurrenceCount: 2,
+    })
+    const insertedRows = mockValuesInsert.mock.calls[0]![0] as Array<{ endAt: null }>
+    expect(insertedRows[0]!.endAt).toBeNull()
+  })
+
+  it('fan-out without endAt sets null end dates (weekly)', async () => {
+    mockReturningInsert.mockResolvedValueOnce([
+      {
+        id: 'task-1',
+        title: 'Weekly review',
+        type: 'task',
+        startAt: new Date('2026-05-19T09:00:00.000Z'),
+      },
+    ])
+    await createTask({
+      title: 'Weekly review',
+      type: 'task',
+      recurrence: 'weekly',
+      startAt: '2026-05-19T09:00:00.000Z',
+      recurrenceCount: 2,
+    })
+    const insertedRows = mockValuesInsert.mock.calls[0]![0] as Array<{ endAt: null }>
+    expect(insertedRows[0]!.endAt).toBeNull()
+  })
+
+  it('fan-out without endAt sets null end dates (monthly)', async () => {
+    mockReturningInsert.mockResolvedValueOnce([
+      {
+        id: 'task-1',
+        title: 'Monthly check',
+        type: 'task',
+        startAt: new Date('2026-05-01T09:00:00.000Z'),
+      },
+    ])
+    await createTask({
+      title: 'Monthly check',
+      type: 'task',
+      recurrence: 'monthly',
+      startAt: '2026-05-01T09:00:00.000Z',
+      recurrenceCount: 2,
+    })
+    const insertedRows = mockValuesInsert.mock.calls[0]![0] as Array<{ endAt: null }>
+    expect(insertedRows[0]!.endAt).toBeNull()
+  })
+
+  it('fan-out with targetDate includes it in rows', async () => {
+    mockReturningInsert.mockResolvedValueOnce([
+      {
+        id: 'task-1',
+        title: 'Daily goal',
+        type: 'goal',
+        startAt: new Date('2026-05-19T09:00:00.000Z'),
+      },
+    ])
+    await createTask({
+      title: 'Daily goal',
+      type: 'goal',
+      recurrence: 'daily',
+      startAt: '2026-05-19T09:00:00.000Z',
+      targetDate: new Date('2026-06-30').toISOString(),
+      recurrenceCount: 2,
+    })
+    const insertedRows = mockValuesInsert.mock.calls[0]![0] as Array<{ targetDate: Date | null }>
+    expect(insertedRows[0]!.targetDate).toBeInstanceOf(Date)
+  })
+
+  it('returns insert-failed error when fan-out insert returns empty', async () => {
+    mockReturningInsert.mockResolvedValueOnce([])
+    const result = await createTask({
+      title: 'Fail',
+      type: 'task',
+      recurrence: 'daily',
+      startAt: '2026-05-19T09:00:00.000Z',
+      endAt: '2026-05-19T10:00:00.000Z',
+      recurrenceCount: 2,
+    })
+    expect(result).toMatchObject({ error: 'Insert failed' })
+  })
+
   it('does not fan out when recurrenceCount is omitted', async () => {
     mockReturningInsert.mockResolvedValueOnce([{ id: 'task-1', title: 'Run', type: 'task' }])
 
@@ -226,6 +358,28 @@ describe('updateTask', () => {
       status: 'completed',
     })
     expect(result).toMatchObject({ error: 'Not found' })
+  })
+
+  it('updates startAt and endAt when provided', async () => {
+    mockReturningUpdate.mockResolvedValueOnce([
+      { id: 'task-1', type: 'task', startAt: new Date('2026-06-01T09:00:00Z') },
+    ])
+    const result = await updateTask({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      startAt: '2026-06-01T09:00:00.000Z',
+      endAt: '2026-06-01T10:00:00.000Z',
+    })
+    expect(result).toMatchObject({ data: { id: 'task-1' } })
+  })
+
+  it('clears startAt when set to null', async () => {
+    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', type: 'task', startAt: null }])
+    const result = await updateTask({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      startAt: null,
+      endAt: null,
+    })
+    expect(result).toMatchObject({ data: { startAt: null } })
   })
 
   it('clears targetDate when set to null', async () => {
