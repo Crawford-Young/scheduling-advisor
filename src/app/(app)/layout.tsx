@@ -47,6 +47,18 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
     </div>
   )
 
+  const sidebarCollapsedHeader = (
+    <div className="border-border flex h-14 shrink-0 items-center justify-center border-b">
+      <Image
+        src="/cybond.png"
+        alt="Cybond"
+        width={28}
+        height={28}
+        className="shrink-0 rounded-lg"
+      />
+    </div>
+  )
+
   const sidebarFooter = (
     <div className="flex w-full items-center gap-2.5">
       <Avatar size="sm">
@@ -77,7 +89,11 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
     <>
       <AppShell
         sidebar={
-          <Sidebar header={sidebarHeader} footer={sidebarFooter}>
+          <Sidebar
+            header={sidebarHeader}
+            collapsedHeader={sidebarCollapsedHeader}
+            footer={sidebarFooter}
+          >
             {NAV_ITEMS.map((item) => (
               <ActiveSidebarItem
                 key={item.href}
