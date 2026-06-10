@@ -170,7 +170,7 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
           onOpenChange={(open) => !open && setEditTarget(null)}
           taskId={editTarget.id}
           initialTitle={editTarget.title}
-          initialTargetDate={editTarget.start}
+          initialTargetDate={editTarget.start.slice(0, 10)}
         />
       )}
       {editTarget?.type === 'habit' && (

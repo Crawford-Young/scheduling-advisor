@@ -79,8 +79,20 @@ vi.mock('@/components/tasks/task-form-dialog', () => ({
     open ? <div data-testid="task-dialog">{taskId}</div> : null,
 }))
 vi.mock('@/components/goals/goal-form-dialog', () => ({
-  GoalFormDialog: ({ open, taskId }: { open: boolean; taskId?: string }) =>
-    open ? <div data-testid="goal-dialog">{taskId}</div> : null,
+  GoalFormDialog: ({
+    open,
+    taskId,
+    initialTargetDate,
+  }: {
+    open: boolean
+    taskId?: string
+    initialTargetDate?: string | null
+  }) =>
+    open ? (
+      <div data-testid="goal-dialog">
+        {taskId}:{initialTargetDate}
+      </div>
+    ) : null,
 }))
 vi.mock('@/components/habits/habit-form-dialog', () => ({
   HabitFormDialog: ({ open, taskId }: { open: boolean; taskId?: string }) =>
@@ -371,6 +383,23 @@ describe('CalendarClient', () => {
       render(<CalendarClient weekStart="2026-05-25" events={events} />)
       ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e2', title: 'Done event' })
       expect(screen.queryByTestId('task-dialog')).not.toBeInTheDocument()
+    })
+
+    it('passes date-only YYYY-MM-DD to GoalFormDialog initialTargetDate', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e3', title: 'Write book' })
+      const dialog = await screen.findByTestId('goal-dialog')
+      // e3.start is '2026-05-29T10:00:00' — date-only slice is '2026-05-29'
+      // Use exact match so '2026-05-29T10:00:00' (full datetime) fails but '2026-05-29' passes
+      expect(dialog.textContent).toBe('e3:2026-05-29')
+    })
+
+    it('opens no dialog when event id is not found in events list', () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'nope', title: 'Ghost' })
+      expect(screen.queryByTestId('task-dialog')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('goal-dialog')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('habit-dialog')).not.toBeInTheDocument()
     })
   })
 })
