@@ -50,18 +50,6 @@
     "web-push": "^3.6.7",
     "zod": "3"
   },
-  "pnpm": {
-    "overrides": {
-      "zod": "3"
-    },
-    "peerDependencyRules": {
-      "allowedVersions": {
-        "eslint-plugin-import>eslint": "10",
-        "eslint-plugin-jsx-a11y>eslint": "10",
-        "eslint-plugin-react>eslint": "10"
-      }
-    }
-  },
   "devDependencies": {
     "@commitlint/cli": "^20.5.2",
     "@commitlint/config-conventional": "^20.5.0",
@@ -81,9 +69,10 @@
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.10",
     "eslint": "^10.2.1",
-    "eslint-config-next": "^16.2.4",
+    "eslint-config-next": "^16.2.9",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-jsx-a11y": "^6.10.2",
+    "espree": "^11.2.0",
     "happy-dom": "^20.9.0",
     "husky": "^9.1.7",
     "jest-axe": "^10.0.0",

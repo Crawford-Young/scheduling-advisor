@@ -46,7 +46,7 @@ test.describe('Onboarding flow', () => {
 
   test('login page renders and has Google sign-in button', async ({ page }) => {
     await page.goto('/login')
-    await expect(page.getByText('Scheduling Advisor')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Cybond' })).toBeVisible()
     await expect(page.getByRole('button', { name: /Continue with Google/i })).toBeVisible()
   })
 
