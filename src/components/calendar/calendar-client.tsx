@@ -54,6 +54,104 @@ function toLibraryEvent(e: AppCalendarEvent): LibraryCalendarEvent {
   return { id: e.id, title: e.title, start: e.start, end: e.end, color: toLibraryColor(e.type) }
 }
 
+// Discriminated union for the single active dialog.
+// Only one dialog can be open at a time; the union enforces this structurally.
+type DialogState =
+  | { mode: 'create'; slot: { start: string; end: string } }
+  | { mode: 'edit'; target: AppCalendarEvent }
+  | { mode: 'delete'; target: LibraryCalendarEvent }
+  | null
+
+interface CalendarEventDialogsProps {
+  readonly dialog: DialogState
+  readonly onClose: () => void
+  readonly onConfirmDelete: (target: LibraryCalendarEvent) => void
+  readonly onDeleteOpenChange: (open: boolean) => void
+  readonly resyncQueuedRef: React.MutableRefObject<boolean>
+  readonly startResyncTransition: React.TransitionStartFunction
+  readonly router: { refresh: () => void }
+}
+
+function CalendarEventDialogs({
+  dialog,
+  onClose,
+  onConfirmDelete,
+  onDeleteOpenChange,
+  resyncQueuedRef,
+  startResyncTransition,
+  router,
+}: CalendarEventDialogsProps): React.JSX.Element {
+  return (
+    <>
+      {dialog?.mode === 'create' && (
+        <TaskFormDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              onClose()
+              resyncQueuedRef.current = true
+              startResyncTransition(() => {
+                router.refresh()
+              })
+            }
+          }}
+          defaultDates={[new Date(dialog.slot.start)]}
+          defaultStartTime={toUTCTimeSlot(dialog.slot.start)}
+          defaultEndTime={toUTCTimeSlot(dialog.slot.end)}
+        />
+      )}
+
+      {dialog?.mode === 'edit' && dialog.target.type === 'task' && (
+        <TaskFormDialog
+          open
+          onOpenChange={(open) => !open && onClose()}
+          taskId={dialog.target.id}
+          initialTitle={dialog.target.title}
+          initialStartAt={dialog.target.start}
+          initialEndAt={dialog.target.end}
+        />
+      )}
+      {dialog?.mode === 'edit' && dialog.target.type === 'goal' && (
+        <GoalFormDialog
+          open
+          onOpenChange={(open) => !open && onClose()}
+          taskId={dialog.target.id}
+          initialTitle={dialog.target.title}
+          initialTargetDate={dialog.target.start.slice(0, 10)}
+        />
+      )}
+      {dialog?.mode === 'edit' && dialog.target.type === 'habit' && (
+        <HabitFormDialog
+          open
+          onOpenChange={(open) => !open && onClose()}
+          taskId={dialog.target.id}
+          initialTitle={dialog.target.title}
+        />
+      )}
+
+      <AlertDialog open={dialog?.mode === 'delete'} onOpenChange={onDeleteOpenChange}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete event</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete &quot;{dialog?.mode === 'delete' ? dialog.target.title : ''}&quot;? This
+              removes the task and its history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => dialog?.mode === 'delete' && onConfirmDelete(dialog.target)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
+}
+
 interface CalendarClientProps {
   readonly weekStart: string
   readonly events: readonly AppCalendarEvent[]
@@ -62,9 +160,7 @@ interface CalendarClientProps {
 export function CalendarClient({ weekStart, events }: CalendarClientProps): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [perfectWeekVisible, setPerfectWeekVisible] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState<LibraryCalendarEvent | null>(null)
-  const [editTarget, setEditTarget] = useState<AppCalendarEvent | null>(null)
-  const [createSlot, setCreateSlot] = useState<{ start: string; end: string } | null>(null)
+  const [dialog, setDialog] = useState<DialogState>(null)
   // Bumping resetKey remounts WeekCalendarView to resync it from the events prop:
   // the library applies move/resize/delete to internal state optimistically and never
   // re-derives from props, so router.refresh() alone cannot restore the view.
@@ -99,12 +195,12 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
   function handleEventEdit(libEvent: LibraryCalendarEvent): void {
     const appEvent = events.find((e) => e.id === libEvent.id)
     if (!appEvent || appEvent.status === 'completed') return
-    setEditTarget(appEvent)
+    setDialog({ mode: 'edit', target: appEvent })
   }
 
   function handleConfirmDelete(target: LibraryCalendarEvent): void {
     confirmedRef.current = true
-    setDeleteTarget(null)
+    setDialog(null)
     startTransition(async () => {
       const result = await deleteTask({ id: target.id })
       if ('error' in result) {
@@ -113,6 +209,14 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
       }
       router.refresh()
     })
+  }
+
+  function handleDeleteOpenChange(open: boolean): void {
+    if (!open) {
+      setDialog(null)
+      if (!confirmedRef.current) setResetKey((k) => k + 1)
+      confirmedRef.current = false
+    }
   }
 
   function handleTimeChange(libEvent: LibraryCalendarEvent): void {
@@ -148,9 +252,9 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
           }}
           onEventMove={handleTimeChange}
           onEventResize={handleTimeChange}
-          onEventDelete={(e) => setDeleteTarget(e)}
+          onEventDelete={(e) => setDialog({ mode: 'delete', target: e })}
           onEventEdit={handleEventEdit}
-          onEventCreate={(e) => setCreateSlot({ start: e.start, end: e.end })}
+          onEventCreate={(e) => setDialog({ mode: 'create', slot: { start: e.start, end: e.end } })}
         />
       </div>
 
@@ -176,77 +280,15 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
         onDismiss={() => setPerfectWeekVisible(false)}
       />
 
-      {createSlot && (
-        <TaskFormDialog
-          open
-          onOpenChange={(open) => {
-            if (!open) {
-              setCreateSlot(null)
-              resyncQueuedRef.current = true
-              startResyncTransition(() => {
-                router.refresh()
-              })
-            }
-          }}
-          defaultDates={[new Date(createSlot.start)]}
-          defaultStartTime={toUTCTimeSlot(createSlot.start)}
-          defaultEndTime={toUTCTimeSlot(createSlot.end)}
-        />
-      )}
-
-      {editTarget?.type === 'task' && (
-        <TaskFormDialog
-          open
-          onOpenChange={(open) => !open && setEditTarget(null)}
-          taskId={editTarget.id}
-          initialTitle={editTarget.title}
-          initialStartAt={editTarget.start}
-          initialEndAt={editTarget.end}
-        />
-      )}
-      {editTarget?.type === 'goal' && (
-        <GoalFormDialog
-          open
-          onOpenChange={(open) => !open && setEditTarget(null)}
-          taskId={editTarget.id}
-          initialTitle={editTarget.title}
-          initialTargetDate={editTarget.start.slice(0, 10)}
-        />
-      )}
-      {editTarget?.type === 'habit' && (
-        <HabitFormDialog
-          open
-          onOpenChange={(open) => !open && setEditTarget(null)}
-          taskId={editTarget.id}
-          initialTitle={editTarget.title}
-        />
-      )}
-
-      <AlertDialog
-        open={deleteTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setDeleteTarget(null)
-            if (!confirmedRef.current) setResetKey((k) => k + 1)
-            confirmedRef.current = false
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete event</AlertDialogTitle>
-            <AlertDialogDescription>
-              Delete &quot;{deleteTarget?.title}&quot;? This removes the task and its history.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleteTarget && handleConfirmDelete(deleteTarget)}>
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <CalendarEventDialogs
+        dialog={dialog}
+        onClose={() => setDialog(null)}
+        onConfirmDelete={handleConfirmDelete}
+        onDeleteOpenChange={handleDeleteOpenChange}
+        resyncQueuedRef={resyncQueuedRef}
+        startResyncTransition={startResyncTransition}
+        router={router}
+      />
     </>
   )
 }
