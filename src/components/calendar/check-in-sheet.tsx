@@ -47,7 +47,12 @@ export function CheckInSheet({
     })
   }
 
-  function handleReschedule(): void {
+  function handleAskCybond(): void {
+    window.dispatchEvent(
+      new CustomEvent('open-chat', {
+        detail: { prefill: `Find a new time for "${item.title}" this week` },
+      }),
+    )
     onClose()
   }
 
@@ -67,8 +72,8 @@ export function CheckInSheet({
         <Button size="sm" variant="outline" onClick={handleSkip} disabled={done} aria-label="Skip">
           Skip
         </Button>
-        <Button size="sm" variant="ghost" onClick={handleReschedule} aria-label="Reschedule">
-          Reschedule
+        <Button size="sm" variant="ghost" onClick={handleAskCybond} aria-label="Ask Cybond">
+          Ask Cybond
         </Button>
       </div>
     </div>

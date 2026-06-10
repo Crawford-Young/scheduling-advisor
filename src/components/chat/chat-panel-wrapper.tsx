@@ -35,12 +35,14 @@ export function ChatPanelWrapper({
   }, [messages])
 
   useEffect(() => {
-    function handleOpenChat() {
+    function handleOpenChat(e: Event) {
+      const prefill = (e as CustomEvent<{ prefill?: string }>).detail?.prefill
+      if (prefill) setInput(prefill)
       setOpen(true)
     }
     window.addEventListener('open-chat', handleOpenChat)
     return () => window.removeEventListener('open-chat', handleOpenChat)
-  }, [])
+  }, [setInput])
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {

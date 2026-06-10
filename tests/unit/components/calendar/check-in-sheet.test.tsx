@@ -33,11 +33,11 @@ describe('CheckInSheet', () => {
     expect(screen.getByText('Morning run')).toBeInTheDocument()
   })
 
-  it('shows Done, Skip, Reschedule buttons', () => {
+  it('shows Done, Skip, Ask Cybond buttons', () => {
     render(<CheckInSheet item={item} onClose={() => {}} onPerfectWeek={() => {}} />)
     expect(screen.getByRole('button', { name: /done/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /skip/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /reschedule/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /ask cybond/i })).toBeInTheDocument()
   })
 
   it('calls recordCompletion with done on Done click', async () => {
@@ -78,11 +78,19 @@ describe('CheckInSheet', () => {
     expect(doneBtn).toBeDisabled()
   })
 
-  it('calls onClose on Reschedule click', async () => {
+  it('dispatches open-chat with prefill on Ask Cybond click', async () => {
+    const listener = vi.fn()
+    window.addEventListener('open-chat', listener)
     const onClose = vi.fn()
     render(<CheckInSheet item={item} onClose={onClose} onPerfectWeek={() => {}} />)
-    await userEvent.click(screen.getByRole('button', { name: /reschedule/i }))
+    await userEvent.click(screen.getByRole('button', { name: /ask cybond/i }))
+    expect(listener).toHaveBeenCalled()
+    const rawCall = listener.mock.calls[0]
+    expect(rawCall).toBeDefined()
+    const event = rawCall![0] as CustomEvent<{ prefill: string }>
+    expect(event.detail.prefill).toContain('Morning run')
     expect(onClose).toHaveBeenCalled()
+    window.removeEventListener('open-chat', listener)
   })
 
   it('passes axe', async () => {
