@@ -5,10 +5,16 @@ import { axe } from 'jest-axe'
 import { CalendarClient } from '@/components/calendar/calendar-client'
 
 const mockRescheduleTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e1' } }))
+const mockDeleteTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { success: true } }))
 const mockToastError = vi.hoisted(() => vi.fn())
 const mockRefresh = vi.hoisted(() => vi.fn())
 
 vi.mock('@/server/actions/consistency', () => ({ rescheduleTask: mockRescheduleTask }))
+vi.mock('@/server/actions/tasks', () => ({
+  createTask: vi.fn(),
+  updateTask: vi.fn(),
+  deleteTask: mockDeleteTask,
+}))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mockRefresh }) }))
 
 let capturedProps: Record<string, unknown> = {}
@@ -207,6 +213,35 @@ describe('CalendarClient', () => {
       })
       await vi.waitFor(() => expect(mockToastError).toHaveBeenCalled())
       expect(mockRefresh).toHaveBeenCalled()
+    })
+  })
+
+  describe('delete', () => {
+    it('opens confirm dialog on onEventDelete, deletes on confirm', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
+      onEventDelete({ id: 'e1', title: 'Morning run' })
+      expect(await screen.findByText(/delete "Morning run"/i)).toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+      await vi.waitFor(() => expect(mockDeleteTask).toHaveBeenCalledWith({ id: 'e1' }))
+      expect(mockRefresh).toHaveBeenCalled()
+    })
+
+    it('does not delete on cancel', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
+      onEventDelete({ id: 'e1', title: 'Morning run' })
+      await userEvent.click(await screen.findByRole('button', { name: /cancel/i }))
+      expect(mockDeleteTask).not.toHaveBeenCalled()
+    })
+
+    it('shows toast on delete error', async () => {
+      mockDeleteTask.mockResolvedValueOnce({ error: 'Not found' })
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
+      onEventDelete({ id: 'e1', title: 'Morning run' })
+      await userEvent.click(await screen.findByRole('button', { name: /^delete$/i }))
+      await vi.waitFor(() => expect(mockToastError).toHaveBeenCalled())
     })
   })
 })

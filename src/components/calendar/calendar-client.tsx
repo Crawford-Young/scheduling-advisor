@@ -2,10 +2,23 @@
 import * as React from 'react'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { WeekCalendarView, toast, type CalendarEvent as LibraryCalendarEvent } from '@/lib/ui'
+import {
+  WeekCalendarView,
+  toast,
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+  type CalendarEvent as LibraryCalendarEvent,
+} from '@/lib/ui'
 import { CheckInSheet } from '@/components/calendar/check-in-sheet'
 import { PerfectWeekCelebration } from '@/components/calendar/perfect-week-celebration'
 import { rescheduleTask } from '@/server/actions/consistency'
+import { deleteTask } from '@/server/actions/tasks'
 
 interface AppCalendarEvent {
   readonly id: string
@@ -38,6 +51,7 @@ interface CalendarClientProps {
 export function CalendarClient({ weekStart, events }: CalendarClientProps): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [perfectWeekVisible, setPerfectWeekVisible] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<LibraryCalendarEvent | null>(null)
   const router = useRouter()
   const [, startTransition] = useTransition()
 
@@ -45,6 +59,17 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
 
   function isCompleted(id: string): boolean {
     return events.find((e) => e.id === id)?.status === 'completed'
+  }
+
+  function handleConfirmDelete(): void {
+    const target = deleteTarget
+    setDeleteTarget(null)
+    if (!target) return
+    startTransition(async () => {
+      const result = await deleteTask({ id: target.id })
+      if ('error' in result) toast.error('Could not delete event')
+      router.refresh()
+    })
   }
 
   function handleTimeChange(libEvent: LibraryCalendarEvent): void {
@@ -75,6 +100,7 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
           }}
           onEventMove={handleTimeChange}
           onEventResize={handleTimeChange}
+          onEventDelete={(e) => setDeleteTarget(e)}
         />
       </div>
 
@@ -99,6 +125,24 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
         visible={perfectWeekVisible}
         onDismiss={() => setPerfectWeekVisible(false)}
       />
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete event</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete &quot;{deleteTarget?.title}&quot;? This removes the task and its history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
