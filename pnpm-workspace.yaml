@@ -11,6 +11,8 @@ ignoredBuiltDependencies:
 confirmModulesPurge: false
 overrides:
   zod: '3'
+  fast-uri: 3.1.2
+  systeminformation: 5.31.7
 peerDependencyRules:
   allowedVersions:
     'eslint-plugin-import>eslint': '10'
