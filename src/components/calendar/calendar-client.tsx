@@ -52,8 +52,10 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [perfectWeekVisible, setPerfectWeekVisible] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<LibraryCalendarEvent | null>(null)
+  const [resetKey, setResetKey] = useState(0)
   const router = useRouter()
   const [, startTransition] = useTransition()
+  const confirmedRef = React.useRef(false)
 
   const selectedEvent = events.find((e) => e.id === selectedId) ?? null
 
@@ -62,18 +64,23 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
   }
 
   function handleConfirmDelete(): void {
+    confirmedRef.current = true
     const target = deleteTarget
     setDeleteTarget(null)
     if (!target) return
     startTransition(async () => {
       const result = await deleteTask({ id: target.id })
-      if ('error' in result) toast.error('Could not delete event')
+      if ('error' in result) {
+        toast.error('Could not delete event')
+        setResetKey((k) => k + 1)
+      }
       router.refresh()
     })
   }
 
   function handleTimeChange(libEvent: LibraryCalendarEvent): void {
     if (isCompleted(libEvent.id)) {
+      setResetKey((k) => k + 1)
       router.refresh()
       return
     }
@@ -83,7 +90,10 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
         newStartAt: new Date(libEvent.start).toISOString(),
         newEndAt: new Date(libEvent.end).toISOString(),
       })
-      if ('error' in result) toast.error('Could not reschedule — calendar restored')
+      if ('error' in result) {
+        toast.error('Could not reschedule — calendar restored')
+        setResetKey((k) => k + 1)
+      }
       router.refresh()
     })
   }
@@ -92,6 +102,7 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
     <>
       <div data-testid="week-calendar">
         <WeekCalendarView
+          key={`${weekStart}-${resetKey}`}
           defaultWeekStart={weekStart}
           events={events.map(toLibraryEvent)}
           onEventClick={(libEvent) => {
@@ -128,7 +139,13 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
 
       <AlertDialog
         open={deleteTarget !== null}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null)
+            if (!confirmedRef.current) setResetKey((k) => k + 1)
+            confirmedRef.current = false
+          }
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import React from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'jest-axe'
@@ -8,6 +9,7 @@ const mockRescheduleTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { 
 const mockDeleteTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { success: true } }))
 const mockToastError = vi.hoisted(() => vi.fn())
 const mockRefresh = vi.hoisted(() => vi.fn())
+const mountCount = vi.hoisted(() => ({ value: 0 }))
 
 vi.mock('@/server/actions/consistency', () => ({ rescheduleTask: mockRescheduleTask }))
 vi.mock('@/server/actions/tasks', () => ({
@@ -24,6 +26,9 @@ vi.mock('@/lib/ui', async (importOriginal) => ({
   WeekCalendarView: (props: Record<string, unknown>) => {
     capturedProps = props
     const events = props.events as Array<{ id: string; title: string }>
+    React.useEffect(() => {
+      mountCount.value += 1
+    }, [])
     return (
       <div>
         {events.map((e) => (
@@ -109,6 +114,7 @@ describe('CalendarClient', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     capturedProps = {}
+    mountCount.value = 0
   })
 
   it('renders the calendar', () => {
@@ -214,6 +220,47 @@ describe('CalendarClient', () => {
       await vi.waitFor(() => expect(mockToastError).toHaveBeenCalled())
       expect(mockRefresh).toHaveBeenCalled()
     })
+
+    it('remounts calendar on completed-event move (guard path)', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      const initialMountCount = mountCount.value
+      const onEventMove = capturedProps.onEventMove as (e: unknown) => void
+      onEventMove({
+        id: 'e2',
+        title: 'Done event',
+        start: '2026-05-29T11:00:00',
+        end: '2026-05-29T12:00:00',
+      })
+      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+    })
+
+    it('remounts calendar on reschedule error', async () => {
+      mockRescheduleTask.mockResolvedValueOnce({ error: 'Not found' })
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      const initialMountCount = mountCount.value
+      const onEventMove = capturedProps.onEventMove as (e: unknown) => void
+      onEventMove({
+        id: 'e1',
+        title: 'Morning run',
+        start: '2026-05-29T09:00:00',
+        end: '2026-05-29T10:00:00',
+      })
+      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+    })
+
+    it('does NOT remount calendar on successful reschedule', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      const initialMountCount = mountCount.value
+      const onEventMove = capturedProps.onEventMove as (e: unknown) => void
+      onEventMove({
+        id: 'e1',
+        title: 'Morning run',
+        start: '2026-05-29T09:00:00',
+        end: '2026-05-29T10:00:00',
+      })
+      await vi.waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+      expect(mountCount.value).toBe(initialMountCount)
+    })
   })
 
   describe('delete', () => {
@@ -242,6 +289,38 @@ describe('CalendarClient', () => {
       onEventDelete({ id: 'e1', title: 'Morning run' })
       await userEvent.click(await screen.findByRole('button', { name: /^delete$/i }))
       await vi.waitFor(() => expect(mockToastError).toHaveBeenCalled())
+    })
+
+    it('remounts calendar on cancel (restores optimistic delete)', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      const initialMountCount = mountCount.value
+      const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
+      onEventDelete({ id: 'e1', title: 'Morning run' })
+      await screen.findByText(/delete "Morning run"/i)
+      await userEvent.click(screen.getByRole('button', { name: /cancel/i }))
+      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+    })
+
+    it('does NOT remount calendar on successful delete', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      const initialMountCount = mountCount.value
+      const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
+      onEventDelete({ id: 'e1', title: 'Morning run' })
+      await screen.findByText(/delete "Morning run"/i)
+      await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+      await vi.waitFor(() => expect(mockDeleteTask).toHaveBeenCalled())
+      expect(mountCount.value).toBe(initialMountCount)
+    })
+
+    it('remounts calendar on delete error', async () => {
+      mockDeleteTask.mockResolvedValueOnce({ error: 'Not found' })
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      const initialMountCount = mountCount.value
+      const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
+      onEventDelete({ id: 'e1', title: 'Morning run' })
+      await screen.findByText(/delete "Morning run"/i)
+      await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
     })
   })
 })
