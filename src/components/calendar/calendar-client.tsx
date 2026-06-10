@@ -17,6 +17,9 @@ import {
 } from '@/lib/ui'
 import { CheckInSheet } from '@/components/calendar/check-in-sheet'
 import { PerfectWeekCelebration } from '@/components/calendar/perfect-week-celebration'
+import { TaskFormDialog } from '@/components/tasks/task-form-dialog'
+import { GoalFormDialog } from '@/components/goals/goal-form-dialog'
+import { HabitFormDialog } from '@/components/habits/habit-form-dialog'
 import { rescheduleTask } from '@/server/actions/consistency'
 import { deleteTask } from '@/server/actions/tasks'
 
@@ -52,6 +55,7 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [perfectWeekVisible, setPerfectWeekVisible] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<LibraryCalendarEvent | null>(null)
+  const [editTarget, setEditTarget] = useState<AppCalendarEvent | null>(null)
   // Bumping resetKey remounts WeekCalendarView to resync it from the events prop:
   // the library applies move/resize/delete to internal state optimistically and never
   // re-derives from props, so router.refresh() alone cannot restore the view.
@@ -67,6 +71,12 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
 
   function isCompleted(id: string): boolean {
     return events.find((e) => e.id === id)?.status === 'completed'
+  }
+
+  function handleEventEdit(libEvent: LibraryCalendarEvent): void {
+    const appEvent = events.find((e) => e.id === libEvent.id)
+    if (!appEvent || appEvent.status === 'completed') return
+    setEditTarget(appEvent)
   }
 
   function handleConfirmDelete(): void {
@@ -118,6 +128,7 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
           onEventMove={handleTimeChange}
           onEventResize={handleTimeChange}
           onEventDelete={(e) => setDeleteTarget(e)}
+          onEventEdit={handleEventEdit}
         />
       </div>
 
@@ -142,6 +153,34 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
         visible={perfectWeekVisible}
         onDismiss={() => setPerfectWeekVisible(false)}
       />
+
+      {editTarget?.type === 'task' && (
+        <TaskFormDialog
+          open
+          onOpenChange={(open) => !open && setEditTarget(null)}
+          taskId={editTarget.id}
+          initialTitle={editTarget.title}
+          initialStartAt={editTarget.start}
+          initialEndAt={editTarget.end}
+        />
+      )}
+      {editTarget?.type === 'goal' && (
+        <GoalFormDialog
+          open
+          onOpenChange={(open) => !open && setEditTarget(null)}
+          taskId={editTarget.id}
+          initialTitle={editTarget.title}
+          initialTargetDate={editTarget.start}
+        />
+      )}
+      {editTarget?.type === 'habit' && (
+        <HabitFormDialog
+          open
+          onOpenChange={(open) => !open && setEditTarget(null)}
+          taskId={editTarget.id}
+          initialTitle={editTarget.title}
+        />
+      )}
 
       <AlertDialog
         open={deleteTarget !== null}

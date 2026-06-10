@@ -74,6 +74,19 @@ vi.mock('@/components/calendar/perfect-week-celebration', () => ({
     ) : null,
 }))
 
+vi.mock('@/components/tasks/task-form-dialog', () => ({
+  TaskFormDialog: ({ open, taskId }: { open: boolean; taskId?: string }) =>
+    open ? <div data-testid="task-dialog">{taskId}</div> : null,
+}))
+vi.mock('@/components/goals/goal-form-dialog', () => ({
+  GoalFormDialog: ({ open, taskId }: { open: boolean; taskId?: string }) =>
+    open ? <div data-testid="goal-dialog">{taskId}</div> : null,
+}))
+vi.mock('@/components/habits/habit-form-dialog', () => ({
+  HabitFormDialog: ({ open, taskId }: { open: boolean; taskId?: string }) =>
+    open ? <div data-testid="habit-dialog">{taskId}</div> : null,
+}))
+
 const events = [
   {
     id: 'e1',
@@ -103,6 +116,17 @@ const events = [
     start: '2026-05-29T10:00:00',
     end: '2026-05-29T11:00:00',
     type: 'goal' as const,
+    status: 'pending' as const,
+    streak: 0,
+    activityType: 'solo',
+    visibility: 'only_me',
+  },
+  {
+    id: 'e4',
+    title: 'Ship report',
+    start: '2026-05-29T13:00:00',
+    end: '2026-05-29T14:00:00',
+    type: 'task' as const,
     status: 'pending' as const,
     streak: 0,
     activityType: 'solo',
@@ -321,6 +345,32 @@ describe('CalendarClient', () => {
       await screen.findByText(/delete "Morning run"/i)
       await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
       await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+    })
+  })
+
+  describe('edit', () => {
+    it('opens TaskFormDialog for task-type event', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e4', title: 'Ship report' })
+      expect(await screen.findByTestId('task-dialog')).toHaveTextContent('e4')
+    })
+
+    it('opens GoalFormDialog for goal-type event', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e3', title: 'Write book' })
+      expect(await screen.findByTestId('goal-dialog')).toHaveTextContent('e3')
+    })
+
+    it('opens HabitFormDialog for habit-type event', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e1', title: 'Morning run' })
+      expect(await screen.findByTestId('habit-dialog')).toHaveTextContent('e1')
+    })
+
+    it('ignores edit of completed event', () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e2', title: 'Done event' })
+      expect(screen.queryByTestId('task-dialog')).not.toBeInTheDocument()
     })
   })
 })
