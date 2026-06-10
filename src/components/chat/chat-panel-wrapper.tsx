@@ -1,4 +1,5 @@
 'use client'
+import * as React from 'react'
 import { useState, useRef, useEffect } from 'react'
 import { useChat } from 'ai/react'
 import type { Message, ToolInvocation } from 'ai'
@@ -19,7 +20,7 @@ export function ChatPanelWrapper({
   initialMessages,
   plan,
   pageContext,
-}: ChatPanelWrapperProps) {
+}: ChatPanelWrapperProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const isFree = plan === null
   const bottomRef = useRef<HTMLDivElement>(null)
