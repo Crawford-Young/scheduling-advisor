@@ -1,11 +1,10 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import { ChatPanelWrapper } from '@/components/chat/chat-panel-wrapper'
 
 const mockSetInput = vi.fn()
 const mockHandleSubmit = vi.fn()
-const mockAppend = vi.fn()
 
 vi.mock('ai/react', () => ({
   useChat: vi.fn(() => ({
@@ -14,15 +13,27 @@ vi.mock('ai/react', () => ({
     setInput: mockSetInput,
     handleSubmit: mockHandleSubmit,
     isLoading: false,
-    append: mockAppend,
+    append: vi.fn(),
   })),
 }))
 
 vi.mock('next/navigation', () => ({ useRouter: vi.fn(() => ({ refresh: vi.fn() })) }))
 
 vi.mock('@/lib/ui', () => ({
-  ChatPanel: ({ children }: { children: React.ReactNode }) =>
-    React.createElement('div', { 'data-testid': 'chat-panel' }, children),
+  ChatPanel: ({
+    children,
+    open,
+  }: {
+    children: React.ReactNode
+    open: boolean
+    onOpenChange?: (open: boolean) => void
+    title?: string
+  }) =>
+    React.createElement(
+      'div',
+      { 'data-testid': 'chat-panel', 'data-open': String(open) },
+      children,
+    ),
   ChatFab: () => React.createElement('button', { 'aria-label': 'Open chat' }, 'Chat'),
   Textarea: (props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) =>
     React.createElement('textarea', props),
@@ -58,5 +69,14 @@ describe('ChatPanelWrapper', () => {
     window.dispatchEvent(new CustomEvent('open-chat', { detail: {} }))
     expect(mockSetInput).not.toHaveBeenCalled()
     expect(mockHandleSubmit).not.toHaveBeenCalled()
+  })
+
+  it('ChatPanel receives open=true when open-chat event fires', () => {
+    render(<ChatPanelWrapper conversationId="c1" initialMessages={[]} plan="pro" />)
+    expect(screen.getByTestId('chat-panel')).toHaveAttribute('data-open', 'false')
+    act(() => {
+      window.dispatchEvent(new CustomEvent('open-chat', { detail: {} }))
+    })
+    expect(screen.getByTestId('chat-panel')).toHaveAttribute('data-open', 'true')
   })
 })

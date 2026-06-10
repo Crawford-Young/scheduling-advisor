@@ -86,4 +86,13 @@ describe('updateActivitySettings', () => {
     })
     expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({ joinability: 'request' }))
   })
+
+  it('sets joinability to null for group type when joinability is omitted (line 31 ?? null branch)', async () => {
+    await updateActivitySettings({
+      taskId: uuid,
+      activityType: 'group',
+      visibility: 'friends',
+    })
+    expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({ joinability: null }))
+  })
 })

@@ -100,20 +100,36 @@ vi.mock('@/components/goals/goal-form-dialog', () => ({
     open,
     taskId,
     initialTargetDate,
+    onOpenChange,
   }: {
     open: boolean
     taskId?: string
     initialTargetDate?: string | null
+    onOpenChange?: (open: boolean) => void
   }) =>
     open ? (
       <div data-testid="goal-dialog">
         {taskId}:{initialTargetDate}
+        <button onClick={() => onOpenChange?.(false)}>Close goal dialog</button>
       </div>
     ) : null,
 }))
 vi.mock('@/components/habits/habit-form-dialog', () => ({
-  HabitFormDialog: ({ open, taskId }: { open: boolean; taskId?: string }) =>
-    open ? <div data-testid="habit-dialog">{taskId}</div> : null,
+  HabitFormDialog: ({
+    open,
+    taskId,
+    onOpenChange,
+  }: {
+    open: boolean
+    taskId?: string
+    onOpenChange?: (open: boolean) => void
+  }) =>
+    open ? (
+      <div data-testid="habit-dialog">
+        {taskId}
+        <button onClick={() => onOpenChange?.(false)}>Close habit dialog</button>
+      </div>
+    ) : null,
 }))
 
 const events = [
@@ -156,6 +172,22 @@ const events = [
     start: '2026-05-29T13:00:00',
     end: '2026-05-29T14:00:00',
     type: 'task' as const,
+    status: 'pending' as const,
+    streak: 0,
+    activityType: 'solo',
+    visibility: 'only_me',
+  },
+]
+
+// Event with an unsupported type to exercise the toLibraryColor 'default' branch (line 50)
+const eventsWithUnknownType = [
+  ...events,
+  {
+    id: 'e5',
+    title: 'Unknown type event',
+    start: '2026-05-29T15:00:00',
+    end: '2026-05-29T16:00:00',
+    type: 'unknown' as never,
     status: 'pending' as const,
     streak: 0,
     activityType: 'solo',
@@ -213,6 +245,11 @@ describe('CalendarClient', () => {
   it('passes axe', async () => {
     const { container } = render(<CalendarClient weekStart="2026-05-25" events={events} />)
     expect(await axe(container)).toHaveNoViolations()
+  })
+
+  it('renders event with unknown type using default color (toLibraryColor default branch)', () => {
+    render(<CalendarClient weekStart="2026-05-25" events={eventsWithUnknownType} />)
+    expect(screen.getByText('Unknown type event')).toBeInTheDocument()
   })
 
   describe('move and resize', () => {
@@ -408,7 +445,8 @@ describe('CalendarClient', () => {
       const dialog = await screen.findByTestId('goal-dialog')
       // e3.start is '2026-05-29T10:00:00' — date-only slice is '2026-05-29'
       // Use exact match so '2026-05-29T10:00:00' (full datetime) fails but '2026-05-29' passes
-      expect(dialog.textContent).toBe('e3:2026-05-29')
+      expect(dialog.textContent).toContain('e3:2026-05-29')
+      expect(dialog.textContent).not.toContain('T10:00:00')
     })
 
     it('opens no dialog when event id is not found in events list', () => {
@@ -416,6 +454,30 @@ describe('CalendarClient', () => {
       ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'nope', title: 'Ghost' })
       expect(screen.queryByTestId('task-dialog')).not.toBeInTheDocument()
       expect(screen.queryByTestId('goal-dialog')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('habit-dialog')).not.toBeInTheDocument()
+    })
+
+    it('closes TaskFormDialog edit dialog on onOpenChange(false)', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e4', title: 'Ship report' })
+      expect(await screen.findByTestId('task-dialog')).toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: 'Close dialog' }))
+      expect(screen.queryByTestId('task-dialog')).not.toBeInTheDocument()
+    })
+
+    it('closes GoalFormDialog edit dialog on onOpenChange(false)', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e3', title: 'Write book' })
+      expect(await screen.findByTestId('goal-dialog')).toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: 'Close goal dialog' }))
+      expect(screen.queryByTestId('goal-dialog')).not.toBeInTheDocument()
+    })
+
+    it('closes HabitFormDialog edit dialog on onOpenChange(false)', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e1', title: 'Morning run' })
+      expect(await screen.findByTestId('habit-dialog')).toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: 'Close habit dialog' }))
       expect(screen.queryByTestId('habit-dialog')).not.toBeInTheDocument()
     })
   })

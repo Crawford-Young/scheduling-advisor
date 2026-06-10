@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TaskFormDialog } from '@/components/tasks/task-form-dialog'
 
@@ -145,6 +145,16 @@ describe('TaskFormDialog', () => {
     expect(createTask).not.toHaveBeenCalled()
   })
 
+  it('returns early when form submitted without date (line 98 guard)', async () => {
+    const { createTask } = await import('@/server/actions/tasks')
+    render(<TaskFormDialog {...baseProps} />)
+    await userEvent.type(screen.getByRole('textbox'), 'No date task')
+    // Fire submit directly on the form to bypass the disabled button guard
+    const form = document.querySelector('form#task-form') as HTMLFormElement
+    fireEvent.submit(form)
+    expect(createTask).not.toHaveBeenCalled()
+  })
+
   it('calls updateTask on submit when taskId provided', async () => {
     const { updateTask } = await import('@/server/actions/tasks')
     render(
@@ -192,5 +202,26 @@ describe('TaskFormDialog', () => {
     const defaultDates = [new Date('2026-06-01T00:00:00Z')]
     render(<TaskFormDialog {...baseProps} defaultDates={defaultDates} />)
     expect(screen.getByText('Date(s)')).toBeInTheDocument()
+  })
+
+  it('shows NumberInput when recurrence is not none (line 231)', () => {
+    render(<TaskFormDialog {...baseProps} initialRecurrence="daily" />)
+    expect(screen.getByRole('spinbutton', { name: 'repeat count' })).toBeInTheDocument()
+  })
+
+  it('does not show NumberInput when recurrence is none (line 231 false branch)', () => {
+    render(<TaskFormDialog {...baseProps} />)
+    expect(screen.queryByRole('spinbutton', { name: 'repeat count' })).not.toBeInTheDocument()
+  })
+
+  it('includes recurrenceCount in createTask when recurrence is not none (line 130)', async () => {
+    const { createTask } = await import('@/server/actions/tasks')
+    render(<TaskFormDialog {...baseProps} initialRecurrence="daily" />)
+    await userEvent.type(screen.getByRole('textbox'), 'Daily task')
+    await userEvent.click(screen.getByRole('button', { name: 'date-picker' }))
+    await userEvent.click(screen.getByRole('button', { name: /save/i }))
+    await vi.waitFor(() => {
+      expect(createTask).toHaveBeenCalledWith(expect.objectContaining({ recurrenceCount: 2 }))
+    })
   })
 })
