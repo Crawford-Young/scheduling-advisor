@@ -52,6 +52,12 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [perfectWeekVisible, setPerfectWeekVisible] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<LibraryCalendarEvent | null>(null)
+  // Bumping resetKey remounts WeekCalendarView to resync it from the events prop:
+  // the library applies move/resize/delete to internal state optimistically and never
+  // re-derives from props, so router.refresh() alone cannot restore the view.
+  // Side effect: remount resets in-calendar week navigation — acceptable on the rare
+  // cancel/error/guard paths that bump it. confirmedRef keeps the confirm-success
+  // close of the delete dialog from bumping (no flicker on successful delete).
   const [resetKey, setResetKey] = useState(0)
   const router = useRouter()
   const [, startTransition] = useTransition()
