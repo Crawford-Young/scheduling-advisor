@@ -35,6 +35,11 @@ interface AppCalendarEvent {
   readonly visibility: string
 }
 
+function toHHMM(iso: string): string {
+  const d = new Date(iso)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 function toLibraryColor(type: string): LibraryCalendarEvent['color'] {
   if (type === 'task') return 'blue'
   if (type === 'goal') return 'amber'
@@ -56,6 +61,7 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
   const [perfectWeekVisible, setPerfectWeekVisible] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<LibraryCalendarEvent | null>(null)
   const [editTarget, setEditTarget] = useState<AppCalendarEvent | null>(null)
+  const [createSlot, setCreateSlot] = useState<{ start: string; end: string } | null>(null)
   // Bumping resetKey remounts WeekCalendarView to resync it from the events prop:
   // the library applies move/resize/delete to internal state optimistically and never
   // re-derives from props, so router.refresh() alone cannot restore the view.
@@ -129,6 +135,7 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
           onEventResize={handleTimeChange}
           onEventDelete={(e) => setDeleteTarget(e)}
           onEventEdit={handleEventEdit}
+          onEventCreate={(e) => setCreateSlot({ start: e.start, end: e.end })}
         />
       </div>
 
@@ -153,6 +160,16 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
         visible={perfectWeekVisible}
         onDismiss={() => setPerfectWeekVisible(false)}
       />
+
+      {createSlot && (
+        <TaskFormDialog
+          open
+          onOpenChange={(open) => !open && setCreateSlot(null)}
+          defaultDates={[new Date(createSlot.start)]}
+          defaultStartTime={toHHMM(createSlot.start)}
+          defaultEndTime={toHHMM(createSlot.end)}
+        />
+      )}
 
       {editTarget?.type === 'task' && (
         <TaskFormDialog

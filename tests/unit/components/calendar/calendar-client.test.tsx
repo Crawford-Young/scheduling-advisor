@@ -75,8 +75,22 @@ vi.mock('@/components/calendar/perfect-week-celebration', () => ({
 }))
 
 vi.mock('@/components/tasks/task-form-dialog', () => ({
-  TaskFormDialog: ({ open, taskId }: { open: boolean; taskId?: string }) =>
-    open ? <div data-testid="task-dialog">{taskId}</div> : null,
+  TaskFormDialog: ({
+    open,
+    taskId,
+    defaultStartTime,
+    defaultEndTime,
+  }: {
+    open: boolean
+    taskId?: string
+    defaultStartTime?: string
+    defaultEndTime?: string
+  }) =>
+    open ? (
+      <div data-testid="task-dialog" data-start={defaultStartTime} data-end={defaultEndTime}>
+        {taskId ?? 'new'}
+      </div>
+    ) : null,
 }))
 vi.mock('@/components/goals/goal-form-dialog', () => ({
   GoalFormDialog: ({
@@ -400,6 +414,21 @@ describe('CalendarClient', () => {
       expect(screen.queryByTestId('task-dialog')).not.toBeInTheDocument()
       expect(screen.queryByTestId('goal-dialog')).not.toBeInTheDocument()
       expect(screen.queryByTestId('habit-dialog')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('create', () => {
+    it('opens TaskFormDialog with dragged slot times on onEventCreate', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      ;(capturedProps.onEventCreate as (e: unknown) => void)({
+        title: '',
+        start: '2026-05-27T14:00:00',
+        end: '2026-05-27T15:00:00',
+      })
+      const dialog = await screen.findByTestId('task-dialog')
+      expect(dialog).toHaveTextContent('new')
+      expect(dialog).toHaveAttribute('data-start', '14:00')
+      expect(dialog).toHaveAttribute('data-end', '15:00')
     })
   })
 })
