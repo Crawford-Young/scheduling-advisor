@@ -102,11 +102,9 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
     setEditTarget(appEvent)
   }
 
-  function handleConfirmDelete(): void {
+  function handleConfirmDelete(target: LibraryCalendarEvent): void {
     confirmedRef.current = true
-    const target = deleteTarget
     setDeleteTarget(null)
-    if (!target) return
     startTransition(async () => {
       const result = await deleteTask({ id: target.id })
       if ('error' in result) {
@@ -243,7 +241,9 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmDelete}>Delete</AlertDialogAction>
+            <AlertDialogAction onClick={() => deleteTarget && handleConfirmDelete(deleteTarget)}>
+              Delete
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
