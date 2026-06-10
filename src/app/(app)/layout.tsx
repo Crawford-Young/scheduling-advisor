@@ -1,6 +1,6 @@
 import { auth, signOut } from '@/auth'
 import { redirect } from 'next/navigation'
-import { AppShell, Avatar, AvatarFallback, AvatarImage, Sidebar } from '@/lib/ui'
+import { AppShell, Avatar, AvatarFallback, AvatarImage, Sidebar, Toaster } from '@/lib/ui'
 import { ActiveSidebarItem } from '@/components/layout/active-sidebar-item'
 import { ChatFab } from '@/components/chat/chat-fab'
 import {
@@ -109,6 +109,7 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
         <div className="p-6">{children}</div>
       </AppShell>
       <ChatFab />
+      <Toaster />
     </>
   )
 }

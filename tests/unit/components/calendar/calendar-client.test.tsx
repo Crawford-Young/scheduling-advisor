@@ -4,22 +4,36 @@ import userEvent from '@testing-library/user-event'
 import { axe } from 'jest-axe'
 import { CalendarClient } from '@/components/calendar/calendar-client'
 
-vi.mock('@/components/cards/week-calendar-view', () => ({
-  WeekCalendarView: ({
-    onEventClick,
-    events,
-  }: {
-    onEventClick?: (e: { id: string; title: string; status: string }) => void
-    events: Array<{ id: string; title: string; status: string }>
-  }) => (
-    <div>
-      {events.map((e) => (
-        <button key={e.id} onClick={() => onEventClick?.(e)}>
-          {e.title}
-        </button>
-      ))}
-    </div>
-  ),
+const mockRescheduleTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e1' } }))
+const mockToastError = vi.hoisted(() => vi.fn())
+const mockRefresh = vi.hoisted(() => vi.fn())
+
+vi.mock('@/server/actions/consistency', () => ({ rescheduleTask: mockRescheduleTask }))
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mockRefresh }) }))
+
+let capturedProps: Record<string, unknown> = {}
+vi.mock('@/lib/ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/ui')>()),
+  toast: { error: mockToastError },
+  WeekCalendarView: (props: Record<string, unknown>) => {
+    capturedProps = props
+    const events = props.events as Array<{ id: string; title: string }>
+    return (
+      <div>
+        {events.map((e) => (
+          <button
+            key={e.id}
+            onClick={() => {
+              const onEventClick = props.onEventClick as ((e: unknown) => void) | undefined
+              onEventClick?.(e)
+            }}
+          >
+            {e.title}
+          </button>
+        ))}
+      </div>
+    )
+  },
 }))
 
 vi.mock('@/components/calendar/check-in-sheet', () => ({
@@ -86,7 +100,10 @@ const events = [
 ]
 
 describe('CalendarClient', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedProps = {}
+  })
 
   it('renders the calendar', () => {
     render(<CalendarClient weekStart="2026-05-25" events={events} />)
@@ -131,5 +148,65 @@ describe('CalendarClient', () => {
   it('passes axe', async () => {
     const { container } = render(<CalendarClient weekStart="2026-05-25" events={events} />)
     expect(await axe(container)).toHaveNoViolations()
+  })
+
+  describe('move and resize', () => {
+    it('calls rescheduleTask with UTC ISO times on move', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      const onEventMove = capturedProps.onEventMove as (e: unknown) => void
+      onEventMove({
+        id: 'e1',
+        title: 'Morning run',
+        start: '2026-05-29T09:00:00',
+        end: '2026-05-29T10:00:00',
+      })
+      await vi.waitFor(() => {
+        expect(mockRescheduleTask).toHaveBeenCalledWith({
+          taskId: 'e1',
+          newStartAt: new Date('2026-05-29T09:00:00').toISOString(),
+          newEndAt: new Date('2026-05-29T10:00:00').toISOString(),
+        })
+      })
+      expect(mockRefresh).toHaveBeenCalled()
+    })
+
+    it('calls rescheduleTask on resize', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      const onEventResize = capturedProps.onEventResize as (e: unknown) => void
+      onEventResize({
+        id: 'e1',
+        title: 'Morning run',
+        start: '2026-05-29T07:00:00',
+        end: '2026-05-29T09:30:00',
+      })
+      await vi.waitFor(() => expect(mockRescheduleTask).toHaveBeenCalled())
+    })
+
+    it('ignores move of completed event and refreshes to snap back', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      const onEventMove = capturedProps.onEventMove as (e: unknown) => void
+      onEventMove({
+        id: 'e2',
+        title: 'Done event',
+        start: '2026-05-29T11:00:00',
+        end: '2026-05-29T12:00:00',
+      })
+      await vi.waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+      expect(mockRescheduleTask).not.toHaveBeenCalled()
+    })
+
+    it('shows toast on reschedule error', async () => {
+      mockRescheduleTask.mockResolvedValueOnce({ error: 'Not found' })
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      const onEventMove = capturedProps.onEventMove as (e: unknown) => void
+      onEventMove({
+        id: 'e1',
+        title: 'Morning run',
+        start: '2026-05-29T09:00:00',
+        end: '2026-05-29T10:00:00',
+      })
+      await vi.waitFor(() => expect(mockToastError).toHaveBeenCalled())
+      expect(mockRefresh).toHaveBeenCalled()
+    })
   })
 })

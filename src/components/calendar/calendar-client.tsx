@@ -1,9 +1,11 @@
 'use client'
 import * as React from 'react'
-import { useState } from 'react'
-import { WeekCalendarView, type CalendarEvent as LibraryCalendarEvent } from '@/lib/ui'
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import { WeekCalendarView, toast, type CalendarEvent as LibraryCalendarEvent } from '@/lib/ui'
 import { CheckInSheet } from '@/components/calendar/check-in-sheet'
 import { PerfectWeekCelebration } from '@/components/calendar/perfect-week-celebration'
+import { rescheduleTask } from '@/server/actions/consistency'
 
 interface AppCalendarEvent {
   readonly id: string
@@ -36,8 +38,30 @@ interface CalendarClientProps {
 export function CalendarClient({ weekStart, events }: CalendarClientProps): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [perfectWeekVisible, setPerfectWeekVisible] = useState(false)
+  const router = useRouter()
+  const [, startTransition] = useTransition()
 
   const selectedEvent = events.find((e) => e.id === selectedId) ?? null
+
+  function isCompleted(id: string): boolean {
+    return events.find((e) => e.id === id)?.status === 'completed'
+  }
+
+  function handleTimeChange(libEvent: LibraryCalendarEvent): void {
+    if (isCompleted(libEvent.id)) {
+      router.refresh()
+      return
+    }
+    startTransition(async () => {
+      const result = await rescheduleTask({
+        taskId: libEvent.id,
+        newStartAt: new Date(libEvent.start).toISOString(),
+        newEndAt: new Date(libEvent.end).toISOString(),
+      })
+      if ('error' in result) toast.error('Could not reschedule — calendar restored')
+      router.refresh()
+    })
+  }
 
   return (
     <>
@@ -49,6 +73,8 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
             const appEvent = events.find((e) => e.id === libEvent.id)
             if (appEvent && appEvent.status !== 'completed') setSelectedId(libEvent.id)
           }}
+          onEventMove={handleTimeChange}
+          onEventResize={handleTimeChange}
         />
       </div>
 
