@@ -80,15 +80,18 @@ vi.mock('@/components/tasks/task-form-dialog', () => ({
     taskId,
     defaultStartTime,
     defaultEndTime,
+    onOpenChange,
   }: {
     open: boolean
     taskId?: string
     defaultStartTime?: string
     defaultEndTime?: string
+    onOpenChange?: (open: boolean) => void
   }) =>
     open ? (
       <div data-testid="task-dialog" data-start={defaultStartTime} data-end={defaultEndTime}>
         {taskId ?? 'new'}
+        <button onClick={() => onOpenChange?.(false)}>Close dialog</button>
       </div>
     ) : null,
 }))
@@ -418,17 +421,53 @@ describe('CalendarClient', () => {
   })
 
   describe('create', () => {
-    it('opens TaskFormDialog with dragged slot times on onEventCreate', async () => {
+    it('opens TaskFormDialog with dragged slot times using UTC wall-clock (defect 1)', async () => {
+      // The invariant: defaultStartTime must be the UTC HH:MM of the dragged instant.
+      // buildIso inside TaskFormDialog uses getUTC* on the date object, so passing UTC
+      // HH:MM reconstructs the exact instant regardless of the local timezone.
+      const slotStart = '2026-05-27T14:00:00'
+      const slotEnd = '2026-05-27T15:00:00'
+      const d = new Date(slotStart)
+      const expectedStart = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+      const dEnd = new Date(slotEnd)
+      const expectedEnd = `${String(dEnd.getUTCHours()).padStart(2, '0')}:${String(dEnd.getUTCMinutes()).padStart(2, '0')}`
+
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      ;(capturedProps.onEventCreate as (e: unknown) => void)({
+        title: '',
+        start: slotStart,
+        end: slotEnd,
+      })
+      const dialog = await screen.findByTestId('task-dialog')
+      expect(dialog).toHaveTextContent('new')
+      expect(dialog).toHaveAttribute('data-start', expectedStart)
+      expect(dialog).toHaveAttribute('data-end', expectedEnd)
+    })
+
+    it('closing the create dialog calls router.refresh() (defect 2)', async () => {
       render(<CalendarClient weekStart="2026-05-25" events={events} />)
       ;(capturedProps.onEventCreate as (e: unknown) => void)({
         title: '',
         start: '2026-05-27T14:00:00',
         end: '2026-05-27T15:00:00',
       })
-      const dialog = await screen.findByTestId('task-dialog')
-      expect(dialog).toHaveTextContent('new')
-      expect(dialog).toHaveAttribute('data-start', '14:00')
-      expect(dialog).toHaveAttribute('data-end', '15:00')
+      await screen.findByTestId('task-dialog')
+      // Close via the dialog's onOpenChange(false)
+      await userEvent.click(screen.getByRole('button', { name: 'Close dialog' }))
+      await vi.waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+    })
+
+    it('closing the create dialog eventually remounts the calendar (defect 2)', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      const initialMountCount = mountCount.value
+      ;(capturedProps.onEventCreate as (e: unknown) => void)({
+        title: '',
+        start: '2026-05-27T14:00:00',
+        end: '2026-05-27T15:00:00',
+      })
+      await screen.findByTestId('task-dialog')
+      await userEvent.click(screen.getByRole('button', { name: 'Close dialog' }))
+      await vi.waitFor(() => expect(mountCount.value).toBeGreaterThan(initialMountCount))
     })
   })
 })

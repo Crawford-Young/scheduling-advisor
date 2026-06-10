@@ -35,9 +35,12 @@ interface AppCalendarEvent {
   readonly visibility: string
 }
 
-function toHHMM(iso: string): string {
+// Returns the UTC wall-clock HH:MM for a naive-local ISO string so that
+// TaskFormDialog.buildIso (which uses getUTC* date parts) reconstructs the
+// exact dragged instant regardless of the host timezone.
+function toUTCTimeSlot(iso: string): string {
   const d = new Date(iso)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
 }
 
 function toLibraryColor(type: string): LibraryCalendarEvent['color'] {
@@ -71,7 +74,21 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
   const [resetKey, setResetKey] = useState(0)
   const router = useRouter()
   const [, startTransition] = useTransition()
+  // Separate transition for create-dialog resync so bumping resetKey after
+  // a create-close does not interfere with the delete/reschedule transition.
+  const [isResyncing, startResyncTransition] = useTransition()
+  const resyncQueuedRef = React.useRef(false)
   const confirmedRef = React.useRef(false)
+
+  // When the resync transition (router.refresh inside startResyncTransition)
+  // completes, isPending drops to false — bump resetKey so WeekCalendarView
+  // remounts from the freshly-arrived events prop.
+  React.useEffect(() => {
+    if (!isResyncing && resyncQueuedRef.current) {
+      resyncQueuedRef.current = false
+      setResetKey((k) => k + 1)
+    }
+  }, [isResyncing])
 
   const selectedEvent = events.find((e) => e.id === selectedId) ?? null
 
@@ -164,10 +181,18 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
       {createSlot && (
         <TaskFormDialog
           open
-          onOpenChange={(open) => !open && setCreateSlot(null)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setCreateSlot(null)
+              resyncQueuedRef.current = true
+              startResyncTransition(() => {
+                router.refresh()
+              })
+            }
+          }}
           defaultDates={[new Date(createSlot.start)]}
-          defaultStartTime={toHHMM(createSlot.start)}
-          defaultEndTime={toHHMM(createSlot.end)}
+          defaultStartTime={toUTCTimeSlot(createSlot.start)}
+          defaultEndTime={toUTCTimeSlot(createSlot.end)}
         />
       )}
 
