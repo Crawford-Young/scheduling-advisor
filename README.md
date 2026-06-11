@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Cybond
 
-## Getting Started
+Consistency-first scheduling app. The week calendar is home: plan tasks, goals, and habits; check in on what you did; keep per-task streaks and a weekly consistency score. Cybond's AI assistant helps you find time and reschedule around your real calendar.
 
-First, run the development server:
+## Features
+
+- **Week calendar (home)** — full CRUD on calendar events:
+  - Drag-create: drag an empty slot to open a pre-filled new-task dialog
+  - Edit: open the type-matched dialog (task / goal / habit) from an event's edit control
+  - Reschedule: drag or resize events; completed events are locked and snap back
+  - Delete: confirm dialog, optimistic UI with automatic restore on error or cancel
+- **Check-in flow** — tap an event to log Done / Skipped; perfect weeks get a celebration
+- **Ask Cybond** — "Ask Cybond" on a check-in opens the chat panel pre-filled with a reschedule request; the assistant proposes times via tools you confirm or deny
+- **Streaks + consistency** — per-task streak badges and a weekly consistency bar
+- **Activity settings** — visibility and joinability per activity
+- **Plans + credits** — Stripe-backed starter/growth/pro plans with a token ledger
+
+## Stack
+
+Next.js (App Router, RSC-first) · TypeScript strict · Tailwind CSS · Radix-based component library (`@crawfordyoung/ui`) · Neon Postgres + Drizzle · Auth.js v5 (Google, database sessions) · Vercel AI SDK chat · Upstash rate limiting · Pino logging · Sentry
+
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+just dev          # dev server at :3000
+just test         # vitest with coverage (100% statements/functions/lines enforced)
+just e2e          # playwright
+just lint         # eslint + prettier
+just typecheck    # tsc --noEmit
+just check        # full CI suite: lint, typecheck, test, e2e
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Copy `.env.example` to `.env.local` and fill in all values — `t3-env` validates at startup.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Architecture notes
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Mutations are Server Actions with Zod validation at every boundary; API routes exist only for externally-consumed endpoints (chat, webhooks, health).
+- `WeekCalendarView` (library) applies moves/resizes/deletes optimistically and never resyncs from props. `CalendarClient` owns the workaround: a `resetKey` remount restores server truth on cancel/error paths, and a dedicated transition delays the remount after create until `router.refresh()` has delivered fresh data.
+- `TaskFormDialog` speaks UTC wall-clock for date + time props; callers convert with `getUTC*` (see `toUTCTimeSlot` in `calendar-client.tsx`). `GoalFormDialog.initialTargetDate` requires date-only `YYYY-MM-DD`.
+- The chat panel listens for an `open-chat` CustomEvent; dispatchers may pass `detail.prefill` to seed the input (used by Ask Cybond).
 
-## Learn More
+## Testing
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Vitest unit/integration suite under `tests/unit/` — coverage gates: 100% statements, functions, lines; ≥97% branches.
+- Playwright e2e under `tests/e2e/` — currently unauthenticated flows only (login, redirects); authenticated e2e (seeded DB + session cookie) is planned as its own wave.

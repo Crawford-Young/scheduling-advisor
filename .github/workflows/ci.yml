@@ -8,12 +8,14 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with: { version: latest }
+        with: { version: 10 }
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: pnpm }
+        with: { node-version: 24, cache: pnpm }
+      - uses: extractions/setup-just@v3
       - run: pnpm install --frozen-lockfile
       - run: just lint
       - run: just typecheck
@@ -22,16 +24,22 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: check
+    # Preinstalled browsers; `playwright install` hangs reproducibly on the
+    # bare runner after the chromium download completes. Tag must match the
+    # @playwright/test version in package.json.
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with: { version: latest }
+        with: { version: 10 }
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: pnpm }
+        with: { node-version: 24, cache: pnpm }
+      - uses: extractions/setup-just@v3
       - run: pnpm install --frozen-lockfile
-      - run: pnpm playwright install --with-deps
       - run: just e2e
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://test:test@localhost:5432/test' }}
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'playwright-test-secret-at-least-32-chars-long' }}

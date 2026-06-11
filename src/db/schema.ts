@@ -1,4 +1,15 @@
-import { pgTable, text, timestamp, integer, uuid, primaryKey } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import {
+  pgTable,
+  text,
+  timestamp,
+  integer,
+  uuid,
+  primaryKey,
+  json,
+  unique,
+  index,
+} from 'drizzle-orm/pg-core'
 
 // ── Auth.js v5 required tables ────────────────────────────────────────────────
 
@@ -11,6 +22,9 @@ export const users = pgTable('users', {
   emailVerified: timestamp('email_verified', { mode: 'date' }),
   image: text('image'),
   timezone: text('timezone').notNull().default('UTC'),
+  plan: text('plan', { enum: ['starter', 'growth', 'pro', 'comped'] }),
+  stripeCustomerId: text('stripe_customer_id').unique(),
+  tokenResetAt: timestamp('token_reset_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
@@ -66,22 +80,39 @@ export const tasks = pgTable('tasks', {
     .notNull()
     .default('pending'),
   targetDate: timestamp('target_date', { mode: 'date' }),
+  startAt: timestamp('start_at', { withTimezone: true, mode: 'date' }),
+  endAt: timestamp('end_at', { withTimezone: true, mode: 'date' }),
+  activityType: text('activity_type', { enum: ['solo', 'group'] })
+    .notNull()
+    .default('solo'),
+  visibility: text('visibility', {
+    enum: ['everyone', 'friends', 'busy', 'only_me'],
+  })
+    .notNull()
+    .default('only_me'),
+  joinability: text('joinability', { enum: ['open', 'request', 'closed'] }),
+  maxParticipants: integer('max_participants'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
-export const checkIns = pgTable('check_ins', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  userId: text('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'set null' }),
-  scheduledAt: timestamp('scheduled_at', { mode: 'date' }).notNull(),
-  completedAt: timestamp('completed_at', { mode: 'date' }),
-  reflectionText: text('reflection_text'),
-  rating: integer('rating'),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+export const checkIns = pgTable(
+  'check_ins',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'set null' }),
+    scheduledAt: timestamp('scheduled_at', { mode: 'date' }).notNull(),
+    completedAt: timestamp('completed_at', { mode: 'date' }),
+    skippedAt: timestamp('skipped_at', { mode: 'date' }),
+    reflectionText: text('reflection_text'),
+    rating: integer('rating'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.taskId, t.scheduledAt)],
+)
 
 export const pushSubscriptions = pgTable('push_subscriptions', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -105,3 +136,71 @@ export const calendarPrefs = pgTable('calendar_prefs', {
   maxDailyTaskMinutes: integer('max_daily_task_minutes').notNull().default(120),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
+
+export const conversations = pgTable(
+  'conversations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type', { enum: ['check_in', 'general'] })
+      .notNull()
+      .default('general'),
+    title: text('title'),
+    deletedAt: timestamp('deleted_at', { mode: 'date' }),
+    expiresAt: timestamp('expires_at', { mode: 'date' })
+      .notNull()
+      .default(sql`now() + interval '30 days'`),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('conversations_user_id_idx').on(t.userId),
+    index('conversations_expires_at_idx').on(t.expiresAt),
+    index('conversations_deleted_at_idx').on(t.deletedAt),
+  ],
+)
+
+export const messages = pgTable('messages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  conversationId: uuid('conversation_id')
+    .notNull()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  role: text('role').notNull(),
+  content: json('content').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+export const streaks = pgTable(
+  'streaks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    currentStreak: integer('current_streak').notNull().default(0),
+    bestStreak: integer('best_streak').notNull().default(0),
+    lastCompletedAt: timestamp('last_completed_at', { withTimezone: true, mode: 'date' }),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.taskId)],
+)
+
+export const tokenLedger = pgTable(
+  'token_ledger',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type', { enum: ['monthly_grant', 'purchase', 'usage'] }).notNull(),
+    amount: integer('amount').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('token_ledger_user_id_idx').on(t.userId)],
+)

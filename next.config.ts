@@ -1,3 +1,4 @@
+import path from 'path'
 import type { NextConfig } from 'next'
 
 const securityHeaders = [
@@ -28,6 +29,9 @@ const securityHeaders = [
 ]
 
 const nextConfig: NextConfig = {
+  turbopack: {
+    root: path.join(import.meta.dirname, '..'),
+  },
   async headers() {
     return [
       {

@@ -1,3 +1,20 @@
+allowBuilds:
+  '@sentry/cli': true
+  esbuild: true
+  msw: true
+  protobufjs: true
+  sharp: false
+  unrs-resolver: false
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
+confirmModulesPurge: false
+overrides:
+  zod: '3'
+  fast-uri: 3.1.2
+  systeminformation: 5.31.7
+peerDependencyRules:
+  allowedVersions:
+    'eslint-plugin-import>eslint': '10'
+    'eslint-plugin-jsx-a11y>eslint': '10'
+    'eslint-plugin-react>eslint': '10'
