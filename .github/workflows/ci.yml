@@ -8,6 +8,7 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -23,6 +24,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: check
     steps:
       - uses: actions/checkout@v4
@@ -32,8 +34,14 @@ jobs:
         with: { node-version: 24, cache: pnpm }
       - uses: extractions/setup-just@v3
       - run: pnpm install --frozen-lockfile
-      - run: pnpm playwright install --with-deps
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 10
       - run: just e2e
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://test:test@localhost:5432/test' }}
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'playwright-test-secret-at-least-32-chars-long' }}
