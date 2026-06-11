@@ -26,6 +26,7 @@ export default defineConfig({
       VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY ?? 'playwright-vapid-private',
       VAPID_EMAIL: process.env.VAPID_EMAIL ?? 'playwright@example.com',
       TRIGGER_API_KEY: process.env.TRIGGER_API_KEY ?? 'playwright-trigger-key',
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? 'sk-ant-playwright-test-key',
       ENCRYPTION_KEY:
         process.env.ENCRYPTION_KEY ??
         'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
