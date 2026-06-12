@@ -110,7 +110,7 @@ export function FullPageChatLayout({
 
   const zeroBalanceCta = (
     <div className="border-border bg-background flex flex-col items-center gap-3 border-t p-6 text-center">
-      <p className="text-foreground text-sm font-semibold">You&apos;re out of tokens</p>
+      <h2 className="text-foreground text-sm font-semibold">You&apos;re out of tokens</h2>
       <p className="text-muted-foreground max-w-sm text-sm">
         Cy plans your schedule, reschedules what slipped, and reflects on your day with you. Top up
         to keep going.
