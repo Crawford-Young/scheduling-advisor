@@ -8,6 +8,7 @@ import { getTokenBalance } from '@/server/queries/tokens'
 import {
   Calendar,
   CheckSquare,
+  Coins,
   LogOut,
   MessageSquare,
   RefreshCw,
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { label: 'Tasks', href: '/tasks', icon: <CheckSquare className="h-4 w-4" /> },
   { label: 'Reflections', href: '/reflections', icon: <MessageSquare className="h-4 w-4" /> },
   { label: 'Feed', href: '/feed', icon: <Rss className="h-4 w-4" /> },
+  { label: 'Tokens', href: '/tokens', icon: <Coins className="h-4 w-4" /> },
   { label: 'Settings', href: '/settings', icon: <Settings className="h-4 w-4" /> },
 ] as const
 
