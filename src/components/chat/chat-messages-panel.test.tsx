@@ -117,4 +117,26 @@ describe('ChatMessagesPanel', () => {
     render(<ChatMessagesPanel messages={messages} {...noopFns} />)
     expect(screen.queryByTestId('tool-result')).not.toBeInTheDocument()
   })
+
+  describe('inputReplacement', () => {
+    it('renders the replacement node instead of the form when inputReplacement is provided', () => {
+      render(
+        <ChatMessagesPanel
+          messages={[]}
+          {...noopFns}
+          inputReplacement={<div data-testid="custom-replacement">No input</div>}
+        />,
+      )
+      expect(screen.getByTestId('custom-replacement')).toBeInTheDocument()
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /send/i })).not.toBeInTheDocument()
+    })
+
+    it('renders the form when inputReplacement is not provided', () => {
+      render(<ChatMessagesPanel messages={[]} {...noopFns} />)
+      expect(screen.getByRole('textbox')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument()
+      expect(screen.queryByTestId('custom-replacement')).not.toBeInTheDocument()
+    })
+  })
 })

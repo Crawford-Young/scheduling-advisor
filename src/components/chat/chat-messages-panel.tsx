@@ -20,6 +20,7 @@ export interface ChatMessagesPanelProps {
     date?: string,
     time?: string,
   ) => void
+  readonly inputReplacement?: React.ReactNode
 }
 
 export function ChatMessagesPanel({
@@ -31,6 +32,7 @@ export function ChatMessagesPanel({
   append,
   onScheduleUpdate,
   onItemConfirmed,
+  inputReplacement,
 }: ChatMessagesPanelProps): React.JSX.Element {
   const bottomRef = React.useRef<HTMLDivElement>(null)
 
@@ -105,22 +107,24 @@ export function ChatMessagesPanel({
         <div ref={bottomRef} />
       </div>
 
-      <form onSubmit={handleSubmit} className="border-border border-t p-3">
-        <div className="flex gap-2">
-          <Textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder="Ask about your schedule..."
-            rows={1}
-            className="max-h-32 flex-1 resize-none"
-          />
-          <Button type="submit" size="icon" disabled={isLoading || !input.trim()}>
-            <Send className="h-4 w-4" aria-hidden />
-            <span className="sr-only">Send</span>
-          </Button>
-        </div>
-      </form>
+      {inputReplacement ?? (
+        <form onSubmit={handleSubmit} className="border-border border-t p-3">
+          <div className="flex gap-2">
+            <Textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="Ask about your schedule..."
+              rows={1}
+              className="max-h-32 flex-1 resize-none"
+            />
+            <Button type="submit" size="icon" disabled={isLoading || !input.trim()}>
+              <Send className="h-4 w-4" aria-hidden />
+              <span className="sr-only">Send</span>
+            </Button>
+          </div>
+        </form>
+      )}
     </div>
   )
 }

@@ -1,3 +1,4 @@
+import * as React from 'react'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { FullPageChatLayout } from './full-page-chat-layout'
@@ -54,6 +55,7 @@ vi.mock('@/components/chat/chat-messages-panel', () => ({
   ChatMessagesPanel: ({
     onScheduleUpdate,
     onItemConfirmed,
+    inputReplacement,
   }: {
     onScheduleUpdate?: (weekStart: string, events: readonly AppEvent[]) => void
     onItemConfirmed?: (
@@ -62,10 +64,15 @@ vi.mock('@/components/chat/chat-messages-panel', () => ({
       date?: string,
       time?: string,
     ) => void
+    inputReplacement?: React.ReactNode
   }) => {
     capturedOnScheduleUpdate = onScheduleUpdate
     capturedOnItemConfirmed = onItemConfirmed
-    return <div data-testid="messages-panel" />
+    return (
+      <div data-testid="messages-panel">
+        {inputReplacement ?? <textarea aria-label="chat input" />}
+      </div>
+    )
   },
 }))
 
