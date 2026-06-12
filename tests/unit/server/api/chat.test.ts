@@ -93,13 +93,15 @@ describe('POST /api/chat', () => {
     expect(res.status).toBe(401)
   })
 
-  it('returns 402 when user has no plan', async () => {
+  it('proceeds past gates when plan is null but token balance is sufficient', async () => {
     vi.mocked(auth).mockResolvedValue({ user: { id: 'u1', plan: null } } as never)
+    const { getTokenBalance } = await import('@/server/queries/tokens')
+    vi.mocked(getTokenBalance).mockResolvedValueOnce(10)
+    mockFindFirst.mockResolvedValueOnce({ timezone: 'UTC' })
     const res = await POST(
       makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: VALID_UUID }),
     )
-    expect(res.status).toBe(402)
-    expect(await res.json()).toMatchObject({ error: 'subscription_required' })
+    expect(res.status).not.toBe(402)
   })
 
   it('returns 402 when token balance is insufficient', async () => {
