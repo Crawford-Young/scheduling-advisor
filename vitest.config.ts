@@ -28,7 +28,6 @@ export default defineConfig({
         'src/lib/chat/system-prompt.ts',
         'src/proxy.ts',
         'src/trigger/**',
-        'src/components/chat/chat-panel-wrapper.tsx',
         'src/components/activity/activity-settings-menu.tsx',
         'src/components/chat/full-page-chat-layout.tsx',
       ],
