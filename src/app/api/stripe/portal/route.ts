@@ -23,7 +23,7 @@ export async function POST(): Promise<NextResponse> {
 
   const portalSession = await stripe.billingPortal.sessions.create({
     customer: user.stripeCustomerId,
-    return_url: `${env.NEXT_PUBLIC_APP_URL}/upgrade`,
+    return_url: `${env.NEXT_PUBLIC_APP_URL}/tokens`,
   })
 
   return NextResponse.json({ url: portalSession.url })

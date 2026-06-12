@@ -47,8 +47,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const { data } = parsed
   const baseParams = {
     payment_method_types: ['card' as const],
-    success_url: `${env.NEXT_PUBLIC_APP_URL}/upgrade?success=1`,
-    cancel_url: `${env.NEXT_PUBLIC_APP_URL}/upgrade?canceled=1`,
+    success_url: `${env.NEXT_PUBLIC_APP_URL}/tokens?success=1`,
+    cancel_url: `${env.NEXT_PUBLIC_APP_URL}/tokens?canceled=1`,
     client_reference_id: session.user.id,
     customer_email: session.user.email ?? undefined,
   }

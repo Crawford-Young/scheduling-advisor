@@ -7,10 +7,7 @@ export default auth((req) => {
   const isLoginPage = req.nextUrl.pathname === '/login'
   const isHealthCheck = req.nextUrl.pathname === '/api/health'
   const isStripeWebhook = req.nextUrl.pathname === '/api/stripe/webhook'
-  const isUpgradePage = req.nextUrl.pathname === '/upgrade'
-
-  if (isAuthRoute || isLoginPage || isHealthCheck || isStripeWebhook || isUpgradePage)
-    return NextResponse.next()
+  if (isAuthRoute || isLoginPage || isHealthCheck || isStripeWebhook) return NextResponse.next()
 
   if (!isLoggedIn) {
     return NextResponse.redirect(new URL('/login', req.url))

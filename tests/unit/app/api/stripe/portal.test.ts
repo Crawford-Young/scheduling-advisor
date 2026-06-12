@@ -44,7 +44,7 @@ describe('POST /api/stripe/portal', () => {
     expect(body).toMatchObject({ url: 'https://billing.stripe.com/session/abc' })
     expect(mockPortalCreate).toHaveBeenCalledWith({
       customer: 'cus_123',
-      return_url: 'https://app.example.com/upgrade',
+      return_url: 'https://app.example.com/tokens',
     })
   })
 
