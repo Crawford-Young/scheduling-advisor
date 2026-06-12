@@ -108,7 +108,11 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
             ))}
           </Sidebar>
         }
-        topbar={<TokenChipLive initialBalance={tokenBalance} />}
+        topbar={
+          <div className="border-border flex h-12 items-center justify-end border-b px-4">
+            <TokenChipLive initialBalance={tokenBalance} />
+          </div>
+        }
       >
         <div className="p-6">{children}</div>
       </AppShell>
