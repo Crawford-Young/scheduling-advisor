@@ -34,10 +34,6 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  if (!session.user.plan) {
-    return Response.json({ error: 'subscription_required' }, { status: 402 })
-  }
-
   const balance = await getTokenBalance(session.user.id)
   if (balance < MIN_CREDITS) {
     return Response.json({ error: 'insufficient_tokens' }, { status: 402 })
