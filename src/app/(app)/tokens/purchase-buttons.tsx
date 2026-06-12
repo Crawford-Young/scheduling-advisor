@@ -1,18 +1,33 @@
 'use client'
+
+import * as React from 'react'
 import { useState } from 'react'
-import { Zap, Settings } from 'lucide-react'
 import { Button } from '@/lib/ui'
 
-export function UpgradeButton() {
+type CheckoutPayload =
+  | { type: 'subscription'; tier: 'starter' | 'growth' | 'pro' }
+  | { type: 'pack'; pack: 'small' | 'medium' | 'large' }
+
+interface CheckoutButtonProps {
+  readonly payload: CheckoutPayload
+  readonly label: string
+  readonly variant?: 'default' | 'outline'
+}
+
+export function CheckoutButton({
+  payload,
+  label,
+  variant = 'default',
+}: CheckoutButtonProps): React.JSX.Element {
   const [loading, setLoading] = useState(false)
 
-  async function handleUpgrade() {
+  async function handleClick(): Promise<void> {
     setLoading(true)
     try {
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'subscription', tier: 'pro' }),
+        body: JSON.stringify(payload),
       })
       const data = (await res.json()) as { url?: string }
       if (data.url) window.location.href = data.url
@@ -22,21 +37,16 @@ export function UpgradeButton() {
   }
 
   return (
-    <Button
-      onClick={handleUpgrade}
-      disabled={loading}
-      className="mt-auto w-full bg-amber-500 text-zinc-950 hover:bg-amber-400 active:scale-[0.98]"
-    >
-      <Zap className="h-4 w-4" aria-hidden="true" />
-      {loading ? 'Redirecting…' : 'Upgrade to Pro'}
+    <Button variant={variant} onClick={handleClick} disabled={loading} className="w-full">
+      {loading ? 'Redirecting…' : label}
     </Button>
   )
 }
 
-export function ManageSubscriptionButton() {
+export function ManageSubscriptionButton(): React.JSX.Element {
   const [loading, setLoading] = useState(false)
 
-  async function handleManage() {
+  async function handleManage(): Promise<void> {
     setLoading(true)
     try {
       const res = await fetch('/api/stripe/portal', { method: 'POST' })
@@ -48,13 +58,7 @@ export function ManageSubscriptionButton() {
   }
 
   return (
-    <Button
-      variant="outline"
-      onClick={handleManage}
-      disabled={loading}
-      className="border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
-    >
-      <Settings className="h-4 w-4" aria-hidden="true" />
+    <Button variant="outline" onClick={handleManage} disabled={loading}>
       {loading ? 'Redirecting…' : 'Manage subscription'}
     </Button>
   )

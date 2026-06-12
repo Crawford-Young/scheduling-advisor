@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { UpgradeButton, ManageSubscriptionButton } from './upgrade-actions'
+import { CheckoutButton, ManageSubscriptionButton } from './purchase-buttons'
 
 vi.mock('@/lib/ui', () => ({
   Button: ({
@@ -13,11 +13,6 @@ vi.mock('@/lib/ui', () => ({
       {children}
     </button>
   ),
-}))
-
-vi.mock('lucide-react', () => ({
-  Zap: () => null,
-  Settings: () => null,
 }))
 
 const originalLocation = window.location
@@ -37,26 +32,46 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('UpgradeButton', () => {
-  it('renders upgrade label', () => {
-    render(<UpgradeButton />)
-    expect(screen.getByRole('button', { name: /upgrade to pro/i })).toBeInTheDocument()
+describe('CheckoutButton', () => {
+  it('renders the provided label', () => {
+    render(
+      <CheckoutButton payload={{ type: 'subscription', tier: 'starter' }} label="Get Starter" />,
+    )
+    expect(screen.getByRole('button', { name: /get starter/i })).toBeInTheDocument()
   })
 
-  it('calls checkout API with correct subscription body', async () => {
+  it('posts the correct subscription payload to /api/stripe/checkout', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ url: 'https://checkout.stripe.com/pay/cs_live_test' }),
+      json: () => Promise.resolve({ url: 'https://checkout.stripe.com/pay/cs_test' }),
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    render(<UpgradeButton />)
+    render(<CheckoutButton payload={{ type: 'subscription', tier: 'growth' }} label="Get Growth" />)
     fireEvent.click(screen.getByRole('button'))
 
     await vi.waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'subscription', tier: 'pro' }),
+        body: JSON.stringify({ type: 'subscription', tier: 'growth' }),
+      })
+    })
+  })
+
+  it('posts the correct pack payload to /api/stripe/checkout', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ url: 'https://checkout.stripe.com/pay/cs_test' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<CheckoutButton payload={{ type: 'pack', pack: 'medium' }} label="Medium pack" />)
+    fireEvent.click(screen.getByRole('button'))
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'pack', pack: 'medium' }),
       })
     })
   })
@@ -64,15 +79,15 @@ describe('UpgradeButton', () => {
   it('redirects to stripe url on success', async () => {
     vi.stubGlobal('fetch', () =>
       Promise.resolve({
-        json: () => Promise.resolve({ url: 'https://checkout.stripe.com/pay/cs_live_test' }),
+        json: () => Promise.resolve({ url: 'https://checkout.stripe.com/pay/cs_test' }),
       }),
     )
 
-    render(<UpgradeButton />)
+    render(<CheckoutButton payload={{ type: 'subscription', tier: 'pro' }} label="Get Pro" />)
     fireEvent.click(screen.getByRole('button'))
 
     await vi.waitFor(() => {
-      expect(window.location.href).toBe('https://checkout.stripe.com/pay/cs_live_test')
+      expect(window.location.href).toBe('https://checkout.stripe.com/pay/cs_test')
     })
   })
 
@@ -81,11 +96,11 @@ describe('UpgradeButton', () => {
       Promise.resolve({ json: () => Promise.resolve({ error: 'Unauthorized' }) }),
     )
 
-    render(<UpgradeButton />)
+    render(<CheckoutButton payload={{ type: 'pack', pack: 'small' }} label="Small pack" />)
     fireEvent.click(screen.getByRole('button'))
 
     await vi.waitFor(() => {
-      expect(screen.getByRole('button', { name: /upgrade to pro/i })).not.toBeDisabled()
+      expect(screen.getByRole('button', { name: /small pack/i })).not.toBeDisabled()
     })
     expect(window.location.href).toBe('')
   })
@@ -101,21 +116,42 @@ describe('UpgradeButton', () => {
       }),
     )
 
-    render(<UpgradeButton />)
+    render(
+      <CheckoutButton payload={{ type: 'subscription', tier: 'starter' }} label="Get Starter" />,
+    )
     fireEvent.click(screen.getByRole('button'))
 
     expect(await screen.findByRole('button', { name: /redirecting/i })).toBeDisabled()
     resolveJson({ url: undefined })
   })
+
+  it('is disabled while loading', async () => {
+    let resolveJson!: (v: unknown) => void
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve({
+        json: () =>
+          new Promise((res) => {
+            resolveJson = res
+          }),
+      }),
+    )
+
+    render(<CheckoutButton payload={{ type: 'pack', pack: 'large' }} label="Large pack" />)
+    fireEvent.click(screen.getByRole('button'))
+
+    const btn = await screen.findByRole('button', { name: /redirecting/i })
+    expect(btn).toBeDisabled()
+    resolveJson({ url: undefined })
+  })
 })
 
 describe('ManageSubscriptionButton', () => {
-  it('renders manage label', () => {
+  it('renders manage subscription label', () => {
     render(<ManageSubscriptionButton />)
     expect(screen.getByRole('button', { name: /manage subscription/i })).toBeInTheDocument()
   })
 
-  it('calls portal API on click', async () => {
+  it('calls /api/stripe/portal on click', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       json: () => Promise.resolve({ url: 'https://billing.stripe.com/portal/test' }),
     })
