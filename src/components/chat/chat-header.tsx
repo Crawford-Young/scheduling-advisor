@@ -1,7 +1,7 @@
 'use client'
 import * as React from 'react'
 import { ArrowLeft } from 'lucide-react'
-import { Button, Badge } from '@/lib/ui'
+import { Button, TokenChip } from '@/lib/ui'
 
 export interface ChatHeaderProps {
   readonly title: string | null
@@ -24,9 +24,7 @@ export function ChatHeader({ title, tokenBalance, onBack }: ChatHeaderProps): Re
 
       <p className="text-foreground max-w-xs truncate text-sm font-medium">{title ?? 'Untitled'}</p>
 
-      <Badge variant="outline" className="text-xs tabular-nums">
-        {tokenBalance}
-      </Badge>
+      <TokenChip balance={tokenBalance} />
     </header>
   )
 }
