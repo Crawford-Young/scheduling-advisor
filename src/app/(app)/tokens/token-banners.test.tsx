@@ -1,4 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react'
+import { axe } from 'jest-axe'
 import { describe, expect, it, vi } from 'vitest'
 import { TokenBanners } from './token-banners'
 
@@ -57,5 +58,10 @@ describe('TokenBanners', () => {
     render(<TokenBanners success canceled />)
     expect(screen.getByText(/tokens added to your account/i)).toBeInTheDocument()
     expect(screen.getByText(/checkout canceled/i)).toBeInTheDocument()
+  })
+
+  it('passes axe accessibility check', async () => {
+    const { container } = render(<TokenBanners success canceled={false} />)
+    expect(await axe(container)).toHaveNoViolations()
   })
 })

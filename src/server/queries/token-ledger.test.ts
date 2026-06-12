@@ -33,9 +33,11 @@ vi.mock('@/db/schema', () => ({
   tokenLedger: {},
 }))
 
+const DESC_SENTINEL = Symbol('desc-sentinel')
+
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((_col, val) => val),
-  desc: vi.fn((col) => col),
+  desc: vi.fn(() => DESC_SENTINEL),
 }))
 
 beforeEach(() => {
@@ -49,12 +51,15 @@ beforeEach(() => {
 describe('getTokenLedger', () => {
   it('selects from tokenLedger where userId and orders by createdAt desc', async () => {
     const { getTokenLedger } = await import('./token-ledger')
+    const { desc } = await import('drizzle-orm')
+    const { tokenLedger } = await import('@/db/schema')
     await getTokenLedger('user-1')
 
     expect(mockSelect).toHaveBeenCalled()
     expect(mockFrom).toHaveBeenCalled()
     expect(mockWhere).toHaveBeenCalledWith('user-1')
-    expect(mockOrderBy).toHaveBeenCalled()
+    expect(vi.mocked(desc)).toHaveBeenCalledWith(tokenLedger.createdAt)
+    expect(mockOrderBy).toHaveBeenCalledWith(DESC_SENTINEL)
   })
 
   it('applies the limit parameter', async () => {
