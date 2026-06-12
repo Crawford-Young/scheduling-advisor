@@ -1,5 +1,6 @@
 'use client'
 import * as React from 'react'
+import Link from 'next/link'
 import { Panel, Group, Separator } from 'react-resizable-panels'
 import { useChat } from 'ai/react'
 import { useRouter } from 'next/navigation'
@@ -116,16 +117,33 @@ export function FullPageChatLayout({
       />
       <Group orientation="horizontal" className="flex-1">
         <Panel defaultSize={60} minSize={35}>
-          <ChatMessagesPanel
-            messages={messages}
-            input={input}
-            setInput={setInput}
-            handleSubmit={handleSubmit}
-            isLoading={isLoading}
-            append={append}
-            onScheduleUpdate={handleScheduleUpdate}
-            onItemConfirmed={handleItemConfirmed}
-          />
+          <div className="relative flex h-full flex-col overflow-hidden">
+            <ChatMessagesPanel
+              messages={messages}
+              input={input}
+              setInput={setInput}
+              handleSubmit={handleSubmit}
+              isLoading={isLoading}
+              append={append}
+              onScheduleUpdate={handleScheduleUpdate}
+              onItemConfirmed={handleItemConfirmed}
+            />
+            {tokenBalance < 1 && (
+              <div className="border-border bg-background absolute inset-x-0 bottom-0 flex flex-col items-center gap-3 border-t p-6 text-center">
+                <p className="text-foreground text-sm font-semibold">You&apos;re out of tokens</p>
+                <p className="text-muted-foreground max-w-sm text-sm">
+                  Cy plans your schedule, reschedules what slipped, and reflects on your day with
+                  you. Top up to keep going.
+                </p>
+                <Link
+                  href="/tokens"
+                  className="bg-primary text-primary-foreground inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all hover:opacity-90 active:scale-[0.98]"
+                >
+                  Get tokens
+                </Link>
+              </div>
+            )}
+          </div>
         </Panel>
         <Separator className="bg-border hover:bg-border/80 hidden w-1 cursor-col-resize transition-colors hover:w-1 md:block" />
         <Panel defaultSize={40} minSize={25} className="hidden md:flex">

@@ -237,4 +237,75 @@ describe('FullPageChatLayout', () => {
     })
     expect(screen.getByTestId('schedule-panel')).toHaveAttribute('data-event-count', '1')
   })
+
+  describe('zero token balance', () => {
+    it('shows a "Get tokens" link pointing to /tokens', () => {
+      render(
+        <FullPageChatLayout
+          conversation={conversation}
+          initialMessages={initialMessages}
+          tokenBalance={0}
+        />,
+      )
+      const link = screen.getByRole('link', { name: /get tokens/i })
+      expect(link).toBeInTheDocument()
+      expect(link).toHaveAttribute('href', '/tokens')
+    })
+
+    it('does not render the message input when balance is zero', () => {
+      render(
+        <FullPageChatLayout
+          conversation={conversation}
+          initialMessages={initialMessages}
+          tokenBalance={0}
+        />,
+      )
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /send/i })).not.toBeInTheDocument()
+    })
+
+    it('describes the assistant value with planning/scheduling copy', () => {
+      render(
+        <FullPageChatLayout
+          conversation={conversation}
+          initialMessages={initialMessages}
+          tokenBalance={0}
+        />,
+      )
+      expect(screen.getByText(/plans your schedule/i)).toBeInTheDocument()
+    })
+
+    it('shows "out of tokens" heading', () => {
+      render(
+        <FullPageChatLayout
+          conversation={conversation}
+          initialMessages={initialMessages}
+          tokenBalance={0}
+        />,
+      )
+      expect(screen.getByText(/out of tokens/i)).toBeInTheDocument()
+    })
+
+    it('still renders the chat header with correct balance', () => {
+      render(
+        <FullPageChatLayout
+          conversation={conversation}
+          initialMessages={initialMessages}
+          tokenBalance={0}
+        />,
+      )
+      expect(screen.getByTestId('chat-header')).toHaveAttribute('data-balance', '0')
+    })
+
+    it('renders messages panel when balance is zero', () => {
+      render(
+        <FullPageChatLayout
+          conversation={conversation}
+          initialMessages={initialMessages}
+          tokenBalance={0}
+        />,
+      )
+      expect(screen.getByTestId('messages-panel')).toBeInTheDocument()
+    })
+  })
 })
