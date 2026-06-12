@@ -22,6 +22,7 @@ export const users = pgTable('users', {
   emailVerified: timestamp('email_verified', { mode: 'date' }),
   image: text('image'),
   timezone: text('timezone').notNull().default('UTC'),
+  username: text('username').unique(),
   plan: text('plan', { enum: ['starter', 'growth', 'pro', 'comped'] }),
   stripeCustomerId: text('stripe_customer_id').unique(),
   tokenResetAt: timestamp('token_reset_at'),
