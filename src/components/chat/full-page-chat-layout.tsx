@@ -56,6 +56,7 @@ export function FullPageChatLayout({
       try {
         const balance = await getTokenBalanceAction()
         setTokenBalance(balance)
+        window.dispatchEvent(new CustomEvent('token-balance-changed'))
       } catch {
         // non-fatal — stale balance ok
       }

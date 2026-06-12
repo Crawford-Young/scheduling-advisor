@@ -2,7 +2,9 @@ import { auth, signOut } from '@/auth'
 import { redirect } from 'next/navigation'
 import { AppShell, Avatar, AvatarFallback, AvatarImage, Sidebar, Toaster } from '@/lib/ui'
 import { ActiveSidebarItem } from '@/components/layout/active-sidebar-item'
+import { TokenChipLive } from '@/components/layout/token-chip-live'
 import { ChatFab } from '@/components/chat/chat-fab'
+import { getTokenBalance } from '@/server/queries/tokens'
 import {
   Calendar,
   CheckSquare,
@@ -33,6 +35,8 @@ interface AppLayoutProps {
 export default async function AppLayout({ children }: AppLayoutProps): Promise<React.JSX.Element> {
   const session = await auth()
   if (!session?.user?.id) redirect('/login')
+
+  const tokenBalance = await getTokenBalance(session.user.id)
 
   const sidebarHeader = (
     <div className="border-border flex h-14 shrink-0 items-center gap-2.5 border-b px-4">
@@ -104,7 +108,7 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
             ))}
           </Sidebar>
         }
-        topbar={null}
+        topbar={<TokenChipLive initialBalance={tokenBalance} />}
       >
         <div className="p-6">{children}</div>
       </AppShell>

@@ -15,7 +15,7 @@ describe('ChatHeader', () => {
 
   it('renders token balance', () => {
     render(<ChatHeader title="Chat" tokenBalance={100} onBack={() => {}} />)
-    expect(screen.getByText('100')).toBeInTheDocument()
+    expect(screen.getByLabelText('Token balance: 100')).toBeInTheDocument()
   })
 
   it('renders Untitled when title is null', () => {
