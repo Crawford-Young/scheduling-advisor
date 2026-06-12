@@ -26,6 +26,16 @@ test.describe('Home page', () => {
     await expect(page).toHaveURL(/\/login/)
   })
 
+  test('unauthenticated user redirected to login from /tokens', async ({ page }) => {
+    await page.goto('/tokens')
+    await expect(page).toHaveURL(/\/login/)
+  })
+
+  test('unauthenticated user redirected to login from /upgrade', async ({ page }) => {
+    await page.goto('/upgrade')
+    await expect(page).toHaveURL(/\/login/)
+  })
+
   test('login page shows app name and Google sign-in', async ({ page }) => {
     await page.goto('/login')
     await expect(page.getByText('Cybond')).toBeVisible()

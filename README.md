@@ -13,7 +13,7 @@ Consistency-first scheduling app. The week calendar is home: plan tasks, goals, 
 - **Ask Cybond** — "Ask Cybond" on a check-in opens the chat panel pre-filled with a reschedule request; the assistant proposes times via tools you confirm or deny
 - **Streaks + consistency** — per-task streak badges and a weekly consistency bar
 - **Activity settings** — visibility and joinability per activity
-- **Plans + credits** — Stripe-backed starter/growth/pro plans with a token ledger
+- **Tokens** — the app is free to use; tokens purchase AI assistance (Cy chat, AI reflections). Buy a monthly subscription (Starter/Growth/Pro) or one-off token packs at `/tokens`
 
 ## Stack
 
