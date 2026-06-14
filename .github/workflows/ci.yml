@@ -15,7 +15,7 @@ jobs:
         with: { version: 10 }
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: pnpm }
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@v4
       - run: pnpm install --frozen-lockfile
       - run: just lint
       - run: just typecheck
@@ -40,7 +40,7 @@ jobs:
         with: { version: 10 }
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: pnpm }
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@v4
       - run: pnpm install --frozen-lockfile
       - run: just e2e
         env:
