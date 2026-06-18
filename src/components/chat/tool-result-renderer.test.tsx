@@ -136,6 +136,19 @@ describe('ToolResultRenderer', () => {
     expect(screen.getByTestId('week-cal')).toBeInTheDocument()
   })
 
+  it('passes an empty array to onScheduleUpdate when events are undefined', () => {
+    const onScheduleUpdate = vi.fn()
+    render(
+      <ToolResultRenderer
+        toolInvocation={makeInvocation('showWeekCalendar', {
+          weekStart: '2026-06-02',
+        })}
+        onScheduleUpdate={onScheduleUpdate}
+      />,
+    )
+    expect(onScheduleUpdate).toHaveBeenCalledWith('2026-06-02', [])
+  })
+
   it('deny without append prop does not throw', async () => {
     const user = userEvent.setup()
     render(
@@ -181,6 +194,22 @@ describe('ToolResultRenderer', () => {
     )
     await user.click(screen.getByText('deny-with-reason'))
     expect(append).toHaveBeenCalledWith({ role: 'user', content: '[DENY] reason: wrong time' })
+  })
+
+  it('sends a bare [DENY] when deny has no reason and append is provided', async () => {
+    const user = userEvent.setup()
+    const append = vi.fn()
+    render(
+      <ToolResultRenderer
+        toolInvocation={makeInvocation('proposeAction', {
+          action: 'Run daily',
+          entityType: 'habit',
+        })}
+        append={append}
+      />,
+    )
+    await user.click(screen.getByText('deny'))
+    expect(append).toHaveBeenCalledWith({ role: 'user', content: '[DENY]' })
   })
 
   it('renders showTaskCard as an ActivityCard with a next-slot detail', () => {
