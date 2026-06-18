@@ -5,10 +5,25 @@ import { ToolResultRenderer } from './tool-result-renderer'
 
 vi.mock('@/lib/ui', () => ({
   WeekCalendarView: () => <div data-testid="week-cal" />,
+  ActivityCard: ({
+    title,
+    type,
+    status,
+    streak,
+    detail,
+  }: {
+    title: string
+    type: string
+    status: string
+    streak?: number
+    detail?: React.ReactNode
+  }) => (
+    <div data-testid="activity-card" data-type={type} data-status={status} data-streak={streak}>
+      <span>{title}</span>
+      {detail}
+    </div>
+  ),
 }))
-vi.mock('@/components/cards/task-card', () => ({ TaskCard: () => <div>task</div> }))
-vi.mock('@/components/cards/habit-card', () => ({ HabitCard: () => <div>habit</div> }))
-vi.mock('@/components/cards/goal-card', () => ({ GoalCard: () => <div>goal</div> }))
 vi.mock('@/components/cards/schedule-suggestion', () => ({
   ScheduleSuggestion: () => <div>sug</div>,
 }))
@@ -166,5 +181,86 @@ describe('ToolResultRenderer', () => {
     )
     await user.click(screen.getByText('deny-with-reason'))
     expect(append).toHaveBeenCalledWith({ role: 'user', content: '[DENY] reason: wrong time' })
+  })
+
+  it('renders showTaskCard as an ActivityCard with a next-slot detail', () => {
+    render(
+      <ToolResultRenderer
+        toolInvocation={makeInvocation('showTaskCard', {
+          taskId: 't1',
+          title: 'Buy milk',
+          type: 'task',
+          status: 'pending',
+          nextSlot: 'Mon 9am',
+        })}
+      />,
+    )
+    const card = screen.getByTestId('activity-card')
+    expect(card).toHaveAttribute('data-type', 'task')
+    expect(card).toHaveAttribute('data-status', 'pending')
+    expect(screen.getByText('Buy milk')).toBeInTheDocument()
+    expect(screen.getByText('Next: Mon 9am')).toBeInTheDocument()
+  })
+
+  it('renders showTaskCard with no next slot (no detail line)', () => {
+    render(
+      <ToolResultRenderer
+        toolInvocation={makeInvocation('showTaskCard', {
+          taskId: 't1',
+          title: 'Buy milk',
+          type: 'task',
+          status: 'completed',
+        })}
+      />,
+    )
+    expect(screen.getByTestId('activity-card')).toBeInTheDocument()
+    expect(screen.queryByText(/^Next:/)).not.toBeInTheDocument()
+  })
+
+  it('renders showHabitCard as a habit ActivityCard carrying the streak', () => {
+    render(
+      <ToolResultRenderer
+        toolInvocation={makeInvocation('showHabitCard', {
+          taskId: 'h1',
+          title: 'Meditate',
+          status: 'pending',
+          streak: 5,
+        })}
+      />,
+    )
+    const card = screen.getByTestId('activity-card')
+    expect(card).toHaveAttribute('data-type', 'habit')
+    expect(card).toHaveAttribute('data-streak', '5')
+    expect(screen.getByText('Meditate')).toBeInTheDocument()
+  })
+
+  it('renders showGoalCard as a goal ActivityCard with a target-date detail', () => {
+    render(
+      <ToolResultRenderer
+        toolInvocation={makeInvocation('showGoalCard', {
+          taskId: 'g1',
+          title: 'Run a marathon',
+          status: 'in_progress',
+          targetDate: '2026-08-01',
+        })}
+      />,
+    )
+    const card = screen.getByTestId('activity-card')
+    expect(card).toHaveAttribute('data-type', 'goal')
+    expect(screen.getByText('Target: 2026-08-01')).toBeInTheDocument()
+  })
+
+  it('renders showGoalCard with no target date (no detail line)', () => {
+    render(
+      <ToolResultRenderer
+        toolInvocation={makeInvocation('showGoalCard', {
+          taskId: 'g1',
+          title: 'Run a marathon',
+          status: 'pending',
+        })}
+      />,
+    )
+    expect(screen.getByTestId('activity-card')).toBeInTheDocument()
+    expect(screen.queryByText(/^Target:/)).not.toBeInTheDocument()
   })
 })

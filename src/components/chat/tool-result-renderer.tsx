@@ -1,14 +1,72 @@
 'use client'
 import * as React from 'react'
 import type { Message, ToolInvocation } from 'ai'
-import { TaskCard } from '@/components/cards/task-card'
-import { HabitCard } from '@/components/cards/habit-card'
-import { GoalCard } from '@/components/cards/goal-card'
 import { ScheduleSuggestion } from '@/components/cards/schedule-suggestion'
 import { ReflectionCard } from '@/components/cards/reflection-card'
 import { LifeBalanceView } from '@/components/cards/life-balance-view'
 import { ActionConfirmCard } from '@/components/chat/action-confirm-card'
-import { WeekCalendarView, type CalendarEvent as LibraryCalendarEvent } from '@/lib/ui'
+import {
+  ActivityCard,
+  WeekCalendarView,
+  type CalendarEvent as LibraryCalendarEvent,
+} from '@/lib/ui'
+
+type ActivityType = 'task' | 'goal' | 'habit'
+type ActivityStatus = 'pending' | 'in_progress' | 'completed'
+
+/** Chat tool results are read-only previews — ActivityCard with a detail slot, no actions. */
+function detailLine(text: string): React.JSX.Element {
+  return <span className="text-muted-foreground text-xs">{text}</span>
+}
+
+interface ChatTaskCardProps {
+  readonly title: string
+  readonly type: ActivityType
+  readonly status: ActivityStatus
+  readonly nextSlot?: string | null
+}
+
+function ChatTaskCard({ title, type, status, nextSlot }: ChatTaskCardProps): React.JSX.Element {
+  return (
+    <ActivityCard
+      title={title}
+      type={type}
+      status={status}
+      visibility="only_me"
+      detail={nextSlot ? detailLine(`Next: ${nextSlot}`) : undefined}
+    />
+  )
+}
+
+interface ChatHabitCardProps {
+  readonly title: string
+  readonly status: ActivityStatus
+  readonly streak: number
+}
+
+function ChatHabitCard({ title, status, streak }: ChatHabitCardProps): React.JSX.Element {
+  return (
+    <ActivityCard title={title} type="habit" status={status} streak={streak} visibility="only_me" />
+  )
+}
+
+interface ChatGoalCardProps {
+  readonly title: string
+  readonly status: ActivityStatus
+  readonly targetDate?: string | null
+}
+
+function ChatGoalCard({ title, status, targetDate }: ChatGoalCardProps): React.JSX.Element {
+  return (
+    <ActivityCard
+      title={title}
+      type="goal"
+      status={status}
+      visibility="only_me"
+      detail={targetDate ? detailLine(`Target: ${targetDate}`) : undefined}
+    />
+  )
+}
 
 export interface AppEvent {
   readonly id: string
@@ -39,9 +97,9 @@ function WeekCalendarRenderer({ weekStart, events = [] }: WeekCalendarProps): Re
 }
 
 const componentMap = {
-  showTaskCard: TaskCard,
-  showHabitCard: HabitCard,
-  showGoalCard: GoalCard,
+  showTaskCard: ChatTaskCard,
+  showHabitCard: ChatHabitCard,
+  showGoalCard: ChatGoalCard,
   showScheduleSuggestion: ScheduleSuggestion,
   showReflectionCard: ReflectionCard,
   showLifeBalance: LifeBalanceView,
