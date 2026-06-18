@@ -5,25 +5,13 @@ import { ActiveSidebarItem } from '@/components/layout/active-sidebar-item'
 import { TokenChipLive } from '@/components/layout/token-chip-live'
 import { ChatFab } from '@/components/chat/chat-fab'
 import { getTokenBalance } from '@/server/queries/tokens'
-import {
-  Calendar,
-  CheckSquare,
-  Coins,
-  LogOut,
-  MessageSquare,
-  RefreshCw,
-  Rss,
-  Settings,
-  Target,
-} from 'lucide-react'
+import { Calendar, Coins, ListChecks, LogOut, MessageSquare, Rss, Settings } from 'lucide-react'
 import Image from 'next/image'
 import React from 'react'
 
 const NAV_ITEMS = [
   { label: 'Calendar', href: '/calendar', icon: <Calendar className="h-4 w-4" /> },
-  { label: 'Goals', href: '/goals', icon: <Target className="h-4 w-4" /> },
-  { label: 'Habits', href: '/habits', icon: <RefreshCw className="h-4 w-4" /> },
-  { label: 'Tasks', href: '/tasks', icon: <CheckSquare className="h-4 w-4" /> },
+  { label: 'Activities', href: '/activities', icon: <ListChecks className="h-4 w-4" /> },
   { label: 'Reflections', href: '/reflections', icon: <MessageSquare className="h-4 w-4" /> },
   { label: 'Feed', href: '/feed', icon: <Rss className="h-4 w-4" /> },
   { label: 'Tokens', href: '/tokens', icon: <Coins className="h-4 w-4" /> },
