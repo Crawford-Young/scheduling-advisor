@@ -1,11 +1,16 @@
+import React from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ActivityFormDialog } from './activity-form-dialog'
 
-// Module-level state for RadioGroup (single instance per render)
-let radioGroupValue = ''
-let radioGroupOnChange: ((v: string) => void) | undefined
+// Context used by the RadioGroup mock so each group instance is isolated.
+// Each RadioGroup provides its own context scope; RadioGroupItems read from
+// the nearest ancestor RadioGroup — exactly like the real Radix primitive.
+const RadioGroupContext = React.createContext<{
+  value: string
+  onChange?: (v: string) => void
+}>({ value: '' })
 
 vi.mock('@/lib/ui', () => ({
   // ── Dialog primitives ──────────────────────────────────────────────────────
@@ -18,7 +23,8 @@ vi.mock('@/lib/ui', () => ({
   DialogFooter: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
 
   // ── RadioGroup ─────────────────────────────────────────────────────────────
-  // Uses module-level state so RadioGroupItem can read the current group value
+  // Each RadioGroup provides its own context scope so multiple groups can
+  // coexist in the same render without trampling each other's state.
   RadioGroup: ({
     value,
     onValueChange,
@@ -27,20 +33,23 @@ vi.mock('@/lib/ui', () => ({
     value?: string
     onValueChange?: (v: string) => void
     children?: React.ReactNode
-  }) => {
-    radioGroupValue = value ?? ''
-    radioGroupOnChange = onValueChange
-    return <div role="radiogroup">{children}</div>
-  },
-  RadioGroupItem: ({ value, id }: { value: string; id?: string }) => (
-    <input
-      type="radio"
-      id={id}
-      value={value}
-      checked={radioGroupValue === value}
-      onChange={() => radioGroupOnChange?.(value)}
-    />
+  }) => (
+    <RadioGroupContext.Provider value={{ value: value ?? '', onChange: onValueChange }}>
+      <div role="radiogroup">{children}</div>
+    </RadioGroupContext.Provider>
   ),
+  RadioGroupItem: ({ value, id }: { value: string; id?: string }) => {
+    const ctx = React.useContext(RadioGroupContext)
+    return (
+      <input
+        type="radio"
+        id={id}
+        value={value}
+        checked={ctx.value === value}
+        onChange={() => ctx.onChange?.(value)}
+      />
+    )
+  },
 
   // ── Select ─────────────────────────────────────────────────────────────────
   // Renders options as visible spans; tests use initialValues to pre-seed state
@@ -148,11 +157,6 @@ vi.mock('@/lib/ui', () => ({
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('B.1 — skeleton + type picker', () => {
-  beforeEach(() => {
-    radioGroupValue = ''
-    radioGroupOnChange = undefined
-  })
-
   it('renders a DialogDescription for a11y (create or edit text)', () => {
     render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
     expect(screen.getByText(/create or edit/i)).toBeInTheDocument()
@@ -160,15 +164,14 @@ describe('B.1 — skeleton + type picker', () => {
 
   it('shows a task|goal radio picker with task selected by default', () => {
     render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
-    expect(screen.getByRole('radiogroup')).toBeInTheDocument()
-    const radios = screen.getAllByRole('radio') as HTMLInputElement[]
-    const taskRadio = radios.find((r) => r.value === 'task')
-    expect(taskRadio?.checked).toBe(true)
-    const goalRadio = radios.find((r) => r.value === 'goal')
-    expect(goalRadio?.checked).toBe(false)
+    // Type picker + social radiogroup → at least 2 present
+    expect(screen.getAllByRole('radiogroup').length).toBeGreaterThanOrEqual(2)
+    // Type picker radios: task selected, goal not
+    expect((screen.getByLabelText('Task') as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText('Goal') as HTMLInputElement).checked).toBe(false)
   })
 
-  it('hides the type picker when lockType is true', () => {
+  it('hides the type picker when lockType is true, leaving only social radiogroup', () => {
     render(
       <ActivityFormDialog
         open
@@ -178,7 +181,8 @@ describe('B.1 — skeleton + type picker', () => {
         initialType="goal"
       />,
     )
-    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
+    // Only the social activityType radiogroup remains (type picker is hidden)
+    expect(screen.getAllByRole('radiogroup')).toHaveLength(1)
   })
 })
 
@@ -236,11 +240,6 @@ describe('B.2 — task field set', () => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('B.3 — goal field set', () => {
-  beforeEach(() => {
-    radioGroupValue = ''
-    radioGroupOnChange = undefined
-  })
-
   it('shows DatePicker and hides TaskTimeFields when type is goal', async () => {
     const user = userEvent.setup()
     render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
@@ -282,5 +281,80 @@ describe('B.3 — goal field set', () => {
     await user.type(screen.getByPlaceholderText(/activity title/i), 'Run a marathon')
     // No date selected yet
     expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled()
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// B.4 — Social section + submit payload assembly
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('B.4 — social section + submit payload assembly', () => {
+  it('renders social activityType radio group alongside the type picker for task', () => {
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
+    // Type picker + social → two radio groups
+    expect(screen.getAllByRole('radiogroup')).toHaveLength(2)
+    expect(screen.getByLabelText('Solo')).toBeInTheDocument()
+  })
+
+  it('renders social activityType radio group for goal type', async () => {
+    const user = userEvent.setup()
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
+    await user.click(screen.getByLabelText('Goal'))
+    expect(screen.getByLabelText('Solo')).toBeInTheDocument()
+  })
+
+  it('task submit payload includes default solo social values', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn()
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={onSubmit}
+        initialValues={{
+          startAt: '2026-09-15T09:00:00.000Z',
+          endAt: '2026-09-15T10:00:00.000Z',
+        }}
+      />,
+    )
+    await user.type(screen.getByPlaceholderText(/activity title/i), 'Morning run')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        social: { activityType: 'solo', visibility: 'only_me' },
+      }),
+    )
+  })
+
+  it('goal submit payload includes default solo social values', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn()
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={onSubmit} />)
+    await user.click(screen.getByLabelText('Goal'))
+    await user.type(screen.getByPlaceholderText(/activity title/i), 'Run a marathon')
+    await user.click(screen.getByTestId('date-picker'))
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        social: { activityType: 'solo', visibility: 'only_me' },
+      }),
+    )
+  })
+
+  it('shows group-only fields when initialValues.social.activityType is group', () => {
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={() => {}}
+        initialValues={{
+          social: { activityType: 'group', visibility: 'everyone' },
+        }}
+      />,
+    )
+    // Joinability Select options visible
+    expect(screen.getByRole('option', { name: /^open$/i })).toBeInTheDocument()
+    // Max participants Input present
+    expect(screen.getByLabelText(/max participants/i)).toBeInTheDocument()
   })
 })
