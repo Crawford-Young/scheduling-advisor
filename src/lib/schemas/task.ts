@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const taskTypeSchema = z.enum(['task', 'goal', 'habit'])
+export const taskTypeSchema = z.enum(['task', 'goal'])
 export const taskStatusSchema = z.enum(['pending', 'in_progress', 'completed'])
 
 export const createTaskSchema = z.object({
@@ -11,6 +11,10 @@ export const createTaskSchema = z.object({
   startAt: z.string().datetime().nullable().optional(),
   endAt: z.string().datetime().nullable().optional(),
   recurrenceCount: z.number().int().min(2).max(52).optional(),
+  color: z.string().max(32).nullable().optional(),
+  location: z.string().max(200).nullable().optional(),
+  description: z.string().max(2000).nullable().optional(),
+  allDay: z.boolean().optional(),
 })
 
 export const updateTaskSchema = z.object({
@@ -21,6 +25,10 @@ export const updateTaskSchema = z.object({
   targetDate: z.string().datetime().nullable().optional(),
   startAt: z.string().datetime().nullable().optional(),
   endAt: z.string().datetime().nullable().optional(),
+  color: z.string().max(32).nullable().optional(),
+  location: z.string().max(200).nullable().optional(),
+  description: z.string().max(2000).nullable().optional(),
+  allDay: z.boolean().optional(),
 })
 
 export const deleteTaskSchema = z.object({
