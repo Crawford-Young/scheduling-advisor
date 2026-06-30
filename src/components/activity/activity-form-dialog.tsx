@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { useState } from 'react'
 import {
+  buildIso,
   Button,
   Dialog,
   DialogContent,
@@ -9,10 +10,44 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Input,
   Label,
   RadioGroup,
   RadioGroupItem,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Switch,
+  TaskTimeFields,
+  Textarea,
+  toTimeSlot,
+  type CalendarEventColor,
 } from '@/lib/ui'
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const REPEAT_MIN = 2
+const REPEAT_MAX = 52
+
+const COLOR_OPTIONS: readonly { readonly value: CalendarEventColor; readonly label: string }[] = [
+  { value: 'default', label: 'Default' },
+  { value: 'blue', label: 'Blue' },
+  { value: 'violet', label: 'Violet' },
+  { value: 'green', label: 'Green' },
+  { value: 'red', label: 'Red' },
+  { value: 'amber', label: 'Amber' },
+  { value: 'pink', label: 'Pink' },
+  { value: 'cyan', label: 'Cyan' },
+  { value: 'indigo', label: 'Indigo' },
+  { value: 'teal', label: 'Teal' },
+  { value: 'orange', label: 'Orange' },
+  { value: 'rose', label: 'Rose' },
+  { value: 'sky', label: 'Sky' },
+  { value: 'fuchsia', label: 'Fuchsia' },
+  { value: 'lime', label: 'Lime' },
+] as const
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -56,17 +91,74 @@ export interface ActivityFormDialogProps {
 export function ActivityFormDialog({
   open,
   onOpenChange,
+  onSubmit,
   initialType = 'task',
   initialValues,
   lockType = false,
   isPending = false,
+  use24h = false,
 }: ActivityFormDialogProps): React.JSX.Element {
+  // ── Type ────────────────────────────────────────────────────────────────────
   const [type, setType] = useState<ActivityType>(
     (initialValues?.type ?? initialType) as ActivityType,
   )
 
-  const dialogTitle = `${initialValues ? 'Edit' : 'New'} ${type}`
+  // ── Common fields ───────────────────────────────────────────────────────────
+  const [title, setTitle] = useState(initialValues?.title ?? '')
 
+  // ── Task fields ─────────────────────────────────────────────────────────────
+  const [date, setDate] = useState<Date | undefined>(
+    initialValues?.startAt ? new Date(initialValues.startAt) : undefined,
+  )
+  const [startTime, setStartTime] = useState(
+    initialValues?.startAt ? toTimeSlot(initialValues.startAt) : '09:00',
+  )
+  const [endTime, setEndTime] = useState(
+    initialValues?.endAt ? toTimeSlot(initialValues.endAt) : '10:00',
+  )
+  const [recurrence, setRecurrence] = useState(initialValues?.recurrence ?? 'none')
+  const [recurrenceCount, setRecurrenceCount] = useState(REPEAT_MIN)
+  const [color, setColor] = useState<CalendarEventColor>(
+    (initialValues?.color as CalendarEventColor | undefined) ?? 'default',
+  )
+  const [location, setLocation] = useState(initialValues?.location ?? '')
+  const [description, setDescription] = useState(initialValues?.description ?? '')
+  const [allDay, setAllDay] = useState(initialValues?.allDay ?? false)
+
+  // ── Derived ─────────────────────────────────────────────────────────────────
+  const dialogTitle = `${initialValues ? 'Edit' : 'New'} ${type}`
+  const isSaveDisabled = !title.trim() || isPending || (type === 'task' && !allDay && !date)
+
+  // ── Handlers ────────────────────────────────────────────────────────────────
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>): void {
+    e.preventDefault()
+    if (type !== 'task') return // goal path added in B.3
+
+    if (!allDay && !date) return
+
+    const startIso = allDay ? null : buildIso(date!, startTime)
+    const endIso = allDay ? null : buildIso(date!, endTime)
+    const recurrenceValue = recurrence === 'none' ? null : recurrence
+
+    // Social assembled from real state in B.4; use default until then
+    const social: ActivitySocial = { activityType: 'solo', visibility: 'only_me' }
+
+    onSubmit({
+      type: 'task',
+      title,
+      startAt: startIso,
+      endAt: endIso,
+      recurrence: recurrenceValue,
+      recurrenceCount: recurrence !== 'none' ? recurrenceCount : undefined,
+      color: color !== 'default' ? color : null,
+      location: location.trim() || null,
+      description: description.trim() || null,
+      allDay,
+      social,
+    })
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -93,15 +185,99 @@ export function ActivityFormDialog({
           </div>
         )}
 
-        <form id="activity-form" onSubmit={(e) => e.preventDefault()}>
-          {/* task + goal fields added in B.2–B.3 */}
+        <form id="activity-form" onSubmit={handleSubmit} className="space-y-4">
+          {/* ── Title ── */}
+          <div className="space-y-2">
+            <Label htmlFor="afd-title">Title</Label>
+            <Input
+              id="afd-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Activity title"
+              required
+              maxLength={200}
+            />
+          </div>
+
+          {/* ── Task fields ── */}
+          {type === 'task' && (
+            <>
+              {/* All-day toggle */}
+              <div className="flex items-center gap-2">
+                <Switch id="afd-all-day" checked={allDay} onCheckedChange={setAllDay} />
+                <Label htmlFor="afd-all-day">All day</Label>
+              </div>
+
+              {/* Time fields (hidden when all-day) */}
+              {!allDay && (
+                <TaskTimeFields
+                  date={date}
+                  onDateChange={setDate}
+                  startTime={startTime}
+                  onStartTimeChange={setStartTime}
+                  endTime={endTime}
+                  onEndTimeChange={setEndTime}
+                  recurrence={recurrence}
+                  onRecurrenceChange={setRecurrence}
+                  recurrenceCount={recurrenceCount}
+                  onRecurrenceCountChange={setRecurrenceCount}
+                  showDate
+                  showRecurrence
+                  use24h={use24h}
+                  repeatMin={REPEAT_MIN}
+                  repeatMax={REPEAT_MAX}
+                />
+              )}
+
+              {/* Color */}
+              <div className="space-y-2">
+                <Label>Color</Label>
+                <Select value={color} onValueChange={(v) => setColor(v as CalendarEventColor)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Default" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COLOR_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Location */}
+              <div className="space-y-2">
+                <Label htmlFor="afd-task-location">Location</Label>
+                <Input
+                  id="afd-task-location"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder="Location (optional)"
+                />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-2">
+                <Label htmlFor="afd-task-description">Description</Label>
+                <Textarea
+                  id="afd-task-description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Description (optional)"
+                />
+              </div>
+            </>
+          )}
+
+          {/* Goal fields added in B.3 */}
         </form>
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button type="submit" form="activity-form" disabled={isPending}>
+          <Button type="submit" form="activity-form" disabled={isSaveDisabled}>
             {isPending ? 'Saving…' : 'Save'}
           </Button>
         </DialogFooter>
