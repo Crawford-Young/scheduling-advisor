@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { ActivityFormDialog } from './activity-form-dialog'
 
@@ -178,5 +179,54 @@ describe('B.1 — skeleton + type picker', () => {
       />,
     )
     expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// B.2 — Task field set (time + all-day + recurrence + color + location + description)
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('B.2 — task field set', () => {
+  it('renders location Input and description Textarea', () => {
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
+    expect(screen.getByPlaceholderText(/location/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/description/i)).toBeInTheDocument()
+  })
+
+  it('renders color Select options for the task color palette', () => {
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
+    // At least the Blue option should be visible (SelectItem renders as span[role=option])
+    expect(screen.getByRole('option', { name: 'Blue' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Violet' })).toBeInTheDocument()
+  })
+
+  it('TaskTimeFields is shown by default for task type and receives date/start/end', () => {
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={() => {}}
+        initialValues={{
+          startAt: '2026-09-15T09:00:00.000Z',
+          endAt: '2026-09-15T10:00:00.000Z',
+        }}
+      />,
+    )
+    const ttf = screen.getByTestId('task-time-fields')
+    expect(ttf).toHaveAttribute('data-start', '09:00')
+    expect(ttf).toHaveAttribute('data-end', '10:00')
+    expect(ttf).toHaveAttribute('data-repeat-min', '2')
+    expect(ttf).toHaveAttribute('data-repeat-max', '52')
+  })
+
+  it('all-day toggle hides TaskTimeFields', async () => {
+    const user = userEvent.setup()
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
+    // TaskTimeFields present initially (default task, not all-day)
+    expect(screen.getByTestId('task-time-fields')).toBeInTheDocument()
+    // Click the all-day switch
+    await user.click(screen.getByRole('switch'))
+    // TaskTimeFields should be gone
+    expect(screen.queryByTestId('task-time-fields')).not.toBeInTheDocument()
   })
 })
