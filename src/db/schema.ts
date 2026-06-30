@@ -9,6 +9,7 @@ import {
   json,
   unique,
   index,
+  boolean,
 } from 'drizzle-orm/pg-core'
 
 // ── Auth.js v5 required tables ────────────────────────────────────────────────
@@ -75,7 +76,7 @@ export const tasks = pgTable('tasks', {
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
-  type: text('type', { enum: ['task', 'goal', 'habit'] }).notNull(),
+  type: text('type', { enum: ['task', 'goal'] }).notNull(),
   recurrence: text('recurrence'),
   status: text('status', { enum: ['pending', 'in_progress', 'completed'] })
     .notNull()
@@ -83,6 +84,10 @@ export const tasks = pgTable('tasks', {
   targetDate: timestamp('target_date', { mode: 'date' }),
   startAt: timestamp('start_at', { withTimezone: true, mode: 'date' }),
   endAt: timestamp('end_at', { withTimezone: true, mode: 'date' }),
+  location: text('location'),
+  description: text('description'),
+  color: text('color'),
+  allDay: boolean('all_day').notNull().default(false),
   activityType: text('activity_type', { enum: ['solo', 'group'] })
     .notNull()
     .default('solo'),
