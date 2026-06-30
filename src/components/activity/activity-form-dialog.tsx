@@ -131,6 +131,20 @@ export function ActivityFormDialog({
     initialValues?.targetDate ? new Date(initialValues.targetDate + 'T12:00:00') : undefined,
   )
 
+  // ── Social fields ───────────────────────────────────────────────────────────
+  const [socialType, setSocialType] = useState<'solo' | 'group'>(
+    initialValues?.social?.activityType ?? 'solo',
+  )
+  const [visibility, setVisibility] = useState<ActivitySocial['visibility']>(
+    initialValues?.social?.visibility ?? 'only_me',
+  )
+  const [joinability, setJoinability] = useState<ActivitySocial['joinability']>(
+    initialValues?.social?.joinability,
+  )
+  const [maxParticipants, setMaxParticipants] = useState<number>(
+    initialValues?.social?.maxParticipants ?? 2,
+  )
+
   // ── Derived ─────────────────────────────────────────────────────────────────
   const dialogTitle = `${initialValues ? 'Edit' : 'New'} ${type}`
   const isSaveDisabled =
@@ -143,8 +157,10 @@ export function ActivityFormDialog({
   function handleSubmit(e: React.FormEvent<HTMLFormElement>): void {
     e.preventDefault()
 
-    // Social assembled from real state in B.4; use default until then
-    const social: ActivitySocial = { activityType: 'solo', visibility: 'only_me' }
+    const social: ActivitySocial =
+      socialType === 'group'
+        ? { activityType: 'group', visibility, joinability, maxParticipants }
+        : { activityType: 'solo', visibility }
 
     if (type === 'goal') {
       if (!goalDate) return
@@ -326,6 +342,80 @@ export function ActivityFormDialog({
               </div>
             </>
           )}
+
+          {/* ── Social section (both types) ── */}
+          <div className="space-y-4">
+            {/* Activity type */}
+            <div className="space-y-2">
+              <Label>Activity type</Label>
+              <RadioGroup
+                value={socialType}
+                onValueChange={(v) => setSocialType(v as 'solo' | 'group')}
+              >
+                <div className="flex gap-4">
+                  <div className="flex items-center gap-2">
+                    <RadioGroupItem value="solo" id="afd-social-type-solo" />
+                    <Label htmlFor="afd-social-type-solo">Solo</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <RadioGroupItem value="group" id="afd-social-type-group" />
+                    <Label htmlFor="afd-social-type-group">Group</Label>
+                  </div>
+                </div>
+              </RadioGroup>
+            </div>
+
+            {/* Visibility */}
+            <div className="space-y-2">
+              <Label>Visibility</Label>
+              <Select
+                value={visibility}
+                onValueChange={(v) => setVisibility(v as ActivitySocial['visibility'])}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Only me" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="only_me">Only me</SelectItem>
+                  <SelectItem value="friends">Friends</SelectItem>
+                  <SelectItem value="busy">Busy</SelectItem>
+                  <SelectItem value="everyone">Everyone</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Group-only fields */}
+            {socialType === 'group' && (
+              <>
+                <div className="space-y-2">
+                  <Label>Joinability</Label>
+                  <Select
+                    value={joinability ?? 'open'}
+                    onValueChange={(v) => setJoinability(v as ActivitySocial['joinability'])}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="open">Open</SelectItem>
+                      <SelectItem value="request">Request</SelectItem>
+                      <SelectItem value="closed">Closed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="afd-max-participants">Max participants</Label>
+                  <Input
+                    id="afd-max-participants"
+                    type="number"
+                    value={maxParticipants}
+                    onChange={(e) => setMaxParticipants(Number(e.target.value) || 2)}
+                    min={2}
+                  />
+                </div>
+              </>
+            )}
+          </div>
         </form>
 
         <DialogFooter>
