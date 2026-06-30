@@ -43,7 +43,7 @@ function ActivityDetail({ task }: { task: UserTask }): React.JSX.Element {
       </span>
     )
   }
-  if (task.type === 'habit') {
+  if ((task.type as string) === 'habit') {
     return (
       <span className="text-muted-foreground text-xs capitalize">{task.recurrence ?? 'daily'}</span>
     )

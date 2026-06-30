@@ -133,7 +133,7 @@ export async function createHabit(input: CreateHabitInput): Promise<ActionResult
   await db.insert(tasks).values({
     userId: session.user.id,
     title: input.title,
-    type: 'habit',
+    type: 'task',
     recurrence: 'daily',
     targetDate: new Date(input.startDate),
     visibility: input.visibility,
