@@ -56,6 +56,10 @@ export async function createTask(input: unknown): Promise<TaskActionResult> {
         targetDate: rest.targetDate ? new Date(rest.targetDate) : null,
         startAt: start,
         endAt: end,
+        location: rest.location ?? null,
+        description: rest.description ?? null,
+        color: rest.color ?? null,
+        allDay: rest.allDay ?? false,
       }
     })
 
@@ -76,6 +80,10 @@ export async function createTask(input: unknown): Promise<TaskActionResult> {
       targetDate: rest.targetDate ? new Date(rest.targetDate) : null,
       startAt: startAt ? new Date(startAt) : null,
       endAt: endAt ? new Date(endAt) : null,
+      location: rest.location ?? null,
+      description: rest.description ?? null,
+      color: rest.color ?? null,
+      allDay: rest.allDay ?? false,
     })
     .returning()
 
@@ -111,6 +119,10 @@ export async function updateTask(input: unknown): Promise<TaskActionResult> {
       ...(fields.endAt !== undefined && {
         endAt: fields.endAt ? new Date(fields.endAt) : null,
       }),
+      ...(fields.location !== undefined && { location: fields.location }),
+      ...(fields.description !== undefined && { description: fields.description }),
+      ...(fields.color !== undefined && { color: fields.color }),
+      ...(fields.allDay !== undefined && { allDay: fields.allDay }),
       updatedAt: new Date(),
     })
     .where(and(eq(tasks.id, id), eq(tasks.userId, session.user.id)))
