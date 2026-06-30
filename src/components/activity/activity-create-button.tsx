@@ -3,7 +3,7 @@ import * as React from 'react'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
-import { Button } from '@/lib/ui'
+import { Button, toast } from '@/lib/ui'
 import {
   ActivityFormDialog,
   type ActivityFormValues,
@@ -28,7 +28,7 @@ export function ActivityCreateButton(): React.JSX.Element {
 
   function handleSubmit(values: ActivityFormValues): void {
     startTransition(async () => {
-      await createTask({
+      const result = await createTask({
         type: values.type,
         title: values.title,
         recurrence: values.recurrence ?? null,
@@ -37,6 +37,10 @@ export function ActivityCreateButton(): React.JSX.Element {
         endAt: values.endAt ?? null,
         targetDate: values.type === 'goal' ? toIsoTargetDate(values.targetDate) : null,
       })
+      if ('error' in result) {
+        toast.error('Could not create activity')
+        return
+      }
       setOpen(false)
       router.refresh()
     })
