@@ -31,6 +31,7 @@ import {
 
 const REPEAT_MIN = 2
 const REPEAT_MAX = 52
+const MIN_PARTICIPANTS = 2
 
 const COLOR_OPTIONS: readonly { readonly value: CalendarEventColor; readonly label: string }[] = [
   { value: 'default', label: 'Default' },
@@ -142,7 +143,7 @@ export function ActivityFormDialog({
     initialValues?.social?.joinability,
   )
   const [maxParticipants, setMaxParticipants] = useState<number>(
-    initialValues?.social?.maxParticipants ?? 2,
+    initialValues?.social?.maxParticipants ?? MIN_PARTICIPANTS,
   )
 
   // ── Derived ─────────────────────────────────────────────────────────────────
@@ -159,7 +160,7 @@ export function ActivityFormDialog({
 
     const social: ActivitySocial =
       socialType === 'group'
-        ? { activityType: 'group', visibility, joinability, maxParticipants }
+        ? { activityType: 'group', visibility, joinability: joinability ?? 'open', maxParticipants }
         : { activityType: 'solo', visibility }
 
     if (type === 'goal') {
@@ -409,8 +410,12 @@ export function ActivityFormDialog({
                     id="afd-max-participants"
                     type="number"
                     value={maxParticipants}
-                    onChange={(e) => setMaxParticipants(Number(e.target.value) || 2)}
-                    min={2}
+                    onChange={(e) =>
+                      setMaxParticipants(
+                        Math.max(MIN_PARTICIPANTS, Number(e.target.value) || MIN_PARTICIPANTS),
+                      )
+                    }
+                    min={MIN_PARTICIPANTS}
                   />
                 </div>
               </>
