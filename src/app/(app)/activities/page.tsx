@@ -3,15 +3,15 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { getUserTasks } from '@/server/queries/tasks'
 import { getTaskStreaks } from '@/server/queries/consistency'
-import { ActivityCard, EmptyState, PageHeader } from '@/lib/ui'
+import { ActivityCard, EmptyState, PageHeader, StreakBadge } from '@/lib/ui'
 import { OpenChatButton } from '@/components/chat/open-chat-button'
 import { ActivityCreate } from '@/components/activity/activity-create'
 import { ActivityCardActions } from '@/components/activity/activity-card-actions'
 
-type ActivityType = 'task' | 'goal' | 'habit'
+type ActivityType = 'task' | 'goal'
 type ActivityFilter = ActivityType | 'all'
 
-const FILTER_TYPES: readonly ActivityType[] = ['task', 'goal', 'habit']
+const FILTER_TYPES: readonly ActivityType[] = ['task', 'goal']
 
 type UserTask = Awaited<ReturnType<typeof getUserTasks>>[number]
 
@@ -33,8 +33,13 @@ function toDateOnly(date: Date | null): string | null {
   return date ? date.toISOString().slice(0, 10) : null
 }
 
+interface ActivityDetailProps {
+  readonly task: UserTask
+  readonly streak?: number
+}
+
 /** Type-specific secondary line under the card title. */
-function ActivityDetail({ task }: { task: UserTask }): React.JSX.Element {
+function ActivityDetail({ task, streak }: ActivityDetailProps): React.JSX.Element {
   if (task.type === 'goal') {
     const target = toDateOnly(task.targetDate)
     return (
@@ -43,16 +48,14 @@ function ActivityDetail({ task }: { task: UserTask }): React.JSX.Element {
       </span>
     )
   }
-  if ((task.type as string) === 'habit') {
-    return (
-      <span className="text-muted-foreground text-xs capitalize">{task.recurrence ?? 'daily'}</span>
-    )
+  if (task.recurrence !== null) {
+    return <StreakBadge streak={streak ?? 0} />
   }
   return <span className="text-muted-foreground text-xs">Due {formatDateTime(task.startAt)}</span>
 }
 
 interface ActivitiesPageProps {
-  readonly searchParams: Promise<{ type?: string }>
+  readonly searchParams: Promise<{ type?: string; status?: string; q?: string; recurring?: string }>
 }
 
 export default async function ActivitiesPage({
@@ -61,11 +64,16 @@ export default async function ActivitiesPage({
   const session = await auth()
   if (!session?.user?.id) redirect('/login')
 
-  const { type } = await searchParams
+  const { type, status, q, recurring } = await searchParams
   const filter = resolveFilter(type)
 
   const allTasks = await getUserTasks()
-  const items = filter === 'all' ? allTasks : allTasks.filter((t) => t.type === filter)
+  const items = allTasks
+    .filter((t) => filter === 'all' || t.type === filter)
+    .filter((t) => !status || t.status === status)
+    .filter((t) => (recurring === '1' ? t.recurrence !== null : true))
+    .filter((t) => !q || t.title.toLowerCase().includes(q.toLowerCase()))
+
   const streakMap = await getTaskStreaks(
     session.user.id,
     items.map((t) => t.id),
@@ -91,7 +99,7 @@ export default async function ActivitiesPage({
               status={task.status}
               streak={task.type === 'goal' ? undefined : (streakMap[task.id] ?? 0)}
               visibility={task.visibility}
-              detail={<ActivityDetail task={task} />}
+              detail={<ActivityDetail task={task} streak={streakMap[task.id] ?? 0} />}
               actions={
                 <ActivityCardActions
                   taskId={task.id}

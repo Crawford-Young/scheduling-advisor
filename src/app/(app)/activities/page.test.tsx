@@ -53,12 +53,13 @@ vi.mock('@/lib/ui', () => ({
       {detail}
     </article>
   ),
+  StreakBadge: ({ streak }: { streak: number }) => <span data-testid="streak-badge">{streak}</span>,
 }))
 
 interface TaskOverrides {
   id?: string
   title?: string
-  type?: 'task' | 'goal' | 'habit'
+  type?: 'task' | 'goal'
   status?: 'pending' | 'in_progress' | 'completed'
   startAt?: Date | null
   targetDate?: Date | null
@@ -69,8 +70,8 @@ function makeTask(over: TaskOverrides = {}) {
   return {
     id: 'id-1',
     title: 'Item',
-    type: 'task',
-    status: 'pending',
+    type: 'task' as const,
+    status: 'pending' as const,
     startAt: new Date('2026-06-20T09:00:00.000Z'),
     endAt: new Date('2026-06-20T10:00:00.000Z'),
     recurrence: null,
@@ -104,13 +105,12 @@ describe('ActivitiesPage', () => {
     getUserTasksMock.mockResolvedValue([
       makeTask({ id: 't1', title: 'A task', type: 'task' }),
       makeTask({ id: 'g1', title: 'A goal', type: 'goal' }),
-      makeTask({ id: 'h1', title: 'A habit', type: 'habit' }),
     ])
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
-    expect(screen.getAllByTestId('activity-card')).toHaveLength(3)
+    expect(screen.getAllByTestId('activity-card')).toHaveLength(2)
   })
 
-  it('filters to a single type via ?type=goal', async () => {
+  it('filters to goals only via ?type=goal', async () => {
     authMock.mockResolvedValue(makeSession())
     getUserTasksMock.mockResolvedValue([
       makeTask({ id: 't1', title: 'A task', type: 'task' }),
@@ -132,16 +132,84 @@ describe('ActivitiesPage', () => {
     expect(screen.getAllByTestId('activity-card')).toHaveLength(2)
   })
 
+  it('?type=habit falls back to all (habit is no longer a valid filter)', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([
+      makeTask({ id: 't1', type: 'task' }),
+      makeTask({ id: 'g1', type: 'goal' }),
+    ])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({ type: 'habit' }) }))
+    expect(screen.getAllByTestId('activity-card')).toHaveLength(2)
+  })
+
+  it('filters by ?status=completed', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([
+      makeTask({ id: 't1', title: 'Done task', type: 'task', status: 'completed' }),
+      makeTask({ id: 't2', title: 'Pending task', type: 'task', status: 'pending' }),
+    ])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({ status: 'completed' }) }))
+    const cards = screen.getAllByTestId('activity-card')
+    expect(cards).toHaveLength(1)
+    expect(screen.getByText('Done task')).toBeInTheDocument()
+  })
+
+  it('filters by ?q= with case-insensitive title match', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([
+      makeTask({ id: 't1', title: 'Morning gym session', type: 'task' }),
+      makeTask({ id: 't2', title: 'Read a book', type: 'task' }),
+    ])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({ q: 'gym' }) }))
+    const cards = screen.getAllByTestId('activity-card')
+    expect(cards).toHaveLength(1)
+    expect(screen.getByText('Morning gym session')).toBeInTheDocument()
+  })
+
+  it('?recurring=1 shows only tasks where recurrence is not null', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([
+      makeTask({ id: 't1', title: 'One-off task', type: 'task', recurrence: null }),
+      makeTask({ id: 't2', title: 'Recurring task', type: 'task', recurrence: 'daily' }),
+    ])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({ recurring: '1' }) }))
+    const cards = screen.getAllByTestId('activity-card')
+    expect(cards).toHaveLength(1)
+    expect(screen.getByText('Recurring task')).toBeInTheDocument()
+  })
+
+  it('combined params are ANDed together', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([
+      makeTask({ id: 'g1', title: 'Gym goal', type: 'goal', status: 'pending' }),
+      makeTask({ id: 't1', title: 'Gym task', type: 'task', status: 'pending' }),
+      makeTask({ id: 'g2', title: 'Run goal', type: 'goal', status: 'completed' }),
+    ])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({ type: 'goal', q: 'gym' }) }))
+    const cards = screen.getAllByTestId('activity-card')
+    expect(cards).toHaveLength(1)
+    expect(screen.getByText('Gym goal')).toBeInTheDocument()
+  })
+
+  it('filtered empty result shows EmptyState and OpenChatButton', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([makeTask({ id: 't1', title: 'A task', type: 'task' })])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({ q: 'nonexistent' }) }))
+    expect(screen.getByText(/no activities yet/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /plan with ai/i })).toBeInTheDocument()
+  })
+
   it('renders a type-specific detail line for each activity', async () => {
     authMock.mockResolvedValue(makeSession())
     getUserTasksMock.mockResolvedValue([
       makeTask({ id: 'g1', type: 'goal', targetDate: new Date('2026-08-01T12:00:00.000Z') }),
-      makeTask({ id: 'h1', type: 'habit', recurrence: 'weekly' }),
+      makeTask({ id: 'r1', type: 'task', recurrence: 'weekly' }),
       makeTask({ id: 't1', type: 'task', startAt: new Date('2026-06-20T09:00:00.000Z') }),
     ])
+    getTaskStreaksMock.mockResolvedValue({ r1: 3 })
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
     expect(screen.getByText('Target: 2026-08-01')).toBeInTheDocument()
-    expect(screen.getByText('weekly')).toBeInTheDocument()
+    expect(screen.getByTestId('streak-badge')).toBeInTheDocument()
     expect(screen.getByText(/^Due /)).toBeInTheDocument()
   })
 
