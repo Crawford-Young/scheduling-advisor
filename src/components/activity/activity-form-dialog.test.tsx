@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { ActivityFormDialog } from './activity-form-dialog'
@@ -11,6 +11,12 @@ const RadioGroupContext = React.createContext<{
   value: string
   onChange?: (v: string) => void
 }>({ value: '' })
+
+// Context used by the Select mock so clicking a SelectItem fires the right
+// onValueChange — mirrors the RadioGroup context pattern.
+const SelectContext = React.createContext<{
+  onValueChange?: (v: string) => void
+}>({ onValueChange: undefined })
 
 vi.mock('@/lib/ui', () => ({
   // ── Dialog primitives ──────────────────────────────────────────────────────
@@ -52,22 +58,30 @@ vi.mock('@/lib/ui', () => ({
   },
 
   // ── Select ─────────────────────────────────────────────────────────────────
-  // Renders options as visible spans; tests use initialValues to pre-seed state
-  // rather than clicking options, so onValueChange wiring is intentionally omitted.
+  // Each Select provides its own context scope; clicking a SelectItem fires
+  // the enclosing Select's onValueChange — mirrors the RadioGroup pattern.
   Select: ({
+    onValueChange,
     children,
   }: {
     value?: string
     onValueChange?: (v: string) => void
     children?: React.ReactNode
-  }) => <div>{children}</div>,
+  }) => (
+    <SelectContext.Provider value={{ onValueChange }}>
+      <div>{children}</div>
+    </SelectContext.Provider>
+  ),
   SelectTrigger: () => null,
   SelectContent: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
-  SelectItem: ({ value, children }: { value: string; children?: React.ReactNode }) => (
-    <span role="option" data-value={value}>
-      {children}
-    </span>
-  ),
+  SelectItem: ({ value, children }: { value: string; children?: React.ReactNode }) => {
+    const ctx = React.useContext(SelectContext)
+    return (
+      <span role="option" data-value={value} onClick={() => ctx.onValueChange?.(value)}>
+        {children}
+      </span>
+    )
+  },
   SelectValue: () => null,
   SelectLabel: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
   SelectGroup: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
@@ -451,5 +465,207 @@ describe('B.5 — edit mode with lockType and initialValues', () => {
     )
     expect(screen.getAllByRole('radiogroup')).toHaveLength(1)
     expect(screen.getByTestId('date-picker')).toBeInTheDocument()
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Coverage — exercise every callback to reach 100% function coverage
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('Coverage — callback exercises', () => {
+  it('Cancel button fires onOpenChange(false)', async () => {
+    const user = userEvent.setup()
+    const onOpenChange = vi.fn()
+    render(<ActivityFormDialog open onOpenChange={onOpenChange} onSubmit={() => {}} />)
+    await user.click(screen.getByRole('button', { name: /cancel/i }))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('typing in task location updates the value', async () => {
+    const user = userEvent.setup()
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
+    await user.type(screen.getByPlaceholderText(/location/i), 'Park')
+    expect(screen.getByPlaceholderText(/location/i)).toHaveValue('Park')
+  })
+
+  it('typing in task description updates the value', async () => {
+    const user = userEvent.setup()
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
+    await user.type(screen.getByPlaceholderText(/description/i), 'Some notes')
+    expect(screen.getByPlaceholderText(/description/i)).toHaveValue('Some notes')
+  })
+
+  it('clicking a color option fires the color setter', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn()
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={onSubmit}
+        initialValues={{ startAt: '2026-09-15T09:00:00.000Z', endAt: '2026-09-15T10:00:00.000Z' }}
+      />,
+    )
+    // Click the Blue color option (fires color Select's onValueChange via context)
+    await user.click(screen.getByRole('option', { name: 'Blue' }))
+    // Submit and verify color in payload
+    await user.type(screen.getByPlaceholderText(/activity title/i), 'Run')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ color: 'blue' }))
+  })
+
+  it('clicking visibility option fires visibility setter', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn()
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={onSubmit}
+        initialValues={{ startAt: '2026-09-15T09:00:00.000Z', endAt: '2026-09-15T10:00:00.000Z' }}
+      />,
+    )
+    await user.click(screen.getByRole('option', { name: 'Friends' }))
+    await user.type(screen.getByPlaceholderText(/activity title/i), 'Run')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ social: expect.objectContaining({ visibility: 'friends' }) }),
+    )
+  })
+
+  it('clicking Group radio shows group fields and fires social type setter', async () => {
+    const user = userEvent.setup()
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
+    await user.click(screen.getByLabelText('Group'))
+    // Group-only fields now visible
+    expect(screen.getByLabelText(/max participants/i)).toBeInTheDocument()
+  })
+
+  it('changing max participants field updates the value', () => {
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={() => {}}
+        initialValues={{ social: { activityType: 'group', visibility: 'everyone' } }}
+      />,
+    )
+    const input = screen.getByLabelText(/max participants/i)
+    fireEvent.change(input, { target: { value: '5' } })
+    expect(input).toHaveValue(5)
+  })
+
+  it('clicking joinability option fires joinability setter', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn()
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={onSubmit}
+        initialValues={{
+          title: 'Group run',
+          startAt: '2026-09-15T09:00:00.000Z',
+          endAt: '2026-09-15T10:00:00.000Z',
+          social: { activityType: 'group', visibility: 'everyone' },
+        }}
+      />,
+    )
+    // Click "Request" joinability option
+    await user.click(screen.getByRole('option', { name: 'Request' }))
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        social: expect.objectContaining({ activityType: 'group', joinability: 'request' }),
+      }),
+    )
+  })
+
+  it('typing in goal location and description updates values', async () => {
+    const user = userEvent.setup()
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
+    await user.click(screen.getByLabelText('Goal'))
+    await user.type(screen.getByPlaceholderText(/location/i), 'Trail')
+    await user.type(screen.getByPlaceholderText(/description/i), 'Notes')
+    expect(screen.getByPlaceholderText(/location/i)).toHaveValue('Trail')
+    expect(screen.getByPlaceholderText(/description/i)).toHaveValue('Notes')
+  })
+
+  it('task submit guard: noop when date missing and not all-day (direct form submit)', async () => {
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={onSubmit} />)
+    await user.type(screen.getByPlaceholderText(/activity title/i), 'Run')
+    // Submit directly (no date, not all-day → early return)
+    fireEvent.submit(screen.getByRole('dialog').querySelector('form')!)
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('goal submit guard: noop when goalDate missing (direct form submit)', async () => {
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={onSubmit} />)
+    await user.click(screen.getByLabelText('Goal'))
+    await user.type(screen.getByPlaceholderText(/activity title/i), 'Run')
+    // Submit directly (no goalDate → early return)
+    fireEvent.submit(screen.getByRole('dialog').querySelector('form')!)
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('all-day task submit sends null startAt/endAt', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn()
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={onSubmit}
+        initialValues={{ allDay: true, title: 'All day event' }}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ allDay: true, startAt: null, endAt: null }),
+    )
+  })
+
+  it('task submit with recurrence includes recurrenceCount in payload', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn()
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={onSubmit}
+        initialValues={{
+          title: 'Weekly run',
+          startAt: '2026-09-15T09:00:00.000Z',
+          endAt: '2026-09-15T10:00:00.000Z',
+          recurrence: 'weekly',
+        }}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recurrence: 'weekly',
+        recurrenceCount: 2, // REPEAT_MIN default
+      }),
+    )
+  })
+
+  it('max participants with falsy numeric input falls back to 2', () => {
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={() => {}}
+        initialValues={{ social: { activityType: 'group', visibility: 'everyone' } }}
+      />,
+    )
+    const input = screen.getByLabelText(/max participants/i)
+    fireEvent.change(input, { target: { value: '0' } })
+    // 0 is falsy → falls back to 2
+    expect(input).toHaveValue(2)
   })
 })
