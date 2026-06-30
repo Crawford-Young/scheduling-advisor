@@ -1,12 +1,14 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { ActivityFilters } from './activity-filters'
 
-const pushMock = vi.fn()
+const replaceMock = vi.fn()
 let currentParams = new URLSearchParams()
 
+const DEBOUNCE_MS = 300
+
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: pushMock }),
+  useRouter: () => ({ replace: replaceMock }),
   usePathname: () => '/activities',
   useSearchParams: () => currentParams,
 }))
@@ -61,55 +63,103 @@ function statusSelect(): HTMLSelectElement {
   return screen.getByRole('option', { name: 'All statuses' }).closest('select') as HTMLSelectElement
 }
 
+function searchInput(): HTMLInputElement {
+  return screen.getByRole('textbox') as HTMLInputElement
+}
+
 describe('ActivityFilters', () => {
   beforeEach(() => {
-    pushMock.mockClear()
+    replaceMock.mockClear()
     currentParams = new URLSearchParams()
   })
 
-  it('pushes ?q= when the search input changes', () => {
-    render(<ActivityFilters />)
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'hello' } })
-    expect(pushMock).toHaveBeenCalledWith('/activities?q=hello')
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
-  it('clearing the search input removes the q param', () => {
+  it('debounces the search input and replaces ?q= once after the delay', () => {
+    vi.useFakeTimers()
+    render(<ActivityFilters />)
+    fireEvent.change(searchInput(), { target: { value: 'hello' } })
+    expect(searchInput().value).toBe('hello')
+    expect(replaceMock).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(DEBOUNCE_MS)
+    expect(replaceMock).toHaveBeenCalledTimes(1)
+    expect(replaceMock).toHaveBeenCalledWith('/activities?q=hello')
+  })
+
+  it('coalesces rapid keystrokes into a single debounced replace', () => {
+    vi.useFakeTimers()
+    render(<ActivityFilters />)
+    fireEvent.change(searchInput(), { target: { value: 'a' } })
+    fireEvent.change(searchInput(), { target: { value: 'ab' } })
+    fireEvent.change(searchInput(), { target: { value: 'abc' } })
+
+    vi.advanceTimersByTime(DEBOUNCE_MS)
+    expect(replaceMock).toHaveBeenCalledTimes(1)
+    expect(replaceMock).toHaveBeenCalledWith('/activities?q=abc')
+  })
+
+  it('debounced clear removes the q param', () => {
+    vi.useFakeTimers()
     currentParams = new URLSearchParams('q=foo')
     render(<ActivityFilters />)
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: '' } })
-    expect(pushMock).toHaveBeenCalledWith('/activities')
+    fireEvent.change(searchInput(), { target: { value: '' } })
+
+    vi.advanceTimersByTime(DEBOUNCE_MS)
+    expect(replaceMock).toHaveBeenCalledWith('/activities')
   })
 
-  it('pushes ?type= when the type select changes', () => {
+  it('does not fire the debounced replace if unmounted before the delay', () => {
+    vi.useFakeTimers()
+    const { unmount } = render(<ActivityFilters />)
+    fireEvent.change(searchInput(), { target: { value: 'hello' } })
+    unmount()
+
+    vi.advanceTimersByTime(DEBOUNCE_MS)
+    expect(replaceMock).not.toHaveBeenCalled()
+  })
+
+  it('unmounts cleanly when no search timer is pending', () => {
+    vi.useFakeTimers()
+    const { unmount } = render(<ActivityFilters />)
+    unmount()
+
+    vi.advanceTimersByTime(DEBOUNCE_MS)
+    expect(replaceMock).not.toHaveBeenCalled()
+  })
+
+  it('replaces ?type= when the type select changes', () => {
     render(<ActivityFilters />)
     fireEvent.change(typeSelect(), { target: { value: 'goal' } })
-    expect(pushMock).toHaveBeenCalledWith('/activities?type=goal')
+    expect(replaceMock).toHaveBeenCalledWith('/activities?type=goal')
   })
 
-  it('pushes ?status= when the status select changes', () => {
+  it('replaces ?status= when the status select changes', () => {
     render(<ActivityFilters />)
     fireEvent.change(statusSelect(), { target: { value: 'in_progress' } })
-    expect(pushMock).toHaveBeenCalledWith('/activities?status=in_progress')
+    expect(replaceMock).toHaveBeenCalledWith('/activities?status=in_progress')
   })
 
-  it('pushes ?recurring=1 when the recurring toggle is switched on', () => {
+  it('replaces ?recurring=1 when the recurring toggle is switched on', () => {
     render(<ActivityFilters />)
     fireEvent.click(screen.getByRole('switch'))
-    expect(pushMock).toHaveBeenCalledWith('/activities?recurring=1')
+    expect(replaceMock).toHaveBeenCalledWith('/activities?recurring=1')
   })
 
   it('removes the recurring param when the toggle is switched off', () => {
     currentParams = new URLSearchParams('recurring=1')
     render(<ActivityFilters />)
     fireEvent.click(screen.getByRole('switch'))
-    expect(pushMock).toHaveBeenCalledWith('/activities')
+    expect(replaceMock).toHaveBeenCalledWith('/activities')
   })
 
   it('preserves existing params when changing one control', () => {
     currentParams = new URLSearchParams('q=foo')
     render(<ActivityFilters />)
     fireEvent.change(typeSelect(), { target: { value: 'goal' } })
-    expect(pushMock).toHaveBeenCalledWith('/activities?q=foo&type=goal')
+    expect(replaceMock).toHaveBeenCalledWith('/activities?q=foo&type=goal')
   })
 
   it('reflects the current params in each control', () => {
@@ -117,7 +167,7 @@ describe('ActivityFilters', () => {
     render(<ActivityFilters />)
     expect(typeSelect().value).toBe('goal')
     expect(statusSelect().value).toBe('completed')
-    expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('bar')
+    expect(searchInput().value).toBe('bar')
     expect((screen.getByRole('switch') as HTMLInputElement).checked).toBe(true)
   })
 
@@ -125,6 +175,6 @@ describe('ActivityFilters', () => {
     currentParams = new URLSearchParams('type=goal')
     render(<ActivityFilters />)
     fireEvent.change(typeSelect(), { target: { value: 'all' } })
-    expect(pushMock).toHaveBeenCalledWith('/activities')
+    expect(replaceMock).toHaveBeenCalledWith('/activities')
   })
 })

@@ -4,6 +4,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { ActivityCreateButton } from './activity-create-button'
 
 const refreshMock = vi.fn()
+const toastErrorMock = vi.fn()
 const createTaskMock = vi.fn().mockResolvedValue({ data: { id: 'new-id' } })
 
 vi.mock('next/navigation', () => ({
@@ -18,6 +19,7 @@ vi.mock('@/lib/ui', () => ({
   Button: ({ children, ...props }: React.ComponentProps<'button'>) => (
     <button {...props}>{children}</button>
   ),
+  toast: { error: (msg: string) => toastErrorMock(msg) },
 }))
 
 vi.mock('./activity-form-dialog', () => ({
@@ -81,7 +83,8 @@ vi.mock('./activity-form-dialog', () => ({
 describe('ActivityCreateButton', () => {
   beforeEach(() => {
     refreshMock.mockClear()
-    createTaskMock.mockClear()
+    toastErrorMock.mockClear()
+    createTaskMock.mockClear().mockResolvedValue({ data: { id: 'new-id' } })
   })
 
   it('opens the app ActivityFormDialog when New is clicked', async () => {
@@ -144,5 +147,17 @@ describe('ActivityCreateButton', () => {
       ),
     )
     expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('keeps the dialog open and surfaces a toast when createTask returns an error', async () => {
+    createTaskMock.mockResolvedValueOnce({ error: 'Unauthorized' })
+    const user = userEvent.setup()
+    render(<ActivityCreateButton />)
+    await user.click(screen.getByRole('button', { name: /new/i }))
+    await user.click(screen.getByRole('button', { name: 'submit-new-task' }))
+
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not create activity'))
+    expect(refreshMock).not.toHaveBeenCalled()
+    expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
   })
 })
