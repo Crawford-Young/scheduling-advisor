@@ -209,7 +209,7 @@ describe('ActivitiesPage', () => {
     getTaskStreaksMock.mockResolvedValue({ r1: 3 })
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
     expect(screen.getByText('Target: 2026-08-01')).toBeInTheDocument()
-    expect(screen.getByTestId('streak-badge')).toBeInTheDocument()
+    expect(screen.getByTestId('streak-badge')).toHaveTextContent('3')
     expect(screen.getByText(/^Due /)).toBeInTheDocument()
   })
 

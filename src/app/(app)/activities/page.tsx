@@ -12,6 +12,7 @@ type ActivityType = 'task' | 'goal'
 type ActivityFilter = ActivityType | 'all'
 
 const FILTER_TYPES: readonly ActivityType[] = ['task', 'goal']
+const RECURRING_PARAM_TRUE = '1'
 
 type UserTask = Awaited<ReturnType<typeof getUserTasks>>[number]
 
@@ -71,7 +72,7 @@ export default async function ActivitiesPage({
   const items = allTasks
     .filter((t) => filter === 'all' || t.type === filter)
     .filter((t) => !status || t.status === status)
-    .filter((t) => (recurring === '1' ? t.recurrence !== null : true))
+    .filter((t) => (recurring === RECURRING_PARAM_TRUE ? t.recurrence !== null : true))
     .filter((t) => !q || t.title.toLowerCase().includes(q.toLowerCase()))
 
   const streakMap = await getTaskStreaks(
