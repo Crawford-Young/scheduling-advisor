@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import ActivitiesPage from './page'
@@ -22,8 +24,12 @@ vi.mock('@/server/queries/consistency', () => ({
   getTaskStreaks: () => getTaskStreaksMock(),
 }))
 
-vi.mock('@/components/activity/activity-create', () => ({
-  ActivityCreate: () => <div data-testid="activity-create" />,
+vi.mock('@/components/activity/activity-filters', () => ({
+  ActivityFilters: () => <div data-testid="activity-filters" />,
+}))
+
+vi.mock('@/components/activity/activity-create-button', () => ({
+  ActivityCreateButton: () => <div data-testid="activity-create-button" />,
 }))
 
 vi.mock('@/components/activity/activity-card-actions', () => ({
@@ -93,6 +99,14 @@ describe('ActivitiesPage', () => {
     authMock.mockReset()
     getUserTasksMock.mockReset()
     getTaskStreaksMock.mockReset().mockResolvedValue({})
+  })
+
+  it('no longer imports the ActivityCreate quick-add bar', () => {
+    const src = readFileSync(join(process.cwd(), 'src/app/(app)/activities/page.tsx'), 'utf8')
+    expect(src).not.toMatch(/@\/components\/activity\/activity-create['"]/)
+    expect(src).not.toMatch(/<ActivityCreate\s*\/>/)
+    expect(src).toContain('ActivityFilters')
+    expect(src).toContain('ActivityCreateButton')
   })
 
   it('redirects to /login when unauthenticated', async () => {

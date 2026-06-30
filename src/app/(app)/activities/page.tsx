@@ -5,7 +5,8 @@ import { getUserTasks } from '@/server/queries/tasks'
 import { getTaskStreaks } from '@/server/queries/consistency'
 import { ActivityCard, EmptyState, PageHeader, StreakBadge } from '@/lib/ui'
 import { OpenChatButton } from '@/components/chat/open-chat-button'
-import { ActivityCreate } from '@/components/activity/activity-create'
+import { ActivityFilters } from '@/components/activity/activity-filters'
+import { ActivityCreateButton } from '@/components/activity/activity-create-button'
 import { ActivityCardActions } from '@/components/activity/activity-card-actions'
 
 type ActivityType = 'task' | 'goal'
@@ -83,7 +84,12 @@ export default async function ActivitiesPage({
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <PageHeader title="Activities" />
-      <ActivityCreate />
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex-1">
+          <ActivityFilters />
+        </div>
+        <ActivityCreateButton />
+      </div>
 
       {items.length === 0 ? (
         <div className="flex flex-col items-center gap-4">
