@@ -358,3 +358,98 @@ describe('B.4 — social section + submit payload assembly', () => {
     expect(screen.getByLabelText(/max participants/i)).toBeInTheDocument()
   })
 })
+
+// ═════════════════════════════════════════════════════════════════════════════
+// B.5 — Edit mode: initialValues hydration + lockType + isPending
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('B.5 — edit mode with lockType and initialValues', () => {
+  it('dialog title says "Edit task" when initialValues are provided', () => {
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={() => {}}
+        initialValues={{ type: 'task', title: 'My task' }}
+      />,
+    )
+    expect(screen.getByRole('heading', { name: /edit task/i })).toBeInTheDocument()
+  })
+
+  it('dialog title says "New task" when no initialValues are provided', () => {
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
+    expect(screen.getByRole('heading', { name: /new task/i })).toBeInTheDocument()
+  })
+
+  it('hydrates title input from initialValues', () => {
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={() => {}}
+        initialValues={{ title: 'Pre-filled title' }}
+      />,
+    )
+    expect(screen.getByDisplayValue('Pre-filled title')).toBeInTheDocument()
+  })
+
+  it('hydrates allDay=true from initialValues and hides TaskTimeFields', () => {
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={() => {}}
+        initialValues={{ allDay: true, title: 'All day task' }}
+      />,
+    )
+    expect(screen.queryByTestId('task-time-fields')).not.toBeInTheDocument()
+    expect(screen.getByRole('switch')).toBeChecked()
+  })
+
+  it('hydrates goal date from initialValues.targetDate (date-only YYYY-MM-DD)', () => {
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={() => {}}
+        lockType
+        initialType="goal"
+        initialValues={{ type: 'goal', title: 'My goal', targetDate: '2026-09-15' }}
+      />,
+    )
+    // DatePicker mock renders the seeded date as YYYY-MM-DD via local time methods
+    expect(screen.getByTestId('date-picker')).toHaveTextContent('2026-09-15')
+  })
+
+  it('save button shows "Saving…" and is disabled when isPending=true', () => {
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={() => {}}
+        isPending
+        initialValues={{
+          title: 'My task',
+          startAt: '2026-09-15T09:00:00.000Z',
+          endAt: '2026-09-15T10:00:00.000Z',
+        }}
+      />,
+    )
+    const saveBtn = screen.getByRole('button', { name: /saving/i })
+    expect(saveBtn).toBeDisabled()
+  })
+
+  it('lockType=true + initialType=goal: no type picker, only social radiogroup + DatePicker', () => {
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={() => {}}
+        lockType
+        initialType="goal"
+      />,
+    )
+    expect(screen.getAllByRole('radiogroup')).toHaveLength(1)
+    expect(screen.getByTestId('date-picker')).toBeInTheDocument()
+  })
+})
