@@ -11,15 +11,23 @@ test.describe('Home page', () => {
     await expect(page).toHaveURL(/\/login/)
   })
 
-  test('unauthenticated user redirected to login from /goals', async ({ page }) => {
-    await page.goto('/goals')
+  test('unauthenticated user redirected to login from /activities', async ({ page }) => {
+    await page.goto('/activities')
     await expect(page).toHaveURL(/\/login/)
   })
 
-  test('unauthenticated user redirected to login from /habits', async ({ page }) => {
-    await page.goto('/habits')
-    await expect(page).toHaveURL(/\/login/)
-  })
+  // Goals/Habits/Tasks were unified into /activities (Wave 2). The auth proxy
+  // redirects every unauthenticated path to /login before routing resolves, so a
+  // removed route is indistinguishable from a protected one here (both 200 the
+  // login page) — a 404 is unobservable in the deliberately-unauthenticated suite
+  // (see AGENTS.md). Removal itself is verified at build/grep level; here we assert
+  // the old paths no longer serve their own page and behave like any gated route.
+  for (const route of ['/goals', '/habits', '/tasks']) {
+    test(`removed route ${route} redirects to login`, async ({ page }) => {
+      await page.goto(route)
+      await expect(page).toHaveURL(/\/login/)
+    })
+  }
 
   test('unauthenticated user redirected to login from /settings', async ({ page }) => {
     await page.goto('/settings')
