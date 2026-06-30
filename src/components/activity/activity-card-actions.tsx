@@ -3,9 +3,6 @@ import * as React from 'react'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ActivityFormDialog,
-  type ActivityFormValues,
-  type ActivitySocial,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -15,14 +12,20 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
+  toast,
 } from '@/lib/ui'
+import {
+  ActivityFormDialog,
+  type ActivityFormValues,
+  type ActivitySocial,
+} from '@/components/activity/activity-form-dialog'
 import { Pencil, Trash2 } from 'lucide-react'
 import { updateTask, deleteTask } from '@/server/actions/tasks'
 import { recordCompletion } from '@/server/actions/consistency'
 
 const TARGET_DATE_TIME_SUFFIX = 'T12:00:00.000Z'
 
-export type ActivityKind = 'task' | 'goal' | 'habit'
+export type ActivityKind = 'task' | 'goal'
 
 export interface ActivityCardActionsProps {
   readonly taskId: string
@@ -34,6 +37,10 @@ export interface ActivityCardActionsProps {
   readonly recurrence?: string | null
   /** Date-only `YYYY-MM-DD` for goals. */
   readonly targetDate?: string | null
+  readonly color?: string | null
+  readonly location?: string | null
+  readonly description?: string | null
+  readonly allDay?: boolean
   readonly social: ActivitySocial
 }
 
@@ -51,6 +58,10 @@ export function ActivityCardActions({
   endAt,
   recurrence,
   targetDate,
+  color,
+  location,
+  description,
+  allDay,
   social,
 }: ActivityCardActionsProps): React.JSX.Element {
   const router = useRouter()
@@ -59,14 +70,17 @@ export function ActivityCardActions({
   const [isPending, startTransition] = useTransition()
 
   const isComplete = status === 'completed'
-  const completeLabel = type === 'habit' ? 'Log today' : 'Mark complete'
+  const completeLabel = recurrence ? 'Log today' : 'Mark complete'
 
   function handleComplete(): void {
     startTransition(async () => {
-      if (type === 'habit') {
-        await recordCompletion({ taskId, outcome: 'done' })
-      } else {
-        await updateTask({ id: taskId, status: 'completed' })
+      const result =
+        recurrence != null
+          ? await recordCompletion({ taskId, outcome: 'done' })
+          : await updateTask({ id: taskId, status: 'completed' })
+      if ('error' in result) {
+        toast.error(recurrence != null ? 'Could not log completion' : 'Could not mark complete')
+        return
       }
       router.refresh()
     })
@@ -74,14 +88,31 @@ export function ActivityCardActions({
 
   function handleEditSubmit(values: ActivityFormValues): void {
     startTransition(async () => {
-      await updateTask({
-        id: taskId,
-        title: values.title,
-        recurrence: values.recurrence ?? null,
-        startAt: values.startAt ?? null,
-        endAt: values.endAt ?? null,
-        targetDate: toIsoTargetDate(values.targetDate),
-      })
+      const result = await updateTask(
+        values.type === 'goal'
+          ? {
+              id: taskId,
+              title: values.title,
+              targetDate: toIsoTargetDate(values.targetDate),
+              location: values.location ?? null,
+              description: values.description ?? null,
+            }
+          : {
+              id: taskId,
+              title: values.title,
+              recurrence: values.recurrence ?? null,
+              startAt: values.startAt ?? null,
+              endAt: values.endAt ?? null,
+              color: values.color ?? null,
+              location: values.location ?? null,
+              description: values.description ?? null,
+              allDay: values.allDay,
+            },
+      )
+      if ('error' in result) {
+        toast.error('Could not save activity')
+        return
+      }
       setEditOpen(false)
       router.refresh()
     })
@@ -134,6 +165,10 @@ export function ActivityCardActions({
           endAt: endAt ?? undefined,
           recurrence: recurrence ?? undefined,
           targetDate: targetDate ?? undefined,
+          color: color ?? undefined,
+          location: location ?? undefined,
+          description: description ?? undefined,
+          allDay,
           social,
         }}
       />
