@@ -4,6 +4,7 @@ import { useState } from 'react'
 import {
   buildIso,
   Button,
+  DatePicker,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -125,23 +126,46 @@ export function ActivityFormDialog({
   const [description, setDescription] = useState(initialValues?.description ?? '')
   const [allDay, setAllDay] = useState(initialValues?.allDay ?? false)
 
+  // ── Goal fields ─────────────────────────────────────────────────────────────
+  const [goalDate, setGoalDate] = useState<Date | undefined>(
+    initialValues?.targetDate ? new Date(initialValues.targetDate + 'T12:00:00') : undefined,
+  )
+
   // ── Derived ─────────────────────────────────────────────────────────────────
   const dialogTitle = `${initialValues ? 'Edit' : 'New'} ${type}`
-  const isSaveDisabled = !title.trim() || isPending || (type === 'task' && !allDay && !date)
+  const isSaveDisabled =
+    !title.trim() ||
+    isPending ||
+    (type === 'task' && !allDay && !date) ||
+    (type === 'goal' && !goalDate)
 
   // ── Handlers ────────────────────────────────────────────────────────────────
   function handleSubmit(e: React.FormEvent<HTMLFormElement>): void {
     e.preventDefault()
-    if (type !== 'task') return // goal path added in B.3
+
+    // Social assembled from real state in B.4; use default until then
+    const social: ActivitySocial = { activityType: 'solo', visibility: 'only_me' }
+
+    if (type === 'goal') {
+      if (!goalDate) return
+      const pad = (n: number) => String(n).padStart(2, '0')
+      const targetDate = `${goalDate.getFullYear()}-${pad(goalDate.getMonth() + 1)}-${pad(goalDate.getDate())}`
+      onSubmit({
+        type: 'goal',
+        title,
+        targetDate,
+        location: location.trim() || null,
+        description: description.trim() || null,
+        social,
+      })
+      return
+    }
 
     if (!allDay && !date) return
 
     const startIso = allDay ? null : buildIso(date!, startTime)
     const endIso = allDay ? null : buildIso(date!, endTime)
     const recurrenceValue = recurrence === 'none' ? null : recurrence
-
-    // Social assembled from real state in B.4; use default until then
-    const social: ActivitySocial = { activityType: 'solo', visibility: 'only_me' }
 
     onSubmit({
       type: 'task',
@@ -270,7 +294,38 @@ export function ActivityFormDialog({
             </>
           )}
 
-          {/* Goal fields added in B.3 */}
+          {/* ── Goal fields ── */}
+          {type === 'goal' && (
+            <>
+              {/* Target date */}
+              <div className="space-y-2">
+                <Label>Target date</Label>
+                <DatePicker value={goalDate} onValueChange={setGoalDate} />
+              </div>
+
+              {/* Location */}
+              <div className="space-y-2">
+                <Label htmlFor="afd-goal-location">Location</Label>
+                <Input
+                  id="afd-goal-location"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder="Location (optional)"
+                />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-2">
+                <Label htmlFor="afd-goal-description">Description</Label>
+                <Textarea
+                  id="afd-goal-description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Description (optional)"
+                />
+              </div>
+            </>
+          )}
         </form>
 
         <DialogFooter>

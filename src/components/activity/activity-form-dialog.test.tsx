@@ -230,3 +230,57 @@ describe('B.2 — task field set', () => {
     expect(screen.queryByTestId('task-time-fields')).not.toBeInTheDocument()
   })
 })
+
+// ═════════════════════════════════════════════════════════════════════════════
+// B.3 — Goal field set (DatePicker + date-only targetDate + location + description)
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('B.3 — goal field set', () => {
+  beforeEach(() => {
+    radioGroupValue = ''
+    radioGroupOnChange = undefined
+  })
+
+  it('shows DatePicker and hides TaskTimeFields when type is goal', async () => {
+    const user = userEvent.setup()
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
+    await user.click(screen.getByLabelText('Goal'))
+    expect(screen.getByTestId('date-picker')).toBeInTheDocument()
+    expect(screen.queryByTestId('task-time-fields')).not.toBeInTheDocument()
+  })
+
+  it('goal submit emits targetDate as date-only YYYY-MM-DD', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn()
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={onSubmit} />)
+    await user.click(screen.getByLabelText('Goal'))
+    await user.type(screen.getByPlaceholderText(/activity title/i), 'Run a marathon')
+    // DatePicker mock fires onValueChange with new Date('2026-09-15T12:00:00') when clicked
+    await user.click(screen.getByTestId('date-picker'))
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'goal',
+        title: 'Run a marathon',
+        targetDate: '2026-09-15',
+      }),
+    )
+  })
+
+  it('renders location and description fields for goal type', async () => {
+    const user = userEvent.setup()
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
+    await user.click(screen.getByLabelText('Goal'))
+    expect(screen.getByPlaceholderText(/location/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/description/i)).toBeInTheDocument()
+  })
+
+  it('save is disabled when goal type has no targetDate selected', async () => {
+    const user = userEvent.setup()
+    render(<ActivityFormDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
+    await user.click(screen.getByLabelText('Goal'))
+    await user.type(screen.getByPlaceholderText(/activity title/i), 'Run a marathon')
+    // No date selected yet
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled()
+  })
+})
