@@ -338,6 +338,9 @@ describe('B.4 — social section + submit payload assembly', () => {
         social: { activityType: 'solo', visibility: 'only_me' },
       }),
     )
+    // Task payload must not leak goal-only fields
+    const arg = onSubmit.mock.calls[0]![0]
+    expect(arg).not.toHaveProperty('targetDate')
   })
 
   it('goal submit payload includes default solo social values', async () => {
@@ -353,6 +356,10 @@ describe('B.4 — social section + submit payload assembly', () => {
         social: { activityType: 'solo', visibility: 'only_me' },
       }),
     )
+    // Goal payload must not leak task-only time fields
+    const arg = onSubmit.mock.calls[0]![0]
+    expect(arg).not.toHaveProperty('startAt')
+    expect(arg).not.toHaveProperty('endAt')
   })
 
   it('shows group-only fields when initialValues.social.activityType is group', () => {
@@ -577,6 +584,58 @@ describe('Coverage — callback exercises', () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         social: expect.objectContaining({ activityType: 'group', joinability: 'request' }),
+      }),
+    )
+  })
+
+  it('group submit without touching joinability emits the displayed default of "open"', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn()
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={onSubmit}
+        initialValues={{
+          title: 'Group run',
+          startAt: '2026-09-15T09:00:00.000Z',
+          endAt: '2026-09-15T10:00:00.000Z',
+        }}
+      />,
+    )
+    // Switch Solo → Group; do NOT open the Joinability control (it displays "Open")
+    await user.click(screen.getByLabelText('Group'))
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    // Shown value ("Open") must equal the saved value — not undefined
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        social: expect.objectContaining({ activityType: 'group', joinability: 'open' }),
+      }),
+    )
+  })
+
+  it('group submit clamps maxParticipants below the minimum up to MIN_PARTICIPANTS', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn()
+    render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={onSubmit}
+        initialValues={{
+          title: 'Group run',
+          startAt: '2026-09-15T09:00:00.000Z',
+          endAt: '2026-09-15T10:00:00.000Z',
+          social: { activityType: 'group', visibility: 'everyone' },
+        }}
+      />,
+    )
+    const input = screen.getByLabelText(/max participants/i)
+    fireEvent.change(input, { target: { value: '1' } })
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        social: expect.objectContaining({ activityType: 'group', maxParticipants: 2 }),
       }),
     )
   })
