@@ -41,11 +41,15 @@ export default async function CalendarPage(): Promise<React.JSX.Element> {
         title: t.title,
         start: startTime,
         end: endTime,
-        type: t.type as 'task' | 'goal' | 'habit',
+        type: t.type as 'task' | 'goal',
         status: t.status,
         streak: streakMap[t.id] ?? 0,
         activityType: t.activityType,
         visibility: t.visibility,
+        color: t.color ?? null,
+        allDay: t.allDay ?? false,
+        location: t.location ?? null,
+        description: t.description ?? null,
       }
     })
 

@@ -13,51 +13,82 @@ import {
   AlertDialogFooter,
   AlertDialogAction,
   AlertDialogCancel,
+  Button,
   type CalendarEvent as LibraryCalendarEvent,
 } from '@/lib/ui'
 import { CheckInSheet } from '@/components/calendar/check-in-sheet'
 import { PerfectWeekCelebration } from '@/components/calendar/perfect-week-celebration'
-import { TaskFormDialog } from '@/components/tasks/task-form-dialog'
-import { GoalFormDialog } from '@/components/goals/goal-form-dialog'
-import { HabitFormDialog } from '@/components/habits/habit-form-dialog'
+import {
+  ActivityFormDialog,
+  type ActivityFormValues,
+  type ActivitySocial,
+} from '@/components/activity/activity-form-dialog'
 import { rescheduleTask } from '@/server/actions/consistency'
-import { createTask, deleteTask } from '@/server/actions/tasks'
+import { createTask, deleteTask, updateTask } from '@/server/actions/tasks'
+
+// ─── Goal-date trap helper ────────────────────────────────────────────────────
+// The app dialog emits targetDate as date-only YYYY-MM-DD.
+// updateTask / createTask schemas require a full ISO datetime (.datetime()).
+// Appending noon-UTC avoids the timezone offset that would push the date into
+// the previous day in western timezones and also satisfies the Zod validator.
+const TARGET_DATE_TIME_SUFFIX = 'T12:00:00.000Z'
+
+function toIsoTargetDate(dateOnly: string | null | undefined): string | null {
+  return dateOnly ? new Date(`${dateOnly}${TARGET_DATE_TIME_SUFFIX}`).toISOString() : null
+}
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface AppCalendarEvent {
   readonly id: string
   readonly title: string
   readonly start: string
   readonly end: string
-  readonly type: 'task' | 'goal' | 'habit'
+  readonly type: 'task' | 'goal'
   readonly status: 'pending' | 'in_progress' | 'completed'
   readonly streak: number
   readonly activityType: string
   readonly visibility: string
+  readonly color?: string | null
+  readonly allDay?: boolean
+  readonly location?: string | null
+  readonly description?: string | null
 }
 
-function toLibraryColor(type: string): LibraryCalendarEvent['color'] {
+// ─── Color mapping ────────────────────────────────────────────────────────────
+// Prefer the event's persisted color (user-chosen) over the type-based default.
+
+function toLibraryColor(type: 'task' | 'goal'): LibraryCalendarEvent['color'] {
   if (type === 'task') return 'blue'
   if (type === 'goal') return 'amber'
-  if (type === 'habit') return 'green'
   return 'default'
 }
 
 function toLibraryEvent(e: AppCalendarEvent): LibraryCalendarEvent {
-  return { id: e.id, title: e.title, start: e.start, end: e.end, color: toLibraryColor(e.type) }
+  const color = e.color ? (e.color as LibraryCalendarEvent['color']) : toLibraryColor(e.type)
+  return { id: e.id, title: e.title, start: e.start, end: e.end, color }
 }
 
-// Discriminated union for the single active dialog.
+// ─── Dialog state (discriminated union) ──────────────────────────────────────
 // Only one dialog can be open at a time; the union enforces this structurally.
+
 type DialogState =
   | { mode: 'edit'; target: AppCalendarEvent }
   | { mode: 'delete'; target: LibraryCalendarEvent }
+  | { mode: 'new' }
   | null
+
+// ─── CalendarEventDialogs ─────────────────────────────────────────────────────
 
 interface CalendarEventDialogsProps {
   readonly dialog: DialogState
   readonly onClose: () => void
   readonly onConfirmDelete: (target: LibraryCalendarEvent) => void
   readonly onDeleteOpenChange: (open: boolean) => void
+  readonly onEditSubmit: (values: ActivityFormValues) => void
+  readonly onNewSubmit: (values: ActivityFormValues) => void
+  readonly isEditPending: boolean
+  readonly isNewPending: boolean
 }
 
 function CalendarEventDialogs({
@@ -65,37 +96,76 @@ function CalendarEventDialogs({
   onClose,
   onConfirmDelete,
   onDeleteOpenChange,
+  onEditSubmit,
+  onNewSubmit,
+  isEditPending,
+  isNewPending,
 }: CalendarEventDialogsProps): React.JSX.Element {
   return (
     <>
-      {dialog?.mode === 'edit' && dialog.target.type === 'task' && (
-        <TaskFormDialog
+      {/* ── + New activity dialog ── */}
+      {dialog?.mode === 'new' && (
+        <ActivityFormDialog
           open
           onOpenChange={(open) => !open && onClose()}
-          taskId={dialog.target.id}
-          initialTitle={dialog.target.title}
-          initialStartAt={dialog.target.start}
-          initialEndAt={dialog.target.end}
-        />
-      )}
-      {dialog?.mode === 'edit' && dialog.target.type === 'goal' && (
-        <GoalFormDialog
-          open
-          onOpenChange={(open) => !open && onClose()}
-          taskId={dialog.target.id}
-          initialTitle={dialog.target.title}
-          initialTargetDate={dialog.target.start.slice(0, 10)}
-        />
-      )}
-      {dialog?.mode === 'edit' && dialog.target.type === 'habit' && (
-        <HabitFormDialog
-          open
-          onOpenChange={(open) => !open && onClose()}
-          taskId={dialog.target.id}
-          initialTitle={dialog.target.title}
+          onSubmit={onNewSubmit}
+          isPending={isNewPending}
         />
       )}
 
+      {/* ── Edit task dialog ── */}
+      {dialog?.mode === 'edit' && dialog.target.type === 'task' && (
+        <ActivityFormDialog
+          open
+          onOpenChange={(open) => !open && onClose()}
+          onSubmit={onEditSubmit}
+          initialType="task"
+          lockType
+          isPending={isEditPending}
+          initialValues={{
+            type: 'task',
+            title: dialog.target.title,
+            startAt: dialog.target.start,
+            endAt: dialog.target.end,
+            color: dialog.target.color ?? undefined,
+            allDay: dialog.target.allDay ?? false,
+            location: dialog.target.location ?? undefined,
+            description: dialog.target.description ?? undefined,
+            social: {
+              activityType: dialog.target.activityType as ActivitySocial['activityType'],
+              visibility: dialog.target.visibility as ActivitySocial['visibility'],
+            },
+          }}
+        />
+      )}
+
+      {/* ── Edit goal dialog ── */}
+      {dialog?.mode === 'edit' && dialog.target.type === 'goal' && (
+        <ActivityFormDialog
+          open
+          onOpenChange={(open) => !open && onClose()}
+          onSubmit={onEditSubmit}
+          initialType="goal"
+          lockType
+          isPending={isEditPending}
+          initialValues={{
+            type: 'goal',
+            title: dialog.target.title,
+            // Date-only YYYY-MM-DD: ActivityFormDialog appends T12:00:00 internally
+            // to avoid Invalid Date. A full ISO string would silently wipe the goal
+            // target date on save (goal-date-wipe trap).
+            targetDate: dialog.target.start.slice(0, 10),
+            location: dialog.target.location ?? undefined,
+            description: dialog.target.description ?? undefined,
+            social: {
+              activityType: dialog.target.activityType as ActivitySocial['activityType'],
+              visibility: dialog.target.visibility as ActivitySocial['visibility'],
+            },
+          }}
+        />
+      )}
+
+      {/* ── Delete confirmation ── */}
       <AlertDialog open={dialog?.mode === 'delete'} onOpenChange={onDeleteOpenChange}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -119,6 +189,8 @@ function CalendarEventDialogs({
   )
 }
 
+// ─── CalendarClient ───────────────────────────────────────────────────────────
+
 interface CalendarClientProps {
   readonly weekStart: string
   readonly events: readonly AppCalendarEvent[]
@@ -137,6 +209,7 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
   const [resetKey, setResetKey] = useState(0)
   const router = useRouter()
   const [, startTransition] = useTransition()
+  const [isEditPending, startEditTransition] = useTransition()
   // Separate transition for create-dialog resync so bumping resetKey after
   // a create-close does not interfere with the delete/reschedule transition.
   const [isResyncing, startResyncTransition] = useTransition()
@@ -225,8 +298,84 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
     })
   }
 
+  function handleEditSubmit(values: ActivityFormValues): void {
+    if (dialog?.mode !== 'edit') return
+    const targetId = dialog.target.id
+    startEditTransition(async () => {
+      const result = await updateTask(
+        values.type === 'goal'
+          ? {
+              id: targetId,
+              title: values.title,
+              // Goal-date trap: convert date-only YYYY-MM-DD → noon-UTC ISO.
+              // The updateTask Zod schema (.datetime()) rejects date-only strings.
+              targetDate: toIsoTargetDate(values.targetDate),
+              location: values.location ?? null,
+              description: values.description ?? null,
+            }
+          : {
+              id: targetId,
+              title: values.title,
+              startAt: values.startAt ?? null,
+              endAt: values.endAt ?? null,
+              color: values.color ?? null,
+              location: values.location ?? null,
+              description: values.description ?? null,
+              allDay: values.allDay,
+            },
+      )
+      if ('error' in result) {
+        toast.error('Could not save activity')
+        return
+      }
+      setDialog(null)
+      router.refresh()
+    })
+  }
+
+  function handleNewSubmit(values: ActivityFormValues): void {
+    setDialog(null)
+    resyncQueuedRef.current = true
+    startResyncTransition(async () => {
+      const result = await createTask(
+        values.type === 'goal'
+          ? {
+              type: 'goal' as const,
+              title: values.title,
+              // Goal-date trap: same conversion required for createTask.
+              targetDate: toIsoTargetDate(values.targetDate),
+              location: values.location ?? null,
+              description: values.description ?? null,
+              recurrence: null,
+              allDay: false,
+              color: null,
+            }
+          : {
+              type: 'task' as const,
+              title: values.title,
+              startAt: values.startAt ?? null,
+              endAt: values.endAt ?? null,
+              color: values.color ?? null,
+              location: values.location ?? null,
+              description: values.description ?? null,
+              allDay: values.allDay ?? false,
+              recurrence: values.recurrence ?? null,
+              recurrenceCount: values.recurrenceCount,
+            },
+      )
+      if ('error' in result) toast.error('Could not create activity')
+      router.refresh()
+    })
+  }
+
   return (
     <>
+      <div className="mb-2 flex items-center justify-end">
+        <Button type="button" onClick={() => setDialog({ mode: 'new' })}>
+          + New
+        </Button>
+      </div>
+
       <div data-testid="week-calendar">
         <WeekCalendarView
           key={`${weekStart}-${resetKey}`}
@@ -271,6 +420,10 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
         onClose={() => setDialog(null)}
         onConfirmDelete={handleConfirmDelete}
         onDeleteOpenChange={handleDeleteOpenChange}
+        onEditSubmit={handleEditSubmit}
+        onNewSubmit={handleNewSubmit}
+        isEditPending={isEditPending}
+        isNewPending={isResyncing}
       />
     </>
   )
