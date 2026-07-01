@@ -178,12 +178,17 @@ describe('createHabit', () => {
     ).toEqual({ error: 'Unauthorized' })
   })
 
-  it('inserts a habit record', async () => {
+  it('inserts a recurring task record', async () => {
     vi.mocked(auth).mockResolvedValue(authedSession)
     await createHabit({ title: 'Run', startDate: '2026-06-01', visibility: 'only_me' })
     expect(mockInsert).toHaveBeenCalled()
     expect(mockValues).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'habit', title: 'Run', userId: 'user-1' }),
+      expect.objectContaining({
+        type: 'task',
+        recurrence: 'daily',
+        title: 'Run',
+        userId: 'user-1',
+      }),
     )
   })
 

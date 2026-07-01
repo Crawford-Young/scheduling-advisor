@@ -56,13 +56,13 @@ describe('createTask', () => {
     expect(result).toMatchObject({ data: { id: 'task-1' } })
   })
 
-  it('creates habit with recurrence and targetDate', async () => {
-    mockReturningInsert.mockResolvedValueOnce([{ id: 'task-2', title: 'Meditate', type: 'habit' }])
+  it('creates recurring task with recurrence and targetDate', async () => {
+    mockReturningInsert.mockResolvedValueOnce([{ id: 'task-2', title: 'Meditate', type: 'task' }])
     mockValuesInsert.mockReturnValue({ returning: mockReturningInsert })
     mockInsert.mockReturnValue({ values: mockValuesInsert })
     const result = await createTask({
       title: 'Meditate',
-      type: 'habit',
+      type: 'task',
       recurrence: 'RRULE:FREQ=DAILY',
       targetDate: new Date('2026-12-31').toISOString(),
     })
