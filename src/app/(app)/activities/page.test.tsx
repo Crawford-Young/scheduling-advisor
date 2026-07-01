@@ -33,8 +33,27 @@ vi.mock('@/components/activity/activity-create-button', () => ({
 }))
 
 vi.mock('@/components/activity/activity-card-actions', () => ({
-  ActivityCardActions: ({ taskId }: { taskId: string }) => (
-    <div data-testid="actions" data-task-id={taskId} />
+  ActivityCardActions: ({
+    taskId,
+    color,
+    location,
+    description,
+    allDay,
+  }: {
+    taskId: string
+    color?: string | null
+    location?: string | null
+    description?: string | null
+    allDay?: boolean
+  }) => (
+    <div
+      data-testid="actions"
+      data-task-id={taskId}
+      data-color={color ?? ''}
+      data-location={location ?? ''}
+      data-description={description ?? ''}
+      data-all-day={String(allDay)}
+    />
   ),
 }))
 
@@ -49,14 +68,17 @@ vi.mock('@/lib/ui', () => ({
     title,
     type,
     detail,
+    actions,
   }: {
     title: string
     type: string
     detail: React.ReactNode
+    actions: React.ReactNode
   }) => (
     <article data-testid="activity-card" data-type={type}>
       <span>{title}</span>
       {detail}
+      {actions}
     </article>
   ),
   StreakBadge: ({ streak }: { streak: number }) => <span data-testid="streak-badge">{streak}</span>,
@@ -70,6 +92,10 @@ interface TaskOverrides {
   startAt?: Date | null
   targetDate?: Date | null
   recurrence?: string | null
+  color?: string | null
+  location?: string | null
+  description?: string | null
+  allDay?: boolean
 }
 
 function makeTask(over: TaskOverrides = {}) {
@@ -82,6 +108,10 @@ function makeTask(over: TaskOverrides = {}) {
     endAt: new Date('2026-06-20T10:00:00.000Z'),
     recurrence: null,
     targetDate: null,
+    color: null,
+    location: null,
+    description: null,
+    allDay: false,
     activityType: 'solo',
     visibility: 'only_me',
     joinability: null,
@@ -225,6 +255,27 @@ describe('ActivitiesPage', () => {
     expect(screen.getByText('Target: 2026-08-01')).toBeInTheDocument()
     expect(screen.getByTestId('streak-badge')).toHaveTextContent('3')
     expect(screen.getByText(/^Due /)).toBeInTheDocument()
+  })
+
+  it('hydrates the card actions with the task rich fields (color/location/description/allDay)', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([
+      makeTask({
+        id: 't-rich',
+        type: 'task',
+        color: 'blue',
+        location: 'Coffee shop',
+        description: 'Some notes',
+        allDay: true,
+      }),
+    ])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
+    const actions = screen.getByTestId('actions')
+    expect(actions).toHaveAttribute('data-task-id', 't-rich')
+    expect(actions).toHaveAttribute('data-color', 'blue')
+    expect(actions).toHaveAttribute('data-location', 'Coffee shop')
+    expect(actions).toHaveAttribute('data-description', 'Some notes')
+    expect(actions).toHaveAttribute('data-all-day', 'true')
   })
 
   it('shows the empty state when there are no activities', async () => {

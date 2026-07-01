@@ -346,6 +346,16 @@ describe('ActivityCardActions', () => {
     expect(refreshMock).not.toHaveBeenCalled()
   })
 
+  it('shows toast.error when delete fails (no refresh)', async () => {
+    deleteTaskMock.mockResolvedValueOnce({ error: 'Not found' })
+    const user = userEvent.setup()
+    render(<ActivityCardActions {...goalProps} />)
+    await user.click(screen.getByRole('button', { name: /delete goal/i }))
+    await user.click(screen.getByRole('button', { name: /confirm delete/i }))
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not delete activity'))
+    expect(refreshMock).not.toHaveBeenCalled()
+  })
+
   it('deletes via deleteTask and refreshes', async () => {
     const user = userEvent.setup()
     render(<ActivityCardActions {...goalProps} />)
