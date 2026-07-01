@@ -77,7 +77,12 @@ vi.mock('@/lib/ui', () => ({
   SelectItem: ({ value, children }: { value: string; children?: React.ReactNode }) => {
     const ctx = React.useContext(SelectContext)
     return (
-      <span role="option" data-value={value} onClick={() => ctx.onValueChange?.(value)}>
+      <span
+        role="option"
+        aria-selected={false}
+        data-value={value}
+        onClick={() => ctx.onValueChange?.(value)}
+      >
         {children}
       </span>
     )
