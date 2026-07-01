@@ -7,10 +7,10 @@ describe('createTaskSchema', () => {
     expect(result.success).toBe(true)
   })
 
-  it('accepts habit with recurrence', () => {
+  it('accepts task with recurrence', () => {
     const result = createTaskSchema.safeParse({
       title: 'Meditate',
-      type: 'habit',
+      type: 'task',
       recurrence: 'RRULE:FREQ=DAILY',
     })
     expect(result.success).toBe(true)
