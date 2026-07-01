@@ -26,7 +26,7 @@ vi.mock('@/lib/redis', () => ({
 vi.mock('@/db', () => ({ db: { insert: mockInsert } }))
 vi.mock('@/db/schema', () => ({ calendarPrefs: {} }))
 
-import { upsertCalendarPrefs } from '@/server/actions/calendar-prefs'
+import { upsertCalendarPrefs, setCalendarWindow } from '@/server/actions/calendar-prefs'
 
 describe('upsertCalendarPrefs', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -67,5 +67,30 @@ describe('upsertCalendarPrefs', () => {
       maxDailyTaskMinutes: 120,
     })
     expect(result).toMatchObject({ error: 'Unauthorized' })
+  })
+})
+
+describe('setCalendarWindow', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('returns error when unauthenticated', async () => {
+    const { auth } = await import('@/auth')
+    vi.mocked(auth).mockResolvedValueOnce(null as never)
+    const result = await setCalendarWindow({ workingHoursStart: 7, workingHoursEnd: 23 })
+    expect(result).toMatchObject({ error: 'Unauthorized' })
+  })
+
+  it('inserts wake/sleep window with valid input', async () => {
+    const result = await setCalendarWindow({ workingHoursStart: 7, workingHoursEnd: 23 })
+    expect(result).toMatchObject({ data: expect.anything() })
+    expect(mockInsert).toHaveBeenCalledWith(expect.anything())
+    expect(mockValuesInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'user-123', workingHoursStart: 7, workingHoursEnd: 23 }),
+    )
+  })
+
+  it('returns error when end is not after start', async () => {
+    const result = await setCalendarWindow({ workingHoursStart: 23, workingHoursEnd: 7 })
+    expect(result).toHaveProperty('error')
   })
 })
