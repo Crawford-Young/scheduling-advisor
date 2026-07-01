@@ -117,6 +117,10 @@ export default async function ActivitiesPage({
                   endAt={task.endAt?.toISOString() ?? null}
                   recurrence={task.recurrence ?? null}
                   targetDate={toDateOnly(task.targetDate)}
+                  color={task.color}
+                  location={task.location}
+                  description={task.description}
+                  allDay={task.allDay}
                   social={{
                     activityType: task.activityType,
                     visibility: task.visibility,

@@ -120,7 +120,11 @@ export function ActivityCardActions({
 
   function handleConfirmDelete(): void {
     startTransition(async () => {
-      await deleteTask({ id: taskId })
+      const result = await deleteTask({ id: taskId })
+      if ('error' in result) {
+        toast.error('Could not delete activity')
+        return
+      }
       router.refresh()
     })
   }
