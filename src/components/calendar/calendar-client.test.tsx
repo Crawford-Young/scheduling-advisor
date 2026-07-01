@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { CalendarClient } from './calendar-client'
@@ -10,7 +10,12 @@ const refreshMock = vi.fn()
 const createTaskMock = vi.fn()
 const deleteTaskMock = vi.fn()
 const rescheduleTaskMock = vi.fn()
+const updateTaskMock = vi.fn()
 const toastErrorMock = vi.fn()
+
+// Captures the onSubmit prop from ActivityFormDialog each render so tests can
+// drive it directly (rather than clicking through the real form UI).
+let capturedAfdOnSubmit: ((values: unknown) => void) | undefined
 
 // Observes every onOpenChange(open) the dialog fires, so tests can assert that
 // real-Radix close semantics (onOpenChange(false) on ANY close — cancel OR
@@ -31,6 +36,7 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/server/actions/tasks', () => ({
   createTask: (input: unknown) => createTaskMock(input),
   deleteTask: (input: unknown) => deleteTaskMock(input),
+  updateTask: (input: unknown) => updateTaskMock(input),
 }))
 
 vi.mock('@/server/actions/consistency', () => ({
@@ -53,6 +59,51 @@ vi.mock('@/components/goals/goal-form-dialog', () => ({
 }))
 vi.mock('@/components/habits/habit-form-dialog', () => ({
   HabitFormDialog: () => null,
+}))
+
+// ActivityFormDialog stub: renders key initialValues as data attrs so contract
+// bugs are visible; captures onSubmit so tests can drive submission directly.
+interface MockActivityFormDialogProps {
+  readonly open: boolean
+  readonly onOpenChange: (open: boolean) => void
+  readonly onSubmit: (values: unknown) => void
+  readonly initialType?: string
+  readonly lockType?: boolean
+  readonly isPending?: boolean
+  readonly initialValues?: {
+    readonly type?: string
+    readonly title?: string
+    readonly targetDate?: string | null
+    readonly startAt?: string | null
+    readonly endAt?: string | null
+    readonly color?: string | null
+    readonly allDay?: boolean
+    readonly location?: string | null
+    readonly description?: string | null
+  }
+}
+
+vi.mock('@/components/activity/activity-form-dialog', () => ({
+  ActivityFormDialog: (props: MockActivityFormDialogProps) => {
+    capturedAfdOnSubmit = props.onSubmit
+    if (!props.open) return null
+    return (
+      <div
+        data-testid="activity-form-dialog"
+        data-lock-type={String(props.lockType ?? false)}
+        data-initial-type={props.initialType ?? 'task'}
+      >
+        <span data-testid="afd-title">{String(props.initialValues?.title ?? '')}</span>
+        <span data-testid="afd-color">{String(props.initialValues?.color ?? '')}</span>
+        <span data-testid="afd-all-day">{String(props.initialValues?.allDay ?? '')}</span>
+        <span data-testid="afd-location">{String(props.initialValues?.location ?? '')}</span>
+        <span data-testid="afd-description">{String(props.initialValues?.description ?? '')}</span>
+        <span data-testid="afd-start-at">{String(props.initialValues?.startAt ?? '')}</span>
+        <span data-testid="afd-end-at">{String(props.initialValues?.endAt ?? '')}</span>
+        <span data-testid="afd-target-date">{String(props.initialValues?.targetDate ?? '')}</span>
+      </div>
+    )
+  },
 }))
 
 // ── @/lib/ui mock ──────────────────────────────────────────────────────────
@@ -96,6 +147,15 @@ const STUB_LIB_EVENT: MockLibEvent = {
   color: 'blue',
 }
 
+// Stub for the goal fixture used in D.3 edit-goal tests.
+const STUB_GOAL_LIB_EVENT: MockLibEvent = {
+  id: 'evt-2',
+  title: 'Run marathon',
+  start: '2026-06-15T12:00:00.000Z',
+  end: '2026-06-15T13:00:00.000Z',
+  color: 'amber',
+}
+
 // Payload the library popover emits when dragging to create a new event.
 const STUB_CREATE_PAYLOAD: MockCreatePayload = {
   title: 'x',
@@ -123,7 +183,26 @@ vi.mock('@/lib/ui', () => ({
       <button type="button" onClick={() => props.onEventCreate?.(STUB_CREATE_PAYLOAD)}>
         trigger-create
       </button>
+      <button type="button" onClick={() => props.onEventEdit?.(STUB_LIB_EVENT)}>
+        trigger-edit-task
+      </button>
+      <button type="button" onClick={() => props.onEventEdit?.(STUB_GOAL_LIB_EVENT)}>
+        trigger-edit-goal
+      </button>
     </div>
+  ),
+  Button: ({
+    children,
+    onClick,
+    type: btnType,
+  }: {
+    children: React.ReactNode
+    onClick?: () => void
+    type?: 'button' | 'submit' | 'reset'
+  }) => (
+    <button type={btnType ?? 'button'} onClick={onClick}>
+      {children}
+    </button>
   ),
   toast: { error: (...args: unknown[]) => toastErrorMock(...args) },
   AlertDialog: ({
@@ -350,5 +429,194 @@ describe('CalendarClient — event create wiring', () => {
 
     // Still no TaskFormDialog after drag-create — it goes straight to createTask.
     expect(screen.queryByTestId('task-form-dialog')).not.toBeInTheDocument()
+  })
+})
+
+// ── D.3: unified ActivityFormDialog tests ─────────────────────────────────
+//
+// Verifies that:
+//   • + New button opens the app ActivityFormDialog unlocked.
+//   • Editing a TASK event opens ActivityFormDialog locked to task and hydrates
+//     all rich fields (color, allDay, location, description, UTC start/end).
+//   • Editing a GOAL event opens locked to goal with a date-only targetDate.
+//   • Edit submits call updateTask with the correct payload, including the
+//     noon-UTC goal-date trap on goal submits.
+//   • GoalFormDialog / HabitFormDialog / TaskFormDialog are never rendered.
+
+// Full task fixture includes all rich fields needed for hydration assertions.
+const TASK_EVENT_FULL = {
+  id: 'evt-1',
+  title: 'Test event',
+  start: '2026-01-06T09:00:00.000Z',
+  end: '2026-01-06T10:00:00.000Z',
+  type: 'task' as const,
+  status: 'pending' as const,
+  streak: 0,
+  activityType: 'solo',
+  visibility: 'only_me',
+  color: 'violet',
+  allDay: false,
+  location: 'Gym',
+  description: 'Leg day',
+}
+
+// Goal fixture: id matches STUB_GOAL_LIB_EVENT so handleEventEdit can look it up.
+const GOAL_EVENT = {
+  id: 'evt-2',
+  title: 'Run marathon',
+  // Goal stored at noon-UTC; slice(0,10) gives the date-only targetDate for the dialog.
+  start: '2026-06-15T12:00:00.000Z',
+  end: '2026-06-15T13:00:00.000Z',
+  type: 'goal' as const,
+  status: 'pending' as const,
+  streak: 0,
+  activityType: 'solo',
+  visibility: 'only_me',
+  color: null,
+  allDay: false,
+  location: null,
+  description: null,
+}
+
+const EVENTS_D3 = [TASK_EVENT_FULL, GOAL_EVENT]
+
+describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    updateTaskMock.mockClear()
+    updateTaskMock.mockResolvedValue({})
+    createTaskMock.mockClear()
+    createTaskMock.mockResolvedValue({})
+    toastErrorMock.mockClear()
+    capturedAfdOnSubmit = undefined
+  })
+
+  it('+ New button opens ActivityFormDialog unlocked (task or goal)', async () => {
+    const user = userEvent.setup()
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+
+    expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '+ New' }))
+
+    const dialog = screen.getByTestId('activity-form-dialog')
+    expect(dialog).toBeInTheDocument()
+    // lockType must be false so the user can choose task or goal.
+    expect(dialog.dataset.lockType).toBe('false')
+  })
+
+  it('editing a TASK event opens ActivityFormDialog locked to task with all rich fields', async () => {
+    const user = userEvent.setup()
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+
+    await user.click(screen.getByRole('button', { name: 'trigger-edit-task' }))
+
+    const dialog = screen.getByTestId('activity-form-dialog')
+    expect(dialog.dataset.lockType).toBe('true')
+    expect(dialog.dataset.initialType).toBe('task')
+
+    // Contract: all rich fields surfaced in the mock so dropped fields are visible.
+    expect(screen.getByTestId('afd-title').textContent).toBe('Test event')
+    expect(screen.getByTestId('afd-color').textContent).toBe('violet')
+    expect(screen.getByTestId('afd-all-day').textContent).toBe('false')
+    expect(screen.getByTestId('afd-location').textContent).toBe('Gym')
+    expect(screen.getByTestId('afd-description').textContent).toBe('Leg day')
+    expect(screen.getByTestId('afd-start-at').textContent).toBe('2026-01-06T09:00:00.000Z')
+    expect(screen.getByTestId('afd-end-at').textContent).toBe('2026-01-06T10:00:00.000Z')
+  })
+
+  it('edit TASK submit calls updateTask with color, allDay, location, description', async () => {
+    const user = userEvent.setup()
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+
+    await user.click(screen.getByRole('button', { name: 'trigger-edit-task' }))
+    expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
+
+    // Drive submit directly via captured onSubmit — simulates user hitting Save.
+    await act(async () => {
+      capturedAfdOnSubmit?.({
+        type: 'task',
+        title: 'Test event',
+        startAt: '2026-01-06T09:00:00.000Z',
+        endAt: '2026-01-06T10:00:00.000Z',
+        color: 'violet',
+        location: 'Gym',
+        description: 'Leg day',
+        allDay: false,
+        social: { activityType: 'solo', visibility: 'only_me' },
+      })
+    })
+
+    await waitFor(() =>
+      expect(updateTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'evt-1',
+          title: 'Test event',
+          startAt: '2026-01-06T09:00:00.000Z',
+          endAt: '2026-01-06T10:00:00.000Z',
+          color: 'violet',
+          location: 'Gym',
+          description: 'Leg day',
+          allDay: false,
+        }),
+      ),
+    )
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('editing a GOAL event opens ActivityFormDialog locked to goal with date-only targetDate', async () => {
+    const user = userEvent.setup()
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+
+    await user.click(screen.getByRole('button', { name: 'trigger-edit-goal' }))
+
+    const dialog = screen.getByTestId('activity-form-dialog')
+    expect(dialog.dataset.lockType).toBe('true')
+    expect(dialog.dataset.initialType).toBe('goal')
+
+    // targetDate must be date-only (YYYY-MM-DD) — a full ISO string yields
+    // Invalid Date inside ActivityFormDialog and silently wipes the target date.
+    expect(screen.getByTestId('afd-target-date').textContent).toBe('2026-06-15')
+  })
+
+  it('edit GOAL submit calls updateTask with noon-UTC targetDate (goal-date trap)', async () => {
+    const user = userEvent.setup()
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+
+    await user.click(screen.getByRole('button', { name: 'trigger-edit-goal' }))
+    expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
+
+    // Dialog emits date-only targetDate; handler must append T12:00:00.000Z before
+    // calling updateTask (whose schema requires a full datetime string).
+    await act(async () => {
+      capturedAfdOnSubmit?.({
+        type: 'goal',
+        title: 'Run marathon',
+        targetDate: '2026-06-15',
+        location: null,
+        description: null,
+        social: { activityType: 'solo', visibility: 'only_me' },
+      })
+    })
+
+    await waitFor(() =>
+      expect(updateTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'evt-2',
+          title: 'Run marathon',
+          // The noon-UTC suffix is the regression guard — date-only rejects the
+          // updateTask Zod schema (.datetime()) and the edit silently fails.
+          targetDate: '2026-06-15T12:00:00.000Z',
+        }),
+      ),
+    )
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('GoalFormDialog, HabitFormDialog, and TaskFormDialog are never rendered', () => {
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+    expect(screen.queryByTestId('task-form-dialog')).not.toBeInTheDocument()
+    // GoalFormDialog / HabitFormDialog mocks return null so their test ids never appear.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })
