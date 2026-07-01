@@ -1,6 +1,7 @@
 import React from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { axe } from 'jest-axe'
 import { describe, expect, it, vi } from 'vitest'
 import { ActivityFormDialog } from './activity-form-dialog'
 
@@ -18,13 +19,24 @@ const SelectContext = React.createContext<{
   onValueChange?: (v: string) => void
 }>({ onValueChange: undefined })
 
+// id shared between the Dialog and DialogTitle mocks so the dialog carries an
+// accessible name via aria-labelledby — mirrors the wiring real Radix Dialog
+// does automatically (only one dialog renders per test).
+const DIALOG_TITLE_ID = 'activity-form-dialog-title'
+
 vi.mock('@/lib/ui', () => ({
   // ── Dialog primitives ──────────────────────────────────────────────────────
   Dialog: ({ open, children }: { open?: boolean; children?: React.ReactNode }) =>
-    open ? <div role="dialog">{children}</div> : null,
+    open ? (
+      <div role="dialog" aria-labelledby={DIALOG_TITLE_ID}>
+        {children}
+      </div>
+    ) : null,
   DialogContent: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   DialogHeader: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
-  DialogTitle: ({ children }: { children?: React.ReactNode }) => <h2>{children}</h2>,
+  DialogTitle: ({ children }: { children?: React.ReactNode }) => (
+    <h2 id={DIALOG_TITLE_ID}>{children}</h2>
+  ),
   DialogDescription: ({ children }: { children?: React.ReactNode }) => <p>{children}</p>,
   DialogFooter: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
 
@@ -73,7 +85,14 @@ vi.mock('@/lib/ui', () => ({
     </SelectContext.Provider>
   ),
   SelectTrigger: () => null,
-  SelectContent: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  // role="listbox" + aria-label mirror real Radix SelectContent so option
+  // children satisfy the aria-required-parent / aria-input-field-name rules
+  // under axe.
+  SelectContent: ({ children }: { children?: React.ReactNode }) => (
+    <div role="listbox" aria-label="Options">
+      {children}
+    </div>
+  ),
   SelectItem: ({ value, children }: { value: string; children?: React.ReactNode }) => {
     const ctx = React.useContext(SelectContext)
     return (
@@ -731,5 +750,39 @@ describe('Coverage — callback exercises', () => {
     fireEvent.change(input, { target: { value: '0' } })
     // 0 is falsy → falls back to 2
     expect(input).toHaveValue(2)
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Accessibility — axe on the open dialog in task and goal type modes
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('Accessibility', () => {
+  it('task type mode has zero axe violations', async () => {
+    const { container } = render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={() => {}}
+        initialValues={{
+          startAt: '2026-09-15T09:00:00.000Z',
+          endAt: '2026-09-15T10:00:00.000Z',
+        }}
+      />,
+    )
+    expect(await axe(container)).toHaveNoViolations()
+  })
+
+  it('goal type mode has zero axe violations', async () => {
+    const { container } = render(
+      <ActivityFormDialog
+        open
+        onOpenChange={() => {}}
+        onSubmit={() => {}}
+        lockType
+        initialType="goal"
+      />,
+    )
+    expect(await axe(container)).toHaveNoViolations()
   })
 })
