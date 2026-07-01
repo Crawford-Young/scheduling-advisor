@@ -74,11 +74,6 @@ vi.mock('@/components/calendar/perfect-week-celebration', () => ({
     ) : null,
 }))
 
-// Old per-type dialog mocks — kept as no-ops so any stale import paths don't break loading.
-vi.mock('@/components/tasks/task-form-dialog', () => ({ TaskFormDialog: () => null }))
-vi.mock('@/components/goals/goal-form-dialog', () => ({ GoalFormDialog: () => null }))
-vi.mock('@/components/habits/habit-form-dialog', () => ({ HabitFormDialog: () => null }))
-
 // calendar-client.tsx now uses ActivityFormDialog for all edit/create dialogs.
 vi.mock('@/components/activity/activity-form-dialog', () => ({
   ActivityFormDialog: ({

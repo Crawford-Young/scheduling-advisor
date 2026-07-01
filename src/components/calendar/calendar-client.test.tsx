@@ -50,17 +50,6 @@ vi.mock('@/components/calendar/check-in-sheet', () => ({
 vi.mock('@/components/calendar/perfect-week-celebration', () => ({
   PerfectWeekCelebration: () => null,
 }))
-vi.mock('@/components/tasks/task-form-dialog', () => ({
-  TaskFormDialog: ({ open }: { open?: boolean }) =>
-    open ? <div data-testid="task-form-dialog" /> : null,
-}))
-vi.mock('@/components/goals/goal-form-dialog', () => ({
-  GoalFormDialog: () => null,
-}))
-vi.mock('@/components/habits/habit-form-dialog', () => ({
-  HabitFormDialog: () => null,
-}))
-
 // ActivityFormDialog stub: renders key initialValues as data attrs so contract
 // bugs are visible; captures onSubmit so tests can drive submission directly.
 interface MockActivityFormDialogProps {
