@@ -868,18 +868,18 @@ describe('CalendarClient — wake/sleep window (D.4)', () => {
     refreshMock.mockClear()
   })
 
-  it('passes windowed props (hourStart=9, hourCount=8, sleepEnabled=true, sleepStart=17, sleepEnd=9) by default', () => {
+  it('passes windowed props (hourStart=9, hourCount=8, sleepEnabled=false, sleepStart=17, sleepEnd=9) by default', () => {
     render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
 
     const view = screen.getByTestId('week-calendar-view')
     expect(view.dataset.hourStart).toBe('9')
     expect(view.dataset.hourCount).toBe('8')
-    expect(view.dataset.sleepEnabled).toBe('true')
+    expect(view.dataset.sleepEnabled).toBe('false')
     expect(view.dataset.sleepStart).toBe('17')
     expect(view.dataset.sleepEnd).toBe('9')
   })
 
-  it('clicking SleepToggle flips to full-day view (hourStart=0, hourCount=24, sleepEnabled=false)', async () => {
+  it('clicking SleepToggle flips to full-day view (hourStart=0, hourCount=24, sleepEnabled=true)', async () => {
     const user = userEvent.setup()
     render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
 
@@ -888,6 +888,6 @@ describe('CalendarClient — wake/sleep window (D.4)', () => {
     const view = screen.getByTestId('week-calendar-view')
     expect(view.dataset.hourStart).toBe('0')
     expect(view.dataset.hourCount).toBe('24')
-    expect(view.dataset.sleepEnabled).toBe('false')
+    expect(view.dataset.sleepEnabled).toBe('true')
   })
 })

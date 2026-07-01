@@ -208,7 +208,7 @@ export function CalendarClient({
   const [showFullDay, setShowFullDay] = useState(false)
   const hourStart = showFullDay ? 0 : wakeHour
   const hourCount = showFullDay ? 24 : sleepHour - wakeHour
-  const sleepEnabled = !showFullDay
+  const sleepEnabled = showFullDay
   const sleepStart = sleepHour
   const sleepEnd = wakeHour
   const [selectedId, setSelectedId] = useState<string | null>(null)
