@@ -20,6 +20,8 @@ export default async function SettingsPage() {
         initialUsername={user?.username ?? ''}
         initialWakeHour={prefs?.workingHoursStart ?? 9}
         initialSleepHour={prefs?.workingHoursEnd ?? 17}
+        initialUse24h={prefs?.use24h ?? false}
+        initialDayOverrides={prefs?.dayOverrides ?? {}}
       />
     </div>
   )
