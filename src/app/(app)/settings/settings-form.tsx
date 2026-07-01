@@ -2,20 +2,48 @@
 
 import * as React from 'react'
 import { useState, useTransition } from 'react'
-import { Button, Input, Label, NumberInput } from '@/lib/ui'
+import { Button, Input, Label, NumberInput, Switch } from '@/lib/ui'
 import { setUsername } from '@/server/actions/profile'
 import { setCalendarWindow } from '@/server/actions/calendar-prefs'
+import type { CalendarDayOverrides } from '@/lib/schemas/calendar-prefs'
+
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+
+const WAKE_HOUR_MIN = 0
+const WAKE_HOUR_MAX = 23
+const SLEEP_HOUR_MIN = 1
+const SLEEP_HOUR_MAX = 24
+
+interface DayHours {
+  readonly wake: number
+  readonly sleep: number
+}
+
+type DayOverrideState = Record<string, DayHours | null>
+
+function buildInitialDayOverrideState(dayOverrides: CalendarDayOverrides): DayOverrideState {
+  const state: DayOverrideState = {}
+  DAY_LABELS.forEach((_, index) => {
+    const key = String(index)
+    state[key] = dayOverrides[key as keyof CalendarDayOverrides] ?? null
+  })
+  return state
+}
 
 interface SettingsFormProps {
   readonly initialUsername: string
   readonly initialWakeHour: number
   readonly initialSleepHour: number
+  readonly initialUse24h: boolean
+  readonly initialDayOverrides: CalendarDayOverrides
 }
 
 export function SettingsForm({
   initialUsername,
   initialWakeHour,
   initialSleepHour,
+  initialUse24h,
+  initialDayOverrides,
 }: SettingsFormProps): React.JSX.Element {
   const [username, setUsernameValue] = useState(initialUsername)
   const [status, setStatus] = useState<'idle' | 'saved' | 'error'>('idle')
@@ -23,8 +51,25 @@ export function SettingsForm({
 
   const [wakeHour, setWakeHour] = useState(initialWakeHour)
   const [sleepHour, setSleepHour] = useState(initialSleepHour)
+  const [use24h, setUse24h] = useState(initialUse24h)
+  const [dayOverrides, setDayOverrides] = useState<DayOverrideState>(() =>
+    buildInitialDayOverrideState(initialDayOverrides),
+  )
   const [calStatus, setCalStatus] = useState<'idle' | 'saved' | 'error'>('idle')
   const [isCalPending, startCalTransition] = useTransition()
+
+  const initialDayOverrideState = buildInitialDayOverrideState(initialDayOverrides)
+  const dayOverridesDirty = DAY_LABELS.some((_, index) => {
+    const key = String(index)
+    const current = dayOverrides[key] ?? null
+    const initial = initialDayOverrideState[key] ?? null
+    return current?.wake !== initial?.wake || current?.sleep !== initial?.sleep
+  })
+  const calDirty =
+    wakeHour !== initialWakeHour ||
+    sleepHour !== initialSleepHour ||
+    use24h !== initialUse24h ||
+    dayOverridesDirty
 
   function handleSave(): void {
     startTransition(async () => {
@@ -39,9 +84,20 @@ export function SettingsForm({
 
   function handleCalSave(): void {
     startCalTransition(async () => {
+      const activeDayOverrides: CalendarDayOverrides = {}
+      DAY_LABELS.forEach((_, index) => {
+        const key = String(index) as keyof CalendarDayOverrides
+        const override = dayOverrides[key]
+        if (override !== null && override !== undefined) {
+          activeDayOverrides[key] = override
+        }
+      })
+
       const result = await setCalendarWindow({
         workingHoursStart: wakeHour,
         workingHoursEnd: sleepHour,
+        use24h,
+        dayOverrides: activeDayOverrides,
       })
       if ('data' in result) {
         setCalStatus('saved')
@@ -93,8 +149,8 @@ export function SettingsForm({
               <Label htmlFor="wake-hour">Wake up</Label>
               <NumberInput
                 id="wake-hour"
-                min={0}
-                max={23}
+                min={WAKE_HOUR_MIN}
+                max={WAKE_HOUR_MAX}
                 value={wakeHour}
                 onChange={(value) => {
                   setWakeHour(value)
@@ -107,8 +163,8 @@ export function SettingsForm({
               <Label htmlFor="sleep-hour">Sleep</Label>
               <NumberInput
                 id="sleep-hour"
-                min={1}
-                max={24}
+                min={SLEEP_HOUR_MIN}
+                max={SLEEP_HOUR_MAX}
                 value={sleepHour}
                 onChange={(value) => {
                   setSleepHour(value)
@@ -118,13 +174,90 @@ export function SettingsForm({
               />
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            <Switch
+              id="use-24h"
+              aria-label="24-hour time"
+              checked={use24h}
+              onCheckedChange={(checked) => {
+                setUse24h(checked)
+                setCalStatus('idle')
+              }}
+            />
+            <Label htmlFor="use-24h">24-hour time</Label>
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-foreground text-sm font-medium">Per-day overrides</h3>
+            {DAY_LABELS.map((label, index) => {
+              const key = String(index)
+              const override = dayOverrides[key] ?? null
+              const overrideSwitchId = `override-${key}`
+              return (
+                <div key={key} className="flex items-center gap-4">
+                  <div className="flex w-24 items-center gap-2">
+                    <Switch
+                      id={overrideSwitchId}
+                      aria-label={`Override ${label}`}
+                      checked={override !== null}
+                      onCheckedChange={(checked) => {
+                        setDayOverrides((prev) => ({
+                          ...prev,
+                          [key]: checked ? { wake: wakeHour, sleep: sleepHour } : null,
+                        }))
+                        setCalStatus('idle')
+                      }}
+                    />
+                    <Label htmlFor={overrideSwitchId} className="text-foreground text-sm">
+                      {label}
+                    </Label>
+                  </div>
+                  {override !== null && (
+                    <div className="flex gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor={`day-${key}-wake`}>{`${label} wake hour`}</Label>
+                        <NumberInput
+                          id={`day-${key}-wake`}
+                          min={WAKE_HOUR_MIN}
+                          max={WAKE_HOUR_MAX}
+                          value={override.wake}
+                          onChange={(value) => {
+                            setDayOverrides((prev) => ({
+                              ...prev,
+                              [key]: { wake: value, sleep: override.sleep },
+                            }))
+                            setCalStatus('idle')
+                          }}
+                          className="w-20"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`day-${key}-sleep`}>{`${label} sleep hour`}</Label>
+                        <NumberInput
+                          id={`day-${key}-sleep`}
+                          min={SLEEP_HOUR_MIN}
+                          max={SLEEP_HOUR_MAX}
+                          value={override.sleep}
+                          onChange={(value) => {
+                            setDayOverrides((prev) => ({
+                              ...prev,
+                              [key]: { wake: override.wake, sleep: value },
+                            }))
+                            setCalStatus('idle')
+                          }}
+                          className="w-20"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
           <div className="flex gap-2">
             <Button
               aria-label="Save calendar settings"
               onClick={handleCalSave}
-              disabled={
-                isCalPending || (wakeHour === initialWakeHour && sleepHour === initialSleepHour)
-              }
+              disabled={isCalPending || !calDirty}
             >
               {isCalPending ? 'Saving…' : 'Save'}
             </Button>
