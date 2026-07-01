@@ -162,38 +162,38 @@ describe('CalendarClient', () => {
   })
 
   it('renders the calendar', () => {
-    render(<CalendarClient weekStart="2026-05-25" events={events} />)
+    render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
     expect(screen.getByText('Morning run')).toBeInTheDocument()
   })
 
   it('opens CheckInSheet when pending event clicked', async () => {
-    render(<CalendarClient weekStart="2026-05-25" events={events} />)
+    render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
     await userEvent.click(screen.getByText('Morning run'))
     expect(screen.getByTestId('check-in-sheet')).toBeInTheDocument()
   })
 
   it('does not open CheckInSheet for completed events', async () => {
-    render(<CalendarClient weekStart="2026-05-25" events={events} />)
+    render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
     await userEvent.click(screen.getByText('Done event'))
     expect(screen.queryByTestId('check-in-sheet')).not.toBeInTheDocument()
   })
 
   it('closes CheckInSheet on onClose', async () => {
-    render(<CalendarClient weekStart="2026-05-25" events={events} />)
+    render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
     await userEvent.click(screen.getByText('Morning run'))
     await userEvent.click(screen.getByText('Close'))
     expect(screen.queryByTestId('check-in-sheet')).not.toBeInTheDocument()
   })
 
   it('shows PerfectWeekCelebration when onPerfectWeek fires', async () => {
-    render(<CalendarClient weekStart="2026-05-25" events={events} />)
+    render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
     await userEvent.click(screen.getByText('Morning run'))
     await userEvent.click(screen.getByText('Perfect week'))
     expect(screen.getByTestId('perfect-week')).toBeInTheDocument()
   })
 
   it('dismisses PerfectWeekCelebration on dismiss button click', async () => {
-    render(<CalendarClient weekStart="2026-05-25" events={events} />)
+    render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
     await userEvent.click(screen.getByText('Morning run'))
     await userEvent.click(screen.getByText('Perfect week'))
     expect(screen.getByTestId('perfect-week')).toBeInTheDocument()
@@ -202,13 +202,15 @@ describe('CalendarClient', () => {
   })
 
   it('passes axe', async () => {
-    const { container } = render(<CalendarClient weekStart="2026-05-25" events={events} />)
+    const { container } = render(
+      <CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />,
+    )
     expect(await axe(container)).toHaveNoViolations()
   })
 
   describe('move and resize', () => {
     it('calls rescheduleTask with UTC ISO times on move', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       const onEventMove = capturedProps.onEventMove as (e: unknown) => void
       onEventMove({
         id: 'e1',
@@ -227,7 +229,7 @@ describe('CalendarClient', () => {
     })
 
     it('calls rescheduleTask on resize', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       const onEventResize = capturedProps.onEventResize as (e: unknown) => void
       onEventResize({
         id: 'e1',
@@ -239,7 +241,7 @@ describe('CalendarClient', () => {
     })
 
     it('ignores move of completed event and refreshes to snap back', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       const onEventMove = capturedProps.onEventMove as (e: unknown) => void
       onEventMove({
         id: 'e2',
@@ -253,7 +255,7 @@ describe('CalendarClient', () => {
 
     it('shows toast on reschedule error', async () => {
       mockRescheduleTask.mockResolvedValueOnce({ error: 'Not found' })
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       const onEventMove = capturedProps.onEventMove as (e: unknown) => void
       onEventMove({
         id: 'e1',
@@ -266,7 +268,7 @@ describe('CalendarClient', () => {
     })
 
     it('remounts calendar on completed-event move (guard path)', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       const initialMountCount = mountCount.value
       const onEventMove = capturedProps.onEventMove as (e: unknown) => void
       onEventMove({
@@ -280,7 +282,7 @@ describe('CalendarClient', () => {
 
     it('remounts calendar on reschedule error', async () => {
       mockRescheduleTask.mockResolvedValueOnce({ error: 'Not found' })
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       const initialMountCount = mountCount.value
       const onEventMove = capturedProps.onEventMove as (e: unknown) => void
       onEventMove({
@@ -293,7 +295,7 @@ describe('CalendarClient', () => {
     })
 
     it('does NOT remount calendar on successful reschedule', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       const initialMountCount = mountCount.value
       const onEventMove = capturedProps.onEventMove as (e: unknown) => void
       onEventMove({
@@ -309,7 +311,7 @@ describe('CalendarClient', () => {
 
   describe('delete', () => {
     it('opens confirm dialog on onEventDelete, deletes on confirm', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
       onEventDelete({ id: 'e1', title: 'Morning run' })
       expect(await screen.findByText(/delete "Morning run"/i)).toBeInTheDocument()
@@ -319,7 +321,7 @@ describe('CalendarClient', () => {
     })
 
     it('does not delete on cancel', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
       onEventDelete({ id: 'e1', title: 'Morning run' })
       await userEvent.click(await screen.findByRole('button', { name: /cancel/i }))
@@ -328,7 +330,7 @@ describe('CalendarClient', () => {
 
     it('shows toast on delete error', async () => {
       mockDeleteTask.mockResolvedValueOnce({ error: 'Not found' })
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
       onEventDelete({ id: 'e1', title: 'Morning run' })
       await userEvent.click(await screen.findByRole('button', { name: /^delete$/i }))
@@ -336,7 +338,7 @@ describe('CalendarClient', () => {
     })
 
     it('remounts calendar on cancel (restores optimistic delete)', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       const initialMountCount = mountCount.value
       const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
       onEventDelete({ id: 'e1', title: 'Morning run' })
@@ -346,7 +348,7 @@ describe('CalendarClient', () => {
     })
 
     it('does NOT remount calendar on successful delete', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       const initialMountCount = mountCount.value
       const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
       onEventDelete({ id: 'e1', title: 'Morning run' })
@@ -358,7 +360,7 @@ describe('CalendarClient', () => {
 
     it('remounts calendar on delete error', async () => {
       mockDeleteTask.mockResolvedValueOnce({ error: 'Not found' })
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       const initialMountCount = mountCount.value
       const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
       onEventDelete({ id: 'e1', title: 'Morning run' })
@@ -372,19 +374,19 @@ describe('CalendarClient', () => {
   // Retained here: guard paths that are independent of dialog type.
   describe('edit', () => {
     it('ignores edit of completed event (no dialog opens)', () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e2', title: 'Done event' })
       expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
     })
 
     it('opens no dialog when event id is not found in events list', () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'nope', title: 'Ghost' })
       expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
     })
 
     it('opens ActivityFormDialog locked to task for task-type event', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e4', title: 'Ship report' })
       const dialog = await screen.findByTestId('activity-form-dialog')
       expect(dialog.dataset.initialType).toBe('task')
@@ -392,7 +394,7 @@ describe('CalendarClient', () => {
     })
 
     it('opens ActivityFormDialog locked to goal with date-only targetDate', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e3', title: 'Write book' })
       const dialog = await screen.findByTestId('activity-form-dialog')
       expect(dialog.dataset.initialType).toBe('goal')
@@ -400,7 +402,7 @@ describe('CalendarClient', () => {
     })
 
     it('closes ActivityFormDialog on onOpenChange(false)', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} />)
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
       ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e4', title: 'Ship report' })
       expect(await screen.findByTestId('activity-form-dialog')).toBeInTheDocument()
       await userEvent.click(screen.getByRole('button', { name: 'Close activity dialog' }))

@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { getUserTasks } from '@/server/queries/tasks'
 import { getWeeklyConsistency, getTaskStreaks } from '@/server/queries/consistency'
+import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
 import { ConsistencyBar } from '@/components/calendar/consistency-bar'
 import { CalendarClient } from '@/components/calendar/calendar-client'
 import { PageHeader } from '@/lib/ui'
@@ -22,6 +23,10 @@ export default async function CalendarPage(): Promise<React.JSX.Element> {
 
   const userId = session.user.id
   const weekStart = getCurrentWeekStart()
+
+  const prefs = await getCalendarPrefs()
+  const wakeHour = prefs?.workingHoursStart ?? 9
+  const sleepHour = prefs?.workingHoursEnd ?? 17
 
   const [allTasks, consistency] = await Promise.all([getUserTasks(), getWeeklyConsistency(userId)])
 
@@ -62,7 +67,12 @@ export default async function CalendarPage(): Promise<React.JSX.Element> {
         completedCount={consistency.completedCount}
         consistencyPct={consistency.consistencyPct}
       />
-      <CalendarClient weekStart={weekStart} events={events} />
+      <CalendarClient
+        weekStart={weekStart}
+        events={events}
+        wakeHour={wakeHour}
+        sleepHour={sleepHour}
+      />
     </div>
   )
 }

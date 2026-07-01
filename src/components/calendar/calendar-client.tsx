@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   WeekCalendarView,
+  SleepToggle,
   toast,
   AlertDialog,
   AlertDialogContent,
@@ -194,9 +195,22 @@ function CalendarEventDialogs({
 interface CalendarClientProps {
   readonly weekStart: string
   readonly events: readonly AppCalendarEvent[]
+  readonly wakeHour: number
+  readonly sleepHour: number
 }
 
-export function CalendarClient({ weekStart, events }: CalendarClientProps): React.JSX.Element {
+export function CalendarClient({
+  weekStart,
+  events,
+  wakeHour,
+  sleepHour,
+}: CalendarClientProps): React.JSX.Element {
+  const [showFullDay, setShowFullDay] = useState(false)
+  const hourStart = showFullDay ? 0 : wakeHour
+  const hourCount = showFullDay ? 24 : sleepHour - wakeHour
+  const sleepEnabled = !showFullDay
+  const sleepStart = sleepHour
+  const sleepEnd = wakeHour
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [perfectWeekVisible, setPerfectWeekVisible] = useState(false)
   const [dialog, setDialog] = useState<DialogState>(null)
@@ -370,6 +384,7 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
   return (
     <>
       <div className="mb-2 flex items-center justify-end">
+        <SleepToggle enabled={!showFullDay} onToggle={(windowed) => setShowFullDay(!windowed)} />
         <Button type="button" onClick={() => setDialog({ mode: 'new' })}>
           + New
         </Button>
@@ -389,6 +404,11 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
           onEventDelete={(e) => setDialog({ mode: 'delete', target: e })}
           onEventEdit={handleEventEdit}
           onEventCreate={handleEventCreate}
+          hourStart={hourStart}
+          hourCount={hourCount}
+          sleepEnabled={sleepEnabled}
+          sleepStart={sleepStart}
+          sleepEnd={sleepEnd}
         />
       </div>
 

@@ -141,6 +141,12 @@ interface WeekCalendarViewProps {
   readonly onEventEdit?: (e: MockLibEvent) => void
   readonly onEventClick?: (e: MockLibEvent) => void
   readonly onEventCreate?: (e: MockCreatePayload) => void
+  // D.4: wake/sleep window props
+  readonly hourStart?: number
+  readonly hourCount?: number
+  readonly sleepEnabled?: boolean
+  readonly sleepStart?: number
+  readonly sleepEnd?: number
 }
 
 // id matches EVENTS[0].id so isCompleted() in handleTimeChange returns false.
@@ -175,7 +181,14 @@ const STUB_CREATE_PAYLOAD: MockCreatePayload = {
 
 vi.mock('@/lib/ui', () => ({
   WeekCalendarView: (props: WeekCalendarViewProps) => (
-    <div data-testid="week-calendar-view">
+    <div
+      data-testid="week-calendar-view"
+      data-hour-start={props.hourStart !== undefined ? String(props.hourStart) : undefined}
+      data-hour-count={props.hourCount !== undefined ? String(props.hourCount) : undefined}
+      data-sleep-enabled={props.sleepEnabled !== undefined ? String(props.sleepEnabled) : undefined}
+      data-sleep-start={props.sleepStart !== undefined ? String(props.sleepStart) : undefined}
+      data-sleep-end={props.sleepEnd !== undefined ? String(props.sleepEnd) : undefined}
+    >
       <button type="button" onClick={() => props.onEventDelete?.(STUB_LIB_EVENT)}>
         trigger-delete
       </button>
@@ -208,6 +221,18 @@ vi.mock('@/lib/ui', () => ({
         trigger-edit-goal
       </button>
     </div>
+  ),
+  SleepToggle: ({
+    enabled,
+    onToggle,
+  }: {
+    enabled: boolean
+    onToggle: (enabled: boolean) => void
+    className?: string
+  }) => (
+    <button type="button" onClick={() => onToggle(!enabled)}>
+      sleep-toggle
+    </button>
   ),
   Button: ({
     children,
@@ -321,7 +346,7 @@ describe('CalendarClient — resync machinery (characterization)', () => {
   it('failed delete bumps resetKey (WeekCalendarView remounts) and calls toast.error', async () => {
     deleteTaskMock.mockResolvedValueOnce({ error: 'Not found' })
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
 
     const beforeNode = screen.getByTestId('week-calendar-view')
 
@@ -341,7 +366,7 @@ describe('CalendarClient — resync machinery (characterization)', () => {
   it('successful delete does NOT bump resetKey (confirmedRef guards against remount)', async () => {
     // deleteTaskMock already returns {} from beforeEach — no 'error' in result.
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
 
     const beforeNode = screen.getByTestId('week-calendar-view')
 
@@ -365,7 +390,7 @@ describe('CalendarClient — resync machinery (characterization)', () => {
 
   it('cancelling the delete dialog bumps resetKey (WeekCalendarView remounts)', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
 
     const beforeNode = screen.getByTestId('week-calendar-view')
 
@@ -384,7 +409,7 @@ describe('CalendarClient — resync machinery (characterization)', () => {
   it('reschedule failure (move) bumps resetKey (WeekCalendarView remounts) and calls toast.error', async () => {
     rescheduleTaskMock.mockResolvedValueOnce({ error: 'Unauthorized' })
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
 
     const beforeNode = screen.getByTestId('week-calendar-view')
 
@@ -416,7 +441,7 @@ describe('CalendarClient — event create wiring', () => {
 
   it('onEventCreate persists a task from the library payload', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
 
     await user.click(screen.getByRole('button', { name: 'trigger-create' }))
 
@@ -438,7 +463,7 @@ describe('CalendarClient — event create wiring', () => {
 
   it('does not open TaskFormDialog on create', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
 
     // No dialog before the action.
     expect(screen.queryByTestId('task-form-dialog')).not.toBeInTheDocument()
@@ -451,7 +476,7 @@ describe('CalendarClient — event create wiring', () => {
 
   it('onEventCreate with a minimal payload applies the null/false fallbacks', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
 
     await user.click(screen.getByRole('button', { name: 'trigger-create-min' }))
 
@@ -473,7 +498,7 @@ describe('CalendarClient — event create wiring', () => {
   it('onEventCreate error surfaces toast.error', async () => {
     createTaskMock.mockResolvedValueOnce({ error: 'Too many requests' })
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
 
     await user.click(screen.getByRole('button', { name: 'trigger-create' }))
 
@@ -545,7 +570,7 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
 
   it('+ New button opens ActivityFormDialog unlocked (task or goal)', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} wakeHour={9} sleepHour={17} />)
 
     expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
 
@@ -559,7 +584,7 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
 
   it('editing a TASK event opens ActivityFormDialog locked to task with all rich fields', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} wakeHour={9} sleepHour={17} />)
 
     await user.click(screen.getByRole('button', { name: 'trigger-edit-task' }))
 
@@ -581,7 +606,7 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
 
   it('edit TASK submit calls updateTask with color, allDay, location, description', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} wakeHour={9} sleepHour={17} />)
 
     await user.click(screen.getByRole('button', { name: 'trigger-edit-task' }))
     expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
@@ -623,7 +648,7 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
 
   it('editing a GOAL event opens ActivityFormDialog locked to goal with date-only targetDate', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} wakeHour={9} sleepHour={17} />)
 
     await user.click(screen.getByRole('button', { name: 'trigger-edit-goal' }))
 
@@ -638,7 +663,7 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
 
   it('edit GOAL submit calls updateTask with noon-UTC targetDate (goal-date trap)', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} wakeHour={9} sleepHour={17} />)
 
     await user.click(screen.getByRole('button', { name: 'trigger-edit-goal' }))
     expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
@@ -671,7 +696,7 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
   })
 
   it('GoalFormDialog, HabitFormDialog, and TaskFormDialog are never rendered', () => {
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} wakeHour={9} sleepHour={17} />)
     expect(screen.queryByTestId('task-form-dialog')).not.toBeInTheDocument()
     // GoalFormDialog / HabitFormDialog mocks return null so their test ids never appear.
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -679,7 +704,7 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
 
   it('+ New submit of a TASK calls createTask with type:task and the rich fields', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} wakeHour={9} sleepHour={17} />)
 
     await user.click(screen.getByRole('button', { name: '+ New' }))
     expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
@@ -724,7 +749,7 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
 
   it('+ New submit of a GOAL calls createTask with noon-UTC targetDate (goal-date trap)', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} wakeHour={9} sleepHour={17} />)
 
     await user.click(screen.getByRole('button', { name: '+ New' }))
     expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
@@ -756,7 +781,7 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
   it('+ New submit error surfaces toast.error (minimal task exercises fallbacks)', async () => {
     createTaskMock.mockResolvedValueOnce({ error: 'Too many requests' })
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} wakeHour={9} sleepHour={17} />)
 
     await user.click(screen.getByRole('button', { name: '+ New' }))
 
@@ -786,7 +811,7 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
 
   it('closing the + New dialog via onOpenChange(false) dismisses it', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} wakeHour={9} sleepHour={17} />)
 
     await user.click(screen.getByRole('button', { name: '+ New' }))
     expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
@@ -798,7 +823,7 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
 
   it('closing the goal-edit dialog via onOpenChange(false) dismisses it', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} wakeHour={9} sleepHour={17} />)
 
     await user.click(screen.getByRole('button', { name: 'trigger-edit-goal' }))
     expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
@@ -811,7 +836,7 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
   it('edit submit error surfaces toast.error and keeps the dialog open', async () => {
     updateTaskMock.mockResolvedValueOnce({ error: 'Not found' })
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} wakeHour={9} sleepHour={17} />)
 
     await user.click(screen.getByRole('button', { name: 'trigger-edit-task' }))
     expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
@@ -839,5 +864,41 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not save activity'))
     // Error returns before setDialog(null) — the dialog stays open for a retry.
     expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
+  })
+})
+
+// ── D.4: wake/sleep window and SleepToggle tests ───────────────────────────
+//
+// Verifies that:
+//   • CalendarClient passes the correct hourStart/hourCount/sleepEnabled/
+//     sleepStart/sleepEnd to WeekCalendarView based on wakeHour/sleepHour props.
+//   • Clicking SleepToggle flips showFullDay state → full 24h view props.
+
+describe('CalendarClient — wake/sleep window (D.4)', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+  })
+
+  it('passes windowed props (hourStart=9, hourCount=8, sleepEnabled=true, sleepStart=17, sleepEnd=9) by default', () => {
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+
+    const view = screen.getByTestId('week-calendar-view')
+    expect(view.dataset.hourStart).toBe('9')
+    expect(view.dataset.hourCount).toBe('8')
+    expect(view.dataset.sleepEnabled).toBe('true')
+    expect(view.dataset.sleepStart).toBe('17')
+    expect(view.dataset.sleepEnd).toBe('9')
+  })
+
+  it('clicking SleepToggle flips to full-day view (hourStart=0, hourCount=24, sleepEnabled=false)', async () => {
+    const user = userEvent.setup()
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+
+    await user.click(screen.getByRole('button', { name: 'sleep-toggle' }))
+
+    const view = screen.getByTestId('week-calendar-view')
+    expect(view.dataset.hourStart).toBe('0')
+    expect(view.dataset.hourCount).toBe('24')
+    expect(view.dataset.sleepEnabled).toBe('false')
   })
 })
