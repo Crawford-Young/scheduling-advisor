@@ -21,7 +21,7 @@ import { TaskFormDialog } from '@/components/tasks/task-form-dialog'
 import { GoalFormDialog } from '@/components/goals/goal-form-dialog'
 import { HabitFormDialog } from '@/components/habits/habit-form-dialog'
 import { rescheduleTask } from '@/server/actions/consistency'
-import { deleteTask } from '@/server/actions/tasks'
+import { createTask, deleteTask } from '@/server/actions/tasks'
 
 interface AppCalendarEvent {
   readonly id: string
@@ -33,14 +33,6 @@ interface AppCalendarEvent {
   readonly streak: number
   readonly activityType: string
   readonly visibility: string
-}
-
-// Returns the UTC wall-clock HH:MM for a naive-local ISO string so that
-// TaskFormDialog.buildIso (which uses getUTC* date parts) reconstructs the
-// exact dragged instant regardless of the host timezone.
-function toUTCTimeSlot(iso: string): string {
-  const d = new Date(iso)
-  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
 }
 
 function toLibraryColor(type: string): LibraryCalendarEvent['color'] {
@@ -57,7 +49,6 @@ function toLibraryEvent(e: AppCalendarEvent): LibraryCalendarEvent {
 // Discriminated union for the single active dialog.
 // Only one dialog can be open at a time; the union enforces this structurally.
 type DialogState =
-  | { mode: 'create'; slot: { start: string; end: string } }
   | { mode: 'edit'; target: AppCalendarEvent }
   | { mode: 'delete'; target: LibraryCalendarEvent }
   | null
@@ -67,9 +58,6 @@ interface CalendarEventDialogsProps {
   readonly onClose: () => void
   readonly onConfirmDelete: (target: LibraryCalendarEvent) => void
   readonly onDeleteOpenChange: (open: boolean) => void
-  readonly resyncQueuedRef: React.MutableRefObject<boolean>
-  readonly startResyncTransition: React.TransitionStartFunction
-  readonly router: { refresh: () => void }
 }
 
 function CalendarEventDialogs({
@@ -77,30 +65,9 @@ function CalendarEventDialogs({
   onClose,
   onConfirmDelete,
   onDeleteOpenChange,
-  resyncQueuedRef,
-  startResyncTransition,
-  router,
 }: CalendarEventDialogsProps): React.JSX.Element {
   return (
     <>
-      {dialog?.mode === 'create' && (
-        <TaskFormDialog
-          open
-          onOpenChange={(open) => {
-            if (!open) {
-              onClose()
-              resyncQueuedRef.current = true
-              startResyncTransition(() => {
-                router.refresh()
-              })
-            }
-          }}
-          defaultDates={[new Date(dialog.slot.start)]}
-          defaultStartTime={toUTCTimeSlot(dialog.slot.start)}
-          defaultEndTime={toUTCTimeSlot(dialog.slot.end)}
-        />
-      )}
-
       {dialog?.mode === 'edit' && dialog.target.type === 'task' && (
         <TaskFormDialog
           open
@@ -239,6 +206,25 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
     })
   }
 
+  function handleEventCreate(payload: Omit<LibraryCalendarEvent, 'id'>): void {
+    resyncQueuedRef.current = true
+    startResyncTransition(async () => {
+      const result = await createTask({
+        type: 'task',
+        title: payload.title,
+        startAt: new Date(payload.start).toISOString(),
+        endAt: new Date(payload.end).toISOString(),
+        allDay: payload.allDay ?? false,
+        color: payload.color ?? null,
+        location: payload.location ?? null,
+        description: payload.description ?? null,
+        recurrence: payload.recurrenceFrequency ?? null,
+      })
+      if ('error' in result) toast.error('Could not create event — calendar restored')
+      router.refresh()
+    })
+  }
+
   return (
     <>
       <div data-testid="week-calendar">
@@ -254,7 +240,7 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
           onEventResize={handleTimeChange}
           onEventDelete={(e) => setDialog({ mode: 'delete', target: e })}
           onEventEdit={handleEventEdit}
-          onEventCreate={(e) => setDialog({ mode: 'create', slot: { start: e.start, end: e.end } })}
+          onEventCreate={handleEventCreate}
         />
       </div>
 
@@ -285,9 +271,6 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
         onClose={() => setDialog(null)}
         onConfirmDelete={handleConfirmDelete}
         onDeleteOpenChange={handleDeleteOpenChange}
-        resyncQueuedRef={resyncQueuedRef}
-        startResyncTransition={startResyncTransition}
-        router={router}
       />
     </>
   )

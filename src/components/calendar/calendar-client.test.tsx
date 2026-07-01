@@ -7,6 +7,7 @@ import { CalendarClient } from './calendar-client'
 // ── shared mock functions ──────────────────────────────────────────────────
 
 const refreshMock = vi.fn()
+const createTaskMock = vi.fn()
 const deleteTaskMock = vi.fn()
 const rescheduleTaskMock = vi.fn()
 const toastErrorMock = vi.fn()
@@ -28,6 +29,7 @@ vi.mock('next/navigation', () => ({
 }))
 
 vi.mock('@/server/actions/tasks', () => ({
+  createTask: (input: unknown) => createTaskMock(input),
   deleteTask: (input: unknown) => deleteTaskMock(input),
 }))
 
@@ -43,7 +45,8 @@ vi.mock('@/components/calendar/perfect-week-celebration', () => ({
   PerfectWeekCelebration: () => null,
 }))
 vi.mock('@/components/tasks/task-form-dialog', () => ({
-  TaskFormDialog: () => null,
+  TaskFormDialog: ({ open }: { open?: boolean }) =>
+    open ? <div data-testid="task-form-dialog" /> : null,
 }))
 vi.mock('@/components/goals/goal-form-dialog', () => ({
   GoalFormDialog: () => null,
@@ -62,6 +65,17 @@ interface MockLibEvent {
   readonly color: string
 }
 
+interface MockCreatePayload {
+  readonly title: string
+  readonly start: string
+  readonly end: string
+  readonly allDay?: boolean
+  readonly color?: string
+  readonly location?: string
+  readonly description?: string
+  readonly recurrenceFrequency?: string
+}
+
 interface WeekCalendarViewProps {
   readonly defaultWeekStart?: string
   readonly events?: ReadonlyArray<MockLibEvent>
@@ -70,7 +84,7 @@ interface WeekCalendarViewProps {
   readonly onEventDelete?: (e: MockLibEvent) => void
   readonly onEventEdit?: (e: MockLibEvent) => void
   readonly onEventClick?: (e: MockLibEvent) => void
-  readonly onEventCreate?: (e: { readonly start: string; readonly end: string }) => void
+  readonly onEventCreate?: (e: MockCreatePayload) => void
 }
 
 // id matches EVENTS[0].id so isCompleted() in handleTimeChange returns false.
@@ -80,6 +94,18 @@ const STUB_LIB_EVENT: MockLibEvent = {
   start: '2026-01-06T09:00:00.000Z',
   end: '2026-01-06T10:00:00.000Z',
   color: 'blue',
+}
+
+// Payload the library popover emits when dragging to create a new event.
+const STUB_CREATE_PAYLOAD: MockCreatePayload = {
+  title: 'x',
+  start: '2026-01-06T09:00:00.000Z',
+  end: '2026-01-06T10:00:00.000Z',
+  allDay: true,
+  color: 'blue',
+  location: 'Gym',
+  description: 'leg day',
+  recurrenceFrequency: 'weekly',
 }
 
 vi.mock('@/lib/ui', () => ({
@@ -93,6 +119,9 @@ vi.mock('@/lib/ui', () => ({
       </button>
       <button type="button" onClick={() => props.onEventResize?.(STUB_LIB_EVENT)}>
         trigger-resize
+      </button>
+      <button type="button" onClick={() => props.onEventCreate?.(STUB_CREATE_PAYLOAD)}>
+        trigger-create
       </button>
     </div>
   ),
@@ -272,5 +301,54 @@ describe('CalendarClient — resync machinery (characterization)', () => {
     const afterNode = screen.getByTestId('week-calendar-view')
     expect(afterNode).not.toBe(beforeNode)
     expect(refreshMock).toHaveBeenCalled()
+  })
+})
+
+// ── event-create wiring tests ──────────────────────────────────────────────
+//
+// These tests verify that dragging to create a slot calls createTask directly
+// (no TaskFormDialog intermediary) and uses the resync machinery.
+
+describe('CalendarClient — event create wiring', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    createTaskMock.mockClear()
+    createTaskMock.mockResolvedValue({})
+    toastErrorMock.mockClear()
+  })
+
+  it('onEventCreate persists a task from the library payload', async () => {
+    const user = userEvent.setup()
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} />)
+
+    await user.click(screen.getByRole('button', { name: 'trigger-create' }))
+
+    await waitFor(() =>
+      expect(createTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'task',
+          startAt: expect.any(String),
+          endAt: expect.any(String),
+          allDay: true,
+          color: 'blue',
+          location: 'Gym',
+          description: 'leg day',
+          recurrence: 'weekly',
+        }),
+      ),
+    )
+  })
+
+  it('does not open TaskFormDialog on create', async () => {
+    const user = userEvent.setup()
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} />)
+
+    // No dialog before the action.
+    expect(screen.queryByTestId('task-form-dialog')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'trigger-create' }))
+
+    // Still no TaskFormDialog after drag-create — it goes straight to createTask.
+    expect(screen.queryByTestId('task-form-dialog')).not.toBeInTheDocument()
   })
 })
