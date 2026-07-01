@@ -1,4 +1,4 @@
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { SettingsForm } from './settings-form'
@@ -99,8 +99,8 @@ describe('SettingsForm', () => {
       vi.mocked(calendarActions.setCalendarWindow).mockResolvedValueOnce({ data: null } as never)
       render(<SettingsForm initialUsername="user" initialWakeHour={9} initialSleepHour={17} />)
       const wakeInput = screen.getByLabelText('Wake up')
-      await user.clear(wakeInput)
-      await user.type(wakeInput, '8')
+      const wakeGroup = wakeInput.closest('div') as HTMLElement
+      await user.click(within(wakeGroup).getByRole('button', { name: 'Decrement' }))
       await act(async () => {
         await user.click(screen.getByRole('button', { name: 'Save calendar settings' }))
       })

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useState, useTransition } from 'react'
-import { Button, Input, Label } from '@/lib/ui'
+import { Button, Input, Label, NumberInput } from '@/lib/ui'
 import { setUsername } from '@/server/actions/profile'
 import { setCalendarWindow } from '@/server/actions/calendar-prefs'
 
@@ -91,14 +91,13 @@ export function SettingsForm({
           <div className="flex gap-4">
             <div className="space-y-2">
               <Label htmlFor="wake-hour">Wake up</Label>
-              <Input
+              <NumberInput
                 id="wake-hour"
-                type="number"
                 min={0}
                 max={23}
                 value={wakeHour}
-                onChange={(e) => {
-                  setWakeHour(parseInt(e.target.value, 10))
+                onChange={(value) => {
+                  setWakeHour(value)
                   setCalStatus('idle')
                 }}
                 className="w-20"
@@ -106,14 +105,13 @@ export function SettingsForm({
             </div>
             <div className="space-y-2">
               <Label htmlFor="sleep-hour">Sleep</Label>
-              <Input
+              <NumberInput
                 id="sleep-hour"
-                type="number"
                 min={1}
                 max={24}
                 value={sleepHour}
-                onChange={(e) => {
-                  setSleepHour(parseInt(e.target.value, 10))
+                onChange={(value) => {
+                  setSleepHour(value)
                   setCalStatus('idle')
                 }}
                 className="w-20"
