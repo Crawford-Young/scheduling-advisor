@@ -93,4 +93,56 @@ describe('setCalendarWindow', () => {
     const result = await setCalendarWindow({ workingHoursStart: 23, workingHoursEnd: 7 })
     expect(result).toHaveProperty('error')
   })
+
+  it('persists dayOverrides and use24h when provided', async () => {
+    const dayOverrides = { '0': { wake: 6, sleep: 22 } }
+    const result = await setCalendarWindow({
+      workingHoursStart: 7,
+      workingHoursEnd: 23,
+      dayOverrides,
+      use24h: true,
+    })
+    expect(result).toMatchObject({ data: expect.anything() })
+    expect(mockValuesInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-123',
+        workingHoursStart: 7,
+        workingHoursEnd: 23,
+        dayOverrides,
+        use24h: true,
+      }),
+    )
+    expect(mockOnConflictDoUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        set: expect.objectContaining({
+          workingHoursStart: 7,
+          workingHoursEnd: 23,
+          dayOverrides,
+          use24h: true,
+          updatedAt: expect.any(Date),
+        }),
+      }),
+    )
+  })
+
+  it('does not include dayOverrides or use24h when omitted (back-compat)', async () => {
+    await setCalendarWindow({ workingHoursStart: 7, workingHoursEnd: 23 })
+
+    const valuesArg = mockValuesInsert.mock.calls[0]![0] as Record<string, unknown>
+    expect('dayOverrides' in valuesArg).toBe(false)
+    expect('use24h' in valuesArg).toBe(false)
+
+    const setArg = mockOnConflictDoUpdate.mock.calls[0]![0].set as Record<string, unknown>
+    expect('dayOverrides' in setArg).toBe(false)
+    expect('use24h' in setArg).toBe(false)
+  })
+
+  it('returns error when dayOverrides has sleep before wake', async () => {
+    const result = await setCalendarWindow({
+      workingHoursStart: 7,
+      workingHoursEnd: 23,
+      dayOverrides: { '1': { wake: 22, sleep: 6 } },
+    })
+    expect(result).toHaveProperty('error')
+  })
 })
