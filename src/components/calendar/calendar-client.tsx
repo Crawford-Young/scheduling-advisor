@@ -53,15 +53,14 @@ interface AppCalendarEvent {
   readonly allDay?: boolean
   readonly location?: string | null
   readonly description?: string | null
+  readonly recurrence?: string | null
 }
 
 // ─── Color mapping ────────────────────────────────────────────────────────────
 // Prefer the event's persisted color (user-chosen) over the type-based default.
 
 function toLibraryColor(type: 'task' | 'goal'): LibraryCalendarEvent['color'] {
-  if (type === 'task') return 'blue'
-  if (type === 'goal') return 'amber'
-  return 'default'
+  return type === 'goal' ? 'amber' : 'blue'
 }
 
 function toLibraryEvent(e: AppCalendarEvent): LibraryCalendarEvent {
@@ -85,7 +84,7 @@ interface CalendarEventDialogsProps {
   readonly onClose: () => void
   readonly onConfirmDelete: (target: LibraryCalendarEvent) => void
   readonly onDeleteOpenChange: (open: boolean) => void
-  readonly onEditSubmit: (values: ActivityFormValues) => void
+  readonly onEditSubmit: (targetId: string, values: ActivityFormValues) => void
   readonly onNewSubmit: (values: ActivityFormValues) => void
   readonly isEditPending: boolean
   readonly isNewPending: boolean
@@ -118,7 +117,7 @@ function CalendarEventDialogs({
         <ActivityFormDialog
           open
           onOpenChange={(open) => !open && onClose()}
-          onSubmit={onEditSubmit}
+          onSubmit={(values) => onEditSubmit(dialog.target.id, values)}
           initialType="task"
           lockType
           isPending={isEditPending}
@@ -127,6 +126,7 @@ function CalendarEventDialogs({
             title: dialog.target.title,
             startAt: dialog.target.start,
             endAt: dialog.target.end,
+            recurrence: dialog.target.recurrence ?? undefined,
             color: dialog.target.color ?? undefined,
             allDay: dialog.target.allDay ?? false,
             location: dialog.target.location ?? undefined,
@@ -144,7 +144,7 @@ function CalendarEventDialogs({
         <ActivityFormDialog
           open
           onOpenChange={(open) => !open && onClose()}
-          onSubmit={onEditSubmit}
+          onSubmit={(values) => onEditSubmit(dialog.target.id, values)}
           initialType="goal"
           lockType
           isPending={isEditPending}
@@ -298,9 +298,7 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
     })
   }
 
-  function handleEditSubmit(values: ActivityFormValues): void {
-    if (dialog?.mode !== 'edit') return
-    const targetId = dialog.target.id
+  function handleEditSubmit(targetId: string, values: ActivityFormValues): void {
     startEditTransition(async () => {
       const result = await updateTask(
         values.type === 'goal'
@@ -316,6 +314,7 @@ export function CalendarClient({ weekStart, events }: CalendarClientProps): Reac
           : {
               id: targetId,
               title: values.title,
+              recurrence: values.recurrence ?? null,
               startAt: values.startAt ?? null,
               endAt: values.endAt ?? null,
               color: values.color ?? null,
