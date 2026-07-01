@@ -50,6 +50,7 @@ export default async function CalendarPage(): Promise<React.JSX.Element> {
         allDay: t.allDay ?? false,
         location: t.location ?? null,
         description: t.description ?? null,
+        recurrence: t.recurrence ?? null,
       }
     })
 

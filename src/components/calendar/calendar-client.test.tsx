@@ -76,6 +76,7 @@ interface MockActivityFormDialogProps {
     readonly targetDate?: string | null
     readonly startAt?: string | null
     readonly endAt?: string | null
+    readonly recurrence?: string | null
     readonly color?: string | null
     readonly allDay?: boolean
     readonly location?: string | null
@@ -101,6 +102,10 @@ vi.mock('@/components/activity/activity-form-dialog', () => ({
         <span data-testid="afd-start-at">{String(props.initialValues?.startAt ?? '')}</span>
         <span data-testid="afd-end-at">{String(props.initialValues?.endAt ?? '')}</span>
         <span data-testid="afd-target-date">{String(props.initialValues?.targetDate ?? '')}</span>
+        <span data-testid="afd-recurrence">{String(props.initialValues?.recurrence ?? '')}</span>
+        <button type="button" onClick={() => props.onOpenChange(false)}>
+          afd-close
+        </button>
       </div>
     )
   },
@@ -182,6 +187,19 @@ vi.mock('@/lib/ui', () => ({
       </button>
       <button type="button" onClick={() => props.onEventCreate?.(STUB_CREATE_PAYLOAD)}>
         trigger-create
+      </button>
+      {/* Minimal payload: only title/start/end — exercises the ?? fallback branches. */}
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventCreate?.({
+            title: 'y',
+            start: '2026-01-06T09:00:00.000Z',
+            end: '2026-01-06T10:00:00.000Z',
+          })
+        }
+      >
+        trigger-create-min
       </button>
       <button type="button" onClick={() => props.onEventEdit?.(STUB_LIB_EVENT)}>
         trigger-edit-task
@@ -430,6 +448,39 @@ describe('CalendarClient — event create wiring', () => {
     // Still no TaskFormDialog after drag-create — it goes straight to createTask.
     expect(screen.queryByTestId('task-form-dialog')).not.toBeInTheDocument()
   })
+
+  it('onEventCreate with a minimal payload applies the null/false fallbacks', async () => {
+    const user = userEvent.setup()
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} />)
+
+    await user.click(screen.getByRole('button', { name: 'trigger-create-min' }))
+
+    // Missing optional fields fall back to null / allDay:false.
+    await waitFor(() =>
+      expect(createTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'task',
+          allDay: false,
+          color: null,
+          location: null,
+          description: null,
+          recurrence: null,
+        }),
+      ),
+    )
+  })
+
+  it('onEventCreate error surfaces toast.error', async () => {
+    createTaskMock.mockResolvedValueOnce({ error: 'Too many requests' })
+    const user = userEvent.setup()
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} />)
+
+    await user.click(screen.getByRole('button', { name: 'trigger-create' }))
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith('Could not create event — calendar restored'),
+    )
+  })
 })
 
 // ── D.3: unified ActivityFormDialog tests ─────────────────────────────────
@@ -458,6 +509,7 @@ const TASK_EVENT_FULL = {
   allDay: false,
   location: 'Gym',
   description: 'Leg day',
+  recurrence: 'weekly',
 }
 
 // Goal fixture: id matches STUB_GOAL_LIB_EVENT so handleEventEdit can look it up.
@@ -523,6 +575,8 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
     expect(screen.getByTestId('afd-description').textContent).toBe('Leg day')
     expect(screen.getByTestId('afd-start-at').textContent).toBe('2026-01-06T09:00:00.000Z')
     expect(screen.getByTestId('afd-end-at').textContent).toBe('2026-01-06T10:00:00.000Z')
+    // recurrence must round-trip into the dialog (mirrors activity-card-actions).
+    expect(screen.getByTestId('afd-recurrence').textContent).toBe('weekly')
   })
 
   it('edit TASK submit calls updateTask with color, allDay, location, description', async () => {
@@ -539,6 +593,7 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
         title: 'Test event',
         startAt: '2026-01-06T09:00:00.000Z',
         endAt: '2026-01-06T10:00:00.000Z',
+        recurrence: 'weekly',
         color: 'violet',
         location: 'Gym',
         description: 'Leg day',
@@ -554,6 +609,8 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
           title: 'Test event',
           startAt: '2026-01-06T09:00:00.000Z',
           endAt: '2026-01-06T10:00:00.000Z',
+          // recurrence must pass through on submit (mirrors activity-card-actions).
+          recurrence: 'weekly',
           color: 'violet',
           location: 'Gym',
           description: 'Leg day',
@@ -618,5 +675,169 @@ describe('CalendarClient — unified ActivityFormDialog (D.3)', () => {
     expect(screen.queryByTestId('task-form-dialog')).not.toBeInTheDocument()
     // GoalFormDialog / HabitFormDialog mocks return null so their test ids never appear.
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('+ New submit of a TASK calls createTask with type:task and the rich fields', async () => {
+    const user = userEvent.setup()
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+
+    await user.click(screen.getByRole('button', { name: '+ New' }))
+    expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
+
+    await act(async () => {
+      capturedAfdOnSubmit?.({
+        type: 'task',
+        title: 'Deep work',
+        startAt: '2026-02-01T14:00:00.000Z',
+        endAt: '2026-02-01T15:00:00.000Z',
+        recurrence: 'daily',
+        recurrenceCount: 3,
+        color: 'cyan',
+        location: 'Desk',
+        description: 'Focus block',
+        allDay: false,
+        social: { activityType: 'solo', visibility: 'only_me' },
+      })
+    })
+
+    await waitFor(() =>
+      expect(createTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'task',
+          title: 'Deep work',
+          startAt: '2026-02-01T14:00:00.000Z',
+          endAt: '2026-02-01T15:00:00.000Z',
+          recurrence: 'daily',
+          recurrenceCount: 3,
+          color: 'cyan',
+          location: 'Desk',
+          description: 'Focus block',
+          allDay: false,
+        }),
+      ),
+    )
+    // Success closes the dialog and drives the resync/refresh path.
+    await waitFor(() => expect(refreshMock).toHaveBeenCalled())
+    expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
+    expect(toastErrorMock).not.toHaveBeenCalled()
+  })
+
+  it('+ New submit of a GOAL calls createTask with noon-UTC targetDate (goal-date trap)', async () => {
+    const user = userEvent.setup()
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+
+    await user.click(screen.getByRole('button', { name: '+ New' }))
+    expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
+
+    await act(async () => {
+      capturedAfdOnSubmit?.({
+        type: 'goal',
+        title: 'Launch app',
+        targetDate: '2026-09-01',
+        location: null,
+        description: null,
+        social: { activityType: 'solo', visibility: 'only_me' },
+      })
+    })
+
+    await waitFor(() =>
+      expect(createTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'goal',
+          title: 'Launch app',
+          // Goal-date trap on the CREATE path — date-only rejects createTaskSchema.
+          targetDate: '2026-09-01T12:00:00.000Z',
+        }),
+      ),
+    )
+    await waitFor(() => expect(refreshMock).toHaveBeenCalled())
+  })
+
+  it('+ New submit error surfaces toast.error (minimal task exercises fallbacks)', async () => {
+    createTaskMock.mockResolvedValueOnce({ error: 'Too many requests' })
+    const user = userEvent.setup()
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+
+    await user.click(screen.getByRole('button', { name: '+ New' }))
+
+    // Title-only task: startAt/endAt/allDay/color absent → null/false fallbacks.
+    await act(async () => {
+      capturedAfdOnSubmit?.({
+        type: 'task',
+        title: 'Deep work',
+        social: { activityType: 'solo', visibility: 'only_me' },
+      })
+    })
+
+    await waitFor(() =>
+      expect(createTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'task',
+          title: 'Deep work',
+          startAt: null,
+          endAt: null,
+          allDay: false,
+          recurrence: null,
+        }),
+      ),
+    )
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not create activity'))
+  })
+
+  it('closing the + New dialog via onOpenChange(false) dismisses it', async () => {
+    const user = userEvent.setup()
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+
+    await user.click(screen.getByRole('button', { name: '+ New' }))
+    expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'afd-close' }))
+    expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
+    expect(createTaskMock).not.toHaveBeenCalled()
+  })
+
+  it('closing the goal-edit dialog via onOpenChange(false) dismisses it', async () => {
+    const user = userEvent.setup()
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+
+    await user.click(screen.getByRole('button', { name: 'trigger-edit-goal' }))
+    expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'afd-close' }))
+    expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
+    expect(updateTaskMock).not.toHaveBeenCalled()
+  })
+
+  it('edit submit error surfaces toast.error and keeps the dialog open', async () => {
+    updateTaskMock.mockResolvedValueOnce({ error: 'Not found' })
+    const user = userEvent.setup()
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS_D3} />)
+
+    await user.click(screen.getByRole('button', { name: 'trigger-edit-task' }))
+    expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
+
+    // Minimal task submit: recurrence/startAt/endAt absent → null fallbacks.
+    await act(async () => {
+      capturedAfdOnSubmit?.({
+        type: 'task',
+        title: 'Test event',
+        allDay: false,
+        social: { activityType: 'solo', visibility: 'only_me' },
+      })
+    })
+
+    await waitFor(() =>
+      expect(updateTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'evt-1',
+          recurrence: null,
+          startAt: null,
+          endAt: null,
+        }),
+      ),
+    )
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not save activity'))
+    // Error returns before setDialog(null) — the dialog stays open for a retry.
+    expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
   })
 })
