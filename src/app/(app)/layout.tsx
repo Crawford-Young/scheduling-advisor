@@ -104,7 +104,7 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
           </div>
         }
       >
-        <div className="p-6">{children}</div>
+        <div className="h-full p-6">{children}</div>
       </AppShell>
       <ChatFab />
       <Toaster />
