@@ -7,10 +7,12 @@ import {
   uuid,
   primaryKey,
   json,
+  jsonb,
   unique,
   index,
   boolean,
 } from 'drizzle-orm/pg-core'
+import type { CalendarDayOverrides } from '@/lib/schemas/calendar-prefs'
 
 // ── Auth.js v5 required tables ────────────────────────────────────────────────
 
@@ -140,6 +142,8 @@ export const calendarPrefs = pgTable('calendar_prefs', {
   workingHoursStart: integer('working_hours_start').notNull().default(9),
   workingHoursEnd: integer('working_hours_end').notNull().default(17),
   maxDailyTaskMinutes: integer('max_daily_task_minutes').notNull().default(120),
+  dayOverrides: jsonb('day_overrides').$type<CalendarDayOverrides>(),
+  use24h: boolean('use_24h').notNull().default(false),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
