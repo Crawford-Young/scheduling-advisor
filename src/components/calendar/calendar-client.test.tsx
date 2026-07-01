@@ -11,8 +11,14 @@ const deleteTaskMock = vi.fn()
 const rescheduleTaskMock = vi.fn()
 const toastErrorMock = vi.fn()
 
-// AlertDialog stores its onOpenChange here so the AlertDialogCancel stub can
-// invoke it — simulating what Radix does when the user dismisses the dialog.
+// Observes every onOpenChange(open) the dialog fires, so tests can assert that
+// real-Radix close semantics (onOpenChange(false) on ANY close — cancel OR
+// confirm) actually ran and thus exercised handleDeleteOpenChange.
+const onOpenChangeSpy = vi.fn<(open: boolean) => void>()
+
+// AlertDialog stores a wrapper around its onOpenChange here so the Cancel and
+// Action stubs can invoke it — mirroring Radix, which fires onOpenChange(false)
+// whenever the dialog closes (via Cancel, via Action, or via Escape/overlay).
 let capturedOnOpenChange: ((open: boolean) => void) | undefined
 
 // ── module mocks ───────────────────────────────────────────────────────────
@@ -100,8 +106,12 @@ vi.mock('@/lib/ui', () => ({
     onOpenChange?: (open: boolean) => void
     children: React.ReactNode
   }) => {
-    // Capture so AlertDialogCancel can invoke it (simulates Radix dismiss).
-    capturedOnOpenChange = onOpenChange
+    // Wrap so every close request is observable (onOpenChangeSpy) AND forwarded
+    // to the real handler. Cancel and Action both drive this — see below.
+    capturedOnOpenChange = (next: boolean) => {
+      onOpenChangeSpy(next)
+      onOpenChange?.(next)
+    }
     return open ? <div role="alertdialog">{children}</div> : null
   },
   AlertDialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -109,11 +119,15 @@ vi.mock('@/lib/ui', () => ({
   AlertDialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   AlertDialogTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
   AlertDialogDescription: ({ children }: { children: React.ReactNode }) => <p>{children}</p>,
+  // Radix AlertDialogCancel closes the dialog → fires onOpenChange(false).
   AlertDialogCancel: ({ children }: { children: React.ReactNode }) => (
     <button type="button" onClick={() => capturedOnOpenChange?.(false)}>
       {children}
     </button>
   ),
+  // Radix AlertDialogAction runs its onClick AND closes the dialog, so a
+  // confirmed delete ALSO fires onOpenChange(false) afterward — this is exactly
+  // what handleDeleteOpenChange's confirmedRef guard exists to neutralize.
   AlertDialogAction: ({
     children,
     onClick,
@@ -121,7 +135,13 @@ vi.mock('@/lib/ui', () => ({
     children: React.ReactNode
     onClick?: React.MouseEventHandler<HTMLButtonElement>
   }) => (
-    <button type="button" onClick={onClick}>
+    <button
+      type="button"
+      onClick={(e) => {
+        onClick?.(e)
+        capturedOnOpenChange?.(false)
+      }}
+    >
       {children}
     </button>
   ),
@@ -168,6 +188,7 @@ describe('CalendarClient — resync machinery (characterization)', () => {
     rescheduleTaskMock.mockClear()
     rescheduleTaskMock.mockResolvedValue({})
     toastErrorMock.mockClear()
+    onOpenChangeSpy.mockClear()
     capturedOnOpenChange = undefined
   })
 
@@ -204,8 +225,15 @@ describe('CalendarClient — resync machinery (characterization)', () => {
     await waitFor(() => expect(deleteTaskMock).toHaveBeenCalledWith({ id: 'evt-1' }))
     await waitFor(() => expect(refreshMock).toHaveBeenCalled())
 
+    // Real Radix fires onOpenChange(false) on the confirmed close, so
+    // handleDeleteOpenChange DID run — the guard is genuinely exercised.
+    expect(onOpenChangeSpy).toHaveBeenCalledWith(false)
+
     expect(toastErrorMock).not.toHaveBeenCalled()
-    // confirmedRef.current was true → handleDeleteOpenChange skipped setResetKey.
+    // confirmedRef.current was true when handleDeleteOpenChange ran → it skipped
+    // setResetKey → no remount → same DOM node. Deleting `confirmedRef.current =
+    // true` from handleConfirmDelete would make the close bump resetKey (like a
+    // cancel), remounting and failing this identity assertion.
     expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
   })
 
