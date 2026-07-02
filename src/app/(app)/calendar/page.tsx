@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { getUserTasks } from '@/server/queries/tasks'
 import { getTaskStreaks } from '@/server/queries/consistency'
 import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
+import { safeDeleteExpiredEvents } from '@/server/actions/event-ttl'
 import { CalendarClient } from '@/components/calendar/calendar-client'
 import { DEFAULT_WAKE_MINUTES, DEFAULT_SLEEP_MINUTES } from '@/lib/calendar-windows'
 
@@ -33,6 +34,7 @@ export default async function CalendarPage(): Promise<React.JSX.Element> {
   const wakeHour = Math.floor(wakeMinutes / MINUTES_PER_HOUR)
   const sleepHour = Math.ceil(sleepMinutes / MINUTES_PER_HOUR)
 
+  await safeDeleteExpiredEvents()
   const allTasks = await getUserTasks()
 
   const taskIds = allTasks.map((t) => t.id)

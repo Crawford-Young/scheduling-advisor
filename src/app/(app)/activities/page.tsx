@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { getUserTasks } from '@/server/queries/tasks'
 import { getTaskStreaks } from '@/server/queries/consistency'
+import { safeDeleteExpiredEvents } from '@/server/actions/event-ttl'
 import { EmptyState } from '@/lib/ui'
 import { OpenChatButton } from '@/components/chat/open-chat-button'
 import { ActivityFilters } from '@/components/activity/activity-filters'
@@ -87,6 +88,7 @@ export default async function ActivitiesPage({
   const { type, status, q, recurring } = await searchParams
   const filter = resolveFilter(type)
 
+  await safeDeleteExpiredEvents()
   const allTasks = await getUserTasks()
   const items = allTasks
     .filter((t) => filter === 'all' || t.type === filter)

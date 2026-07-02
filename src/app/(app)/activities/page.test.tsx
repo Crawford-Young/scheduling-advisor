@@ -7,6 +7,7 @@ import ActivitiesPage from './page'
 const authMock = vi.fn()
 const getUserTasksMock = vi.fn()
 const getTaskStreaksMock = vi.fn()
+const safeDeleteExpiredEventsMock = vi.fn()
 
 vi.mock('@/auth', () => ({ auth: () => authMock() }))
 
@@ -22,6 +23,10 @@ vi.mock('@/server/queries/tasks', () => ({
 
 vi.mock('@/server/queries/consistency', () => ({
   getTaskStreaks: () => getTaskStreaksMock(),
+}))
+
+vi.mock('@/server/actions/event-ttl', () => ({
+  safeDeleteExpiredEvents: () => safeDeleteExpiredEventsMock(),
 }))
 
 vi.mock('@/components/activity/activity-filters', () => ({
@@ -135,6 +140,7 @@ describe('ActivitiesPage', () => {
     authMock.mockReset()
     getUserTasksMock.mockReset()
     getTaskStreaksMock.mockReset().mockResolvedValue({})
+    safeDeleteExpiredEventsMock.mockReset().mockResolvedValue(undefined)
   })
 
   it('no longer imports the ActivityCreate quick-add bar', () => {
