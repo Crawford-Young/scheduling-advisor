@@ -47,33 +47,6 @@ vi.mock('@/lib/ui', async (importOriginal) => ({
   },
 }))
 
-vi.mock('@/components/calendar/check-in-sheet', () => ({
-  CheckInSheet: ({
-    item,
-    onClose,
-    onPerfectWeek,
-  }: {
-    item: { title: string }
-    onClose: () => void
-    onPerfectWeek: () => void
-  }) => (
-    <div data-testid="check-in-sheet">
-      <span>{item.title}</span>
-      <button onClick={onClose}>Close</button>
-      <button onClick={onPerfectWeek}>Perfect week</button>
-    </div>
-  ),
-}))
-
-vi.mock('@/components/calendar/perfect-week-celebration', () => ({
-  PerfectWeekCelebration: ({ visible, onDismiss }: { visible: boolean; onDismiss: () => void }) =>
-    visible ? (
-      <div data-testid="perfect-week">
-        <button onClick={onDismiss}>Dismiss</button>
-      </div>
-    ) : null,
-}))
-
 // calendar-client.tsx now uses ActivityFormDialog for all edit/create dialogs.
 vi.mock('@/components/activity/activity-form-dialog', () => ({
   ActivityFormDialog: ({
@@ -161,38 +134,15 @@ describe('CalendarClient', () => {
     expect(screen.getByText('Morning run')).toBeInTheDocument()
   })
 
-  it('opens CheckInSheet when pending event clicked', async () => {
+  // A8.7 (user correction): clicking a calendar event must use the library's
+  // own chip popover (details/Edit/Delete) exclusively — the app no longer
+  // wires an onEventClick handler, so no app-owned check-in UI can stack on
+  // top of the library popover.
+  it('clicking an event does not open an app-owned check-in sheet (no onEventClick wired)', async () => {
     render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
     await userEvent.click(screen.getByText('Morning run'))
-    expect(screen.getByTestId('check-in-sheet')).toBeInTheDocument()
-  })
-
-  it('does not open CheckInSheet for completed events', async () => {
-    render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
-    await userEvent.click(screen.getByText('Done event'))
+    expect(capturedProps.onEventClick).toBeUndefined()
     expect(screen.queryByTestId('check-in-sheet')).not.toBeInTheDocument()
-  })
-
-  it('closes CheckInSheet on onClose', async () => {
-    render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
-    await userEvent.click(screen.getByText('Morning run'))
-    await userEvent.click(screen.getByText('Close'))
-    expect(screen.queryByTestId('check-in-sheet')).not.toBeInTheDocument()
-  })
-
-  it('shows PerfectWeekCelebration when onPerfectWeek fires', async () => {
-    render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
-    await userEvent.click(screen.getByText('Morning run'))
-    await userEvent.click(screen.getByText('Perfect week'))
-    expect(screen.getByTestId('perfect-week')).toBeInTheDocument()
-  })
-
-  it('dismisses PerfectWeekCelebration on dismiss button click', async () => {
-    render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
-    await userEvent.click(screen.getByText('Morning run'))
-    await userEvent.click(screen.getByText('Perfect week'))
-    expect(screen.getByTestId('perfect-week')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
     expect(screen.queryByTestId('perfect-week')).not.toBeInTheDocument()
   })
 

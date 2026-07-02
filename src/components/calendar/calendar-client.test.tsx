@@ -43,13 +43,6 @@ vi.mock('@/server/actions/consistency', () => ({
   rescheduleTask: (input: unknown) => rescheduleTaskMock(input),
 }))
 
-// Sub-components not under test — stub as null to avoid loading heavy deps.
-vi.mock('@/components/calendar/check-in-sheet', () => ({
-  CheckInSheet: () => null,
-}))
-vi.mock('@/components/calendar/perfect-week-celebration', () => ({
-  PerfectWeekCelebration: () => null,
-}))
 // ActivityFormDialog stub: renders key initialValues as data attrs so contract
 // bugs are visible; captures onSubmit so tests can drive submission directly.
 interface MockActivityFormDialogProps {
@@ -128,7 +121,6 @@ interface WeekCalendarViewProps {
   readonly onEventResize?: (e: MockLibEvent) => void
   readonly onEventDelete?: (e: MockLibEvent) => void
   readonly onEventEdit?: (e: MockLibEvent) => void
-  readonly onEventClick?: (e: MockLibEvent) => void
   readonly onEventCreate?: (e: MockCreatePayload) => void
   // D.4: wake/sleep window props
   readonly hourStart?: number
@@ -177,6 +169,7 @@ vi.mock('@/lib/ui', () => ({
       data-sleep-enabled={props.sleepEnabled !== undefined ? String(props.sleepEnabled) : undefined}
       data-sleep-start={props.sleepStart !== undefined ? String(props.sleepStart) : undefined}
       data-sleep-end={props.sleepEnd !== undefined ? String(props.sleepEnd) : undefined}
+      data-has-event-click={String('onEventClick' in props)}
     >
       <button type="button" onClick={() => props.onEventDelete?.(STUB_LIB_EVENT)}>
         trigger-delete
@@ -889,5 +882,21 @@ describe('CalendarClient — wake/sleep window (D.4)', () => {
     expect(view.dataset.hourStart).toBe('0')
     expect(view.dataset.hourCount).toBe('24')
     expect(view.dataset.sleepEnabled).toBe('true')
+  })
+})
+
+// ── A8.7: no app-owned click UI (user correction) ─────────────────────────
+//
+// Clicking a calendar event must use ONLY the library's own chip popover
+// (details/Edit/Delete, internal to WeekCalendarView). The app must not wire
+// onEventClick to open a second, app-owned UI (the removed CheckInSheet) on
+// top of it.
+
+describe('CalendarClient — no app-owned click handler (A8.7)', () => {
+  it('does not pass an onEventClick handler to WeekCalendarView', () => {
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+
+    const view = screen.getByTestId('week-calendar-view')
+    expect(view.dataset.hasEventClick).toBe('false')
   })
 })
