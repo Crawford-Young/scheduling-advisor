@@ -3,16 +3,7 @@ import { redirect } from 'next/navigation'
 import { db } from '@/db'
 import { users } from '@/db/schema'
 import { eq } from 'drizzle-orm'
-import {
-  PageHeader,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  TokenChip,
-  Badge,
-  Separator,
-} from '@/lib/ui'
+import { Card, CardContent, CardHeader, CardTitle, TokenChip, Badge, Separator } from '@/lib/ui'
 import { getTokenBalance } from '@/server/queries/tokens'
 import { getTokenLedger } from '@/server/queries/token-ledger'
 import { CheckoutButton, ManageSubscriptionButton } from './purchase-buttons'
@@ -53,7 +44,6 @@ export default async function TokensPage({ searchParams }: TokensPageProps) {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <PageHeader title="Tokens" />
       <TokenBanners success={success === '1'} canceled={canceled === '1'} />
 
       {/* Balance hero */}

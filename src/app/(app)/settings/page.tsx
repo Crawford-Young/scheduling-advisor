@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation'
 import { db } from '@/db'
 import { users } from '@/db/schema'
 import { eq } from 'drizzle-orm'
-import { PageHeader } from '@/lib/ui'
 import { SettingsForm } from './settings-form'
 import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
 
@@ -15,7 +14,6 @@ export default async function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <PageHeader title="Settings" />
       <SettingsForm
         initialUsername={user?.username ?? ''}
         initialWakeHour={prefs?.workingHoursStart ?? 9}

@@ -2,7 +2,6 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { listConversations } from '@/server/queries/conversations'
 import { ConversationTable } from '@/components/reflections/conversation-table'
-import { PageHeader } from '@/lib/ui'
 
 export default async function ReflectionsPage() {
   const session = await auth()
@@ -12,7 +11,6 @@ export default async function ReflectionsPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <PageHeader title="Reflections" />
       <ConversationTable conversations={conversations} />
     </div>
   )
