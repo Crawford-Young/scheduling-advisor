@@ -3,11 +3,11 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { getUserTasks } from '@/server/queries/tasks'
 import { getTaskStreaks } from '@/server/queries/consistency'
-import { ActivityCard, EmptyState, PageHeader, StreakBadge } from '@/lib/ui'
+import { EmptyState, PageHeader } from '@/lib/ui'
 import { OpenChatButton } from '@/components/chat/open-chat-button'
 import { ActivityFilters } from '@/components/activity/activity-filters'
 import { ActivityCreateButton } from '@/components/activity/activity-create-button'
-import { ActivityCardActions } from '@/components/activity/activity-card-actions'
+import { ActivityTable, type ActivityRow } from '@/components/activity/activity-table'
 
 type ActivityType = 'task' | 'goal'
 type ActivityFilter = ActivityType | 'all'
@@ -35,25 +35,43 @@ function toDateOnly(date: Date | null): string | null {
   return date ? date.toISOString().slice(0, 10) : null
 }
 
-interface ActivityDetailProps {
-  readonly task: UserTask
-  readonly streak?: number
+interface DateFields {
+  readonly dateIso: string | null
+  readonly dateLabel: string
 }
 
-/** Type-specific secondary line under the card title. */
-function ActivityDetail({ task, streak }: ActivityDetailProps): React.JSX.Element {
+/** Type-specific date sort key + display label (mirrors the old ActivityDetail). */
+function buildDateFields(task: UserTask): DateFields {
   if (task.type === 'goal') {
     const target = toDateOnly(task.targetDate)
-    return (
-      <span className="text-muted-foreground text-xs">
-        {target ? `Target: ${target}` : 'No target date'}
-      </span>
-    )
+    return { dateIso: target, dateLabel: target ? `Target: ${target}` : 'No target date' }
   }
-  if (task.recurrence !== null) {
-    return <StreakBadge streak={streak ?? 0} />
+  return { dateIso: task.startAt?.toISOString() ?? null, dateLabel: formatDateTime(task.startAt) }
+}
+
+function toActivityRow(task: UserTask, streak: number): ActivityRow {
+  const { dateIso, dateLabel } = buildDateFields(task)
+  return {
+    id: task.id,
+    title: task.title,
+    type: task.type,
+    status: task.status,
+    dateIso,
+    dateLabel,
+    recurrence: task.recurrence ?? null,
+    location: task.location,
+    description: task.description,
+    color: task.color,
+    allDay: task.allDay,
+    streak,
+    startAt: task.startAt?.toISOString() ?? null,
+    endAt: task.endAt?.toISOString() ?? null,
+    targetDate: toDateOnly(task.targetDate),
+    activityType: task.activityType,
+    visibility: task.visibility,
+    joinability: task.joinability ?? null,
+    maxParticipants: task.maxParticipants ?? null,
   }
-  return <span className="text-muted-foreground text-xs">Due {formatDateTime(task.startAt)}</span>
 }
 
 interface ActivitiesPageProps {
@@ -81,6 +99,10 @@ export default async function ActivitiesPage({
     items.map((t) => t.id),
   )
 
+  const rows = items.map((task) =>
+    toActivityRow(task, task.type === 'goal' ? 0 : (streakMap[task.id] ?? 0)),
+  )
+
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <PageHeader title="Activities" />
@@ -97,40 +119,8 @@ export default async function ActivitiesPage({
           <OpenChatButton label="Plan with AI" />
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {items.map((task) => (
-            <ActivityCard
-              key={task.id}
-              title={task.title}
-              type={task.type}
-              status={task.status}
-              streak={task.type === 'goal' ? undefined : (streakMap[task.id] ?? 0)}
-              visibility={task.visibility}
-              detail={<ActivityDetail task={task} streak={streakMap[task.id] ?? 0} />}
-              actions={
-                <ActivityCardActions
-                  taskId={task.id}
-                  type={task.type}
-                  title={task.title}
-                  status={task.status}
-                  startAt={task.startAt?.toISOString() ?? null}
-                  endAt={task.endAt?.toISOString() ?? null}
-                  recurrence={task.recurrence ?? null}
-                  targetDate={toDateOnly(task.targetDate)}
-                  color={task.color}
-                  location={task.location}
-                  description={task.description}
-                  allDay={task.allDay}
-                  social={{
-                    activityType: task.activityType,
-                    visibility: task.visibility,
-                    joinability: task.joinability ?? undefined,
-                    maxParticipants: task.maxParticipants ?? undefined,
-                  }}
-                />
-              }
-            />
-          ))}
+        <div className="overflow-x-auto">
+          <ActivityTable items={rows} />
         </div>
       )}
     </div>
