@@ -11,6 +11,11 @@ type TaskActionResult = { data: (typeof tasks)['$inferSelect'] } | { error: unkn
 
 const SUPPORTED_RECURRENCES = ['daily', 'weekly', 'monthly'] as const
 
+// Index of each weekday token — must match Date#getUTCDay (0 = Sunday). Mirrors
+// the library's DAY_ABBR ordering so recurrenceDays map to the right column.
+const DAY_TOKENS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+const DAYS_PER_WEEK = 7
+
 export async function createTask(input: unknown): Promise<TaskActionResult> {
   const session = await auth()
   if (!session?.user?.id) return { error: 'Unauthorized' }
@@ -21,7 +26,61 @@ export async function createTask(input: unknown): Promise<TaskActionResult> {
   const parsed = createTaskSchema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.flatten() }
 
-  const { recurrenceCount, startAt, endAt, ...rest } = parsed.data
+  const { recurrenceCount, recurrenceDays, startAt, endAt, ...rest } = parsed.data
+
+  // Weekly multi-day fan-out (library drag-create across several days): one row
+  // per selected weekday, anchored to that weekday within the start week, times
+  // preserved. When recurrenceCount is also present it repeats over that many
+  // weeks (weeks × weekdays); otherwise a single week. recurrence stays 'weekly'.
+  const weekdayFanOut =
+    rest.recurrence === 'weekly' &&
+    recurrenceDays !== undefined &&
+    recurrenceDays.length > 0 &&
+    startAt !== null &&
+    startAt !== undefined
+
+  if (weekdayFanOut) {
+    const weeks = recurrenceCount !== undefined && recurrenceCount > 1 ? recurrenceCount : 1
+    const baseStart = new Date(startAt)
+    const baseEnd = endAt ? new Date(endAt) : null
+    const baseDow = baseStart.getUTCDay()
+    const selectedDows = recurrenceDays
+      .map((token) => DAY_TOKENS.indexOf(token))
+      .sort((a, b) => a - b)
+
+    const rows = []
+    for (let week = 0; week < weeks; week++) {
+      for (const dow of selectedDows) {
+        const dayShift = dow - baseDow + week * DAYS_PER_WEEK
+        const start = new Date(baseStart)
+        start.setUTCDate(start.getUTCDate() + dayShift)
+        let end: Date | null = null
+        if (baseEnd) {
+          end = new Date(baseEnd)
+          end.setUTCDate(end.getUTCDate() + dayShift)
+        }
+        rows.push({
+          userId: session.user.id,
+          title: rest.title,
+          type: rest.type,
+          recurrence: rest.recurrence ?? null,
+          targetDate: rest.targetDate ? new Date(rest.targetDate) : null,
+          startAt: start,
+          endAt: end,
+          location: rest.location ?? null,
+          description: rest.description ?? null,
+          color: rest.color ?? null,
+          allDay: rest.allDay ?? false,
+        })
+      }
+    }
+
+    const inserted = await db.insert(tasks).values(rows).returning()
+    const first = inserted[0]
+    if (!first) return { error: 'Insert failed' }
+    logger.info({ userId: session.user.id, count: rows.length }, 'Tasks created (weekday fan-out)')
+    return { data: first }
+  }
 
   const shouldFanOut =
     recurrenceCount !== undefined &&

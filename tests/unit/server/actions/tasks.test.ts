@@ -286,6 +286,128 @@ describe('createTask fan-out', () => {
     expect(result).toMatchObject({ error: 'Insert failed' })
   })
 
+  it('weekly + recurrenceDays fans out one row per selected weekday (Mon AND Tue)', async () => {
+    mockReturningInsert.mockResolvedValueOnce([
+      { id: 'task-1', title: 'test', type: 'task' },
+      { id: 'task-2', title: 'test', type: 'task' },
+    ])
+    // 2026-05-18 is a Monday. Selecting Mon + Tue must produce that Monday and
+    // the following Tuesday, both keeping the original time-of-day.
+    await createTask({
+      title: 'test',
+      type: 'task',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Tue'],
+      startAt: '2026-05-18T09:00:00.000Z',
+      endAt: '2026-05-18T10:00:00.000Z',
+    })
+
+    const insertedRows = mockValuesInsert.mock.calls[0]![0] as Array<{
+      startAt: Date
+      endAt: Date
+      recurrence: string
+    }>
+    expect(insertedRows).toHaveLength(2)
+    expect(insertedRows.map((r) => r.startAt.getUTCDay())).toEqual([1, 2]) // Mon, Tue
+    expect(insertedRows[0]!.startAt.toISOString()).toBe('2026-05-18T09:00:00.000Z')
+    expect(insertedRows[1]!.startAt.toISOString()).toBe('2026-05-19T09:00:00.000Z')
+    expect(insertedRows[0]!.endAt.toISOString()).toBe('2026-05-18T10:00:00.000Z')
+    expect(insertedRows[1]!.endAt.toISOString()).toBe('2026-05-19T10:00:00.000Z')
+    // recurrence column stays the frequency string.
+    expect(insertedRows[0]!.recurrence).toBe('weekly')
+  })
+
+  it('weekly + recurrenceDays + recurrenceCount fans out weeks × weekdays', async () => {
+    mockReturningInsert.mockResolvedValueOnce([{ id: 'task-1', title: 'test', type: 'task' }])
+    // Mon + Tue over 2 weeks = 4 rows.
+    await createTask({
+      title: 'test',
+      type: 'task',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Tue'],
+      recurrenceCount: 2,
+      startAt: '2026-05-18T09:00:00.000Z',
+      endAt: '2026-05-18T10:00:00.000Z',
+    })
+    const insertedRows = mockValuesInsert.mock.calls[0]![0] as Array<{ startAt: Date }>
+    expect(insertedRows).toHaveLength(4)
+    expect(insertedRows.map((r) => r.startAt.toISOString())).toEqual([
+      '2026-05-18T09:00:00.000Z', // week 0 Mon
+      '2026-05-19T09:00:00.000Z', // week 0 Tue
+      '2026-05-25T09:00:00.000Z', // week 1 Mon
+      '2026-05-26T09:00:00.000Z', // week 1 Tue
+    ])
+  })
+
+  it('weekday fan-out carries color, location, description, allDay and targetDate into rows', async () => {
+    mockReturningInsert.mockResolvedValueOnce([{ id: 'task-1', title: 'test', type: 'goal' }])
+    await createTask({
+      title: 'test',
+      type: 'goal',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Tue'],
+      startAt: '2026-05-18T09:00:00.000Z',
+      endAt: '2026-05-18T10:00:00.000Z',
+      targetDate: new Date('2026-06-30').toISOString(),
+      color: 'violet',
+      location: 'Gym',
+      description: 'leg day',
+      allDay: true,
+    })
+    const insertedRows = mockValuesInsert.mock.calls[0]![0] as Array<{
+      color: string
+      location: string
+      description: string
+      allDay: boolean
+      targetDate: Date | null
+    }>
+    expect(insertedRows).toHaveLength(2)
+    expect(insertedRows[0]!.color).toBe('violet')
+    expect(insertedRows[0]!.location).toBe('Gym')
+    expect(insertedRows[0]!.description).toBe('leg day')
+    expect(insertedRows[0]!.allDay).toBe(true)
+    expect(insertedRows[0]!.targetDate).toBeInstanceOf(Date)
+  })
+
+  it('weekly + recurrenceDays without endAt sets null end dates', async () => {
+    mockReturningInsert.mockResolvedValueOnce([{ id: 'task-1', title: 'test', type: 'task' }])
+    await createTask({
+      title: 'test',
+      type: 'task',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Tue'],
+      startAt: '2026-05-18T09:00:00.000Z',
+    })
+    const insertedRows = mockValuesInsert.mock.calls[0]![0] as Array<{ endAt: null }>
+    expect(insertedRows[0]!.endAt).toBeNull()
+    expect(insertedRows[1]!.endAt).toBeNull()
+  })
+
+  it('weekday fan-out returns insert-failed when insert returns empty', async () => {
+    mockReturningInsert.mockResolvedValueOnce([])
+    const result = await createTask({
+      title: 'test',
+      type: 'task',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Tue'],
+      startAt: '2026-05-18T09:00:00.000Z',
+    })
+    expect(result).toMatchObject({ error: 'Insert failed' })
+  })
+
+  it('recurrenceDays is ignored when recurrence is not weekly (single insert)', async () => {
+    mockReturningInsert.mockResolvedValueOnce([{ id: 'task-1', title: 'test', type: 'task' }])
+    await createTask({
+      title: 'test',
+      type: 'task',
+      recurrence: 'daily',
+      recurrenceDays: ['Mon', 'Tue'],
+      startAt: '2026-05-18T09:00:00.000Z',
+    })
+    const insertArg = mockValuesInsert.mock.calls[0]![0]
+    expect(Array.isArray(insertArg)).toBe(false)
+  })
+
   it('does not fan out when recurrenceCount is omitted', async () => {
     mockReturningInsert.mockResolvedValueOnce([{ id: 'task-1', title: 'Run', type: 'task' }])
 

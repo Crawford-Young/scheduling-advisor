@@ -7,6 +7,7 @@ import { CalendarClient } from '@/components/calendar/calendar-client'
 
 const mockRescheduleTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e1' } }))
 const mockDeleteTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { success: true } }))
+const mockUpdateTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e1' } }))
 const mockToastError = vi.hoisted(() => vi.fn())
 const mockRefresh = vi.hoisted(() => vi.fn())
 const mountCount = vi.hoisted(() => ({ value: 0 }))
@@ -14,7 +15,7 @@ const mountCount = vi.hoisted(() => ({ value: 0 }))
 vi.mock('@/server/actions/consistency', () => ({ rescheduleTask: mockRescheduleTask }))
 vi.mock('@/server/actions/tasks', () => ({
   createTask: vi.fn(),
-  updateTask: vi.fn(),
+  updateTask: mockUpdateTask,
   deleteTask: mockDeleteTask,
 }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mockRefresh }) }))
@@ -47,32 +48,7 @@ vi.mock('@/lib/ui', async (importOriginal) => ({
   },
 }))
 
-// calendar-client.tsx now uses ActivityFormDialog for all edit/create dialogs.
-vi.mock('@/components/activity/activity-form-dialog', () => ({
-  ActivityFormDialog: ({
-    open,
-    initialType,
-    lockType,
-    initialValues,
-    onOpenChange,
-  }: {
-    open: boolean
-    initialType?: string
-    lockType?: boolean
-    initialValues?: Record<string, unknown>
-    onOpenChange?: (open: boolean) => void
-  }) =>
-    open ? (
-      <div
-        data-testid="activity-form-dialog"
-        data-initial-type={initialType}
-        data-lock-type={String(lockType ?? false)}
-      >
-        <span>{String(initialValues?.title ?? '')}</span>
-        <button onClick={() => onOpenChange?.(false)}>Close activity dialog</button>
-      </div>
-    ) : null,
-}))
+// The calendar now uses library UI exclusively — no app-owned ActivityFormDialog.
 
 const events = [
   {
@@ -315,43 +291,56 @@ describe('CalendarClient', () => {
     })
   })
 
-  // Edit and create suites moved to src/components/calendar/calendar-client.test.tsx (D.3).
-  // Retained here: guard paths that are independent of dialog type.
-  describe('edit', () => {
-    it('ignores edit of completed event (no dialog opens)', () => {
+  // The library chip popover owns the edit form; onEventEdit delivers the
+  // FINISHED edit to persist directly (no app-owned dialog).
+  describe('edit persistence', () => {
+    it('persists the finished edit via updateTask (no app dialog)', async () => {
       render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({
+        id: 'e4',
+        title: 'Ship report v2',
+        start: '2026-05-29T13:00:00.000Z',
+        end: '2026-05-29T14:30:00.000Z',
+        color: 'violet',
+        recurrenceFrequency: 'weekly',
+      })
+      await vi.waitFor(() =>
+        expect(mockUpdateTask).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: 'e4',
+            title: 'Ship report v2',
+            startAt: '2026-05-29T13:00:00.000Z',
+            endAt: '2026-05-29T14:30:00.000Z',
+            color: 'violet',
+            recurrence: 'weekly',
+            allDay: false,
+          }),
+        ),
+      )
+      expect(mockRefresh).toHaveBeenCalled()
+      expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
+    })
+
+    it('ignores edit of a completed event (no updateTask) but remounts to restore', async () => {
+      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      const initialMountCount = mountCount.value
       ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e2', title: 'Done event' })
-      expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
+      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+      expect(mockUpdateTask).not.toHaveBeenCalled()
     })
 
-    it('opens no dialog when event id is not found in events list', () => {
+    it('shows a toast and remounts when the edit fails to persist', async () => {
+      mockUpdateTask.mockResolvedValueOnce({ error: 'Not found' })
       render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
-      ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'nope', title: 'Ghost' })
-      expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
-    })
-
-    it('opens ActivityFormDialog locked to task for task-type event', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
-      ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e4', title: 'Ship report' })
-      const dialog = await screen.findByTestId('activity-form-dialog')
-      expect(dialog.dataset.initialType).toBe('task')
-      expect(dialog.dataset.lockType).toBe('true')
-    })
-
-    it('opens ActivityFormDialog locked to goal with date-only targetDate', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
-      ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e3', title: 'Write book' })
-      const dialog = await screen.findByTestId('activity-form-dialog')
-      expect(dialog.dataset.initialType).toBe('goal')
-      expect(dialog.dataset.lockType).toBe('true')
-    })
-
-    it('closes ActivityFormDialog on onOpenChange(false)', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
-      ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e4', title: 'Ship report' })
-      expect(await screen.findByTestId('activity-form-dialog')).toBeInTheDocument()
-      await userEvent.click(screen.getByRole('button', { name: 'Close activity dialog' }))
-      expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
+      const initialMountCount = mountCount.value
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({
+        id: 'e4',
+        title: 'Ship report',
+        start: '2026-05-29T13:00:00.000Z',
+        end: '2026-05-29T14:00:00.000Z',
+      })
+      await vi.waitFor(() => expect(mockToastError).toHaveBeenCalled())
+      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
     })
   })
 })
