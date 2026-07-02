@@ -2,11 +2,9 @@ import * as React from 'react'
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { getUserTasks } from '@/server/queries/tasks'
-import { getWeeklyConsistency, getTaskStreaks } from '@/server/queries/consistency'
+import { getTaskStreaks } from '@/server/queries/consistency'
 import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
-import { ConsistencyBar } from '@/components/calendar/consistency-bar'
 import { CalendarClient } from '@/components/calendar/calendar-client'
-import { PageHeader } from '@/lib/ui'
 
 function getCurrentWeekStart(): string {
   const now = new Date()
@@ -28,7 +26,7 @@ export default async function CalendarPage(): Promise<React.JSX.Element> {
   const wakeHour = prefs?.workingHoursStart ?? 9
   const sleepHour = prefs?.workingHoursEnd ?? 17
 
-  const [allTasks, consistency] = await Promise.all([getUserTasks(), getWeeklyConsistency(userId)])
+  const allTasks = await getUserTasks()
 
   const taskIds = allTasks.map((t) => t.id)
   const streakMap = await getTaskStreaks(userId, taskIds)
@@ -61,12 +59,6 @@ export default async function CalendarPage(): Promise<React.JSX.Element> {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <PageHeader title="Cybond" />
-      <ConsistencyBar
-        plannedCount={consistency.plannedCount}
-        completedCount={consistency.completedCount}
-        consistencyPct={consistency.consistencyPct}
-      />
       <CalendarClient
         weekStart={weekStart}
         events={events}

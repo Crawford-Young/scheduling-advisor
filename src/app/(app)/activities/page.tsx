@@ -3,7 +3,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { getUserTasks } from '@/server/queries/tasks'
 import { getTaskStreaks } from '@/server/queries/consistency'
-import { EmptyState, PageHeader } from '@/lib/ui'
+import { EmptyState } from '@/lib/ui'
 import { OpenChatButton } from '@/components/chat/open-chat-button'
 import { ActivityFilters } from '@/components/activity/activity-filters'
 import { ActivityCreateButton } from '@/components/activity/activity-create-button'
@@ -105,7 +105,6 @@ export default async function ActivitiesPage({
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <PageHeader title="Activities" />
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex-1">
           <ActivityFilters />

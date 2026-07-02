@@ -42,7 +42,6 @@ vi.mock('@/server/queries/token-ledger', () => ({
 
 // ── component mocks ───────────────────────────────────────────────────────────
 vi.mock('@/lib/ui', () => ({
-  PageHeader: ({ title }: { title: string }) => <h1>{title}</h1>,
   Card: ({ children, ...rest }: React.HTMLAttributes<HTMLDivElement>) => (
     <div data-testid="card" {...rest}>
       {children}
@@ -123,12 +122,6 @@ beforeEach(() => {
 })
 
 describe('TokensPage', () => {
-  it('renders the Tokens page header', async () => {
-    const { default: TokensPage } = await import('./page')
-    render(await TokensPage({ searchParams: Promise.resolve({}) }))
-    expect(screen.getByRole('heading', { name: /tokens/i, level: 1 })).toBeInTheDocument()
-  })
-
   it('renders the token balance via TokenChip', async () => {
     const { default: TokensPage } = await import('./page')
     render(await TokensPage({ searchParams: Promise.resolve({}) }))

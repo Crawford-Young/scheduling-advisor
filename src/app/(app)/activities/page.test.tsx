@@ -87,7 +87,6 @@ vi.mock('@/components/chat/open-chat-button', () => ({
 }))
 
 vi.mock('@/lib/ui', () => ({
-  PageHeader: ({ title }: { title: string }) => <h1>{title}</h1>,
   EmptyState: ({ message }: { message: string }) => <p>{message}</p>,
 }))
 
