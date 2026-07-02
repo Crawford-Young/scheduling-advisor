@@ -21,9 +21,13 @@ describe('SchedulePanel', () => {
     expect(screen.getByTestId('week-calendar')).toBeInTheDocument()
   })
 
-  it('is not rendered when not visible', () => {
+  it('renders an explanatory empty state when not visible', () => {
     render(<SchedulePanel state={{ ...baseState, visible: false }} />)
     expect(screen.queryByTestId('week-calendar')).not.toBeInTheDocument()
+    expect(screen.getByText('Schedule preview')).toBeInTheDocument()
+    expect(
+      screen.getByText('When Cy proposes times or shows your week, it appears here.'),
+    ).toBeInTheDocument()
   })
 
   it('passes events to WeekCalendarView', () => {
