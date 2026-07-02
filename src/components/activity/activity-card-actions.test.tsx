@@ -155,6 +155,27 @@ describe('ActivityCardActions', () => {
     expect(recordCompletionMock).not.toHaveBeenCalled()
   })
 
+  it('renders the mark-complete action as an icon-only button carrying the accessible name', () => {
+    render(<ActivityCardActions {...goalProps} />)
+    const completeButton = screen.getByRole('button', { name: /mark complete/i })
+    expect(completeButton).toHaveTextContent('')
+  })
+
+  it('renders the log-today action as an icon-only button carrying the accessible name', () => {
+    render(
+      <ActivityCardActions
+        taskId="task-icon-1"
+        type="task"
+        title="Meditate"
+        status="pending"
+        recurrence="daily"
+        social={{ activityType: 'solo', visibility: 'only_me' }}
+      />,
+    )
+    const logButton = screen.getByRole('button', { name: /log today/i })
+    expect(logButton).toHaveTextContent('')
+  })
+
   it('logs a recurring task via recordCompletion (not updateTask)', async () => {
     const user = userEvent.setup()
     render(

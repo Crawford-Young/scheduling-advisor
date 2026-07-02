@@ -1,7 +1,7 @@
 'use client'
 import * as React from 'react'
 import { Button } from '@/lib/ui'
-import { Pencil, Trash2 } from 'lucide-react'
+import { Check, Pencil, Trash2 } from 'lucide-react'
 import {
   useActivityActions,
   type ActivityKind,
@@ -19,8 +19,14 @@ export function ActivityCardActions(props: ActivityCardActionsProps): React.JSX.
     <>
       <div className="flex items-center gap-1">
         {!isComplete && (
-          <Button variant="outline" size="sm" onClick={handleComplete} disabled={isPending}>
-            {completeLabel}
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={completeLabel}
+            onClick={handleComplete}
+            disabled={isPending}
+          >
+            <Check className="h-3.5 w-3.5" aria-hidden />
           </Button>
         )}
         <Button variant="ghost" size="icon" aria-label={`Edit ${type}`} onClick={openEdit}>
