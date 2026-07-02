@@ -90,8 +90,10 @@ describe('ActivityTable', () => {
     expect(screen.getByText('weekly')).toBeInTheDocument()
     expect(screen.getByText('Park')).toBeInTheDocument()
     expect(screen.getByText('Gym')).toBeInTheDocument()
-    expect(screen.getByText('solo · friends')).toBeInTheDocument()
-    expect(screen.getByText('group · everyone')).toBeInTheDocument()
+    expect(screen.getByText('solo')).toBeInTheDocument()
+    expect(screen.getByText('friends')).toBeInTheDocument()
+    expect(screen.getByText('group')).toBeInTheDocument()
+    expect(screen.getByText('everyone')).toBeInTheDocument()
   })
 
   it('renders the color as a swatch dot carrying data-color, aria-hidden', () => {
@@ -122,6 +124,20 @@ describe('ActivityTable', () => {
     expect(within(screen.getAllByRole('row')[1]!).getByText('B task')).toBeInTheDocument()
     await user.click(screen.getByText('Title'))
     expect(within(screen.getAllByRole('row')[1]!).getByText('A task')).toBeInTheDocument()
+  })
+
+  it('sorts rows when the Social header is clicked', async () => {
+    const user = userEvent.setup()
+    render(
+      <ActivityTable
+        items={[
+          makeRow({ id: 'z', title: 'Z row', activityType: 'solo', visibility: 'friends' }),
+          makeRow({ id: 'a', title: 'A row', activityType: 'group', visibility: 'everyone' }),
+        ]}
+      />,
+    )
+    await user.click(screen.getByText('Social'))
+    expect(within(screen.getAllByRole('row')[1]!).getByText('A row')).toBeInTheDocument()
   })
 
   it('sorts the Date column with null dates last', async () => {
@@ -164,5 +180,62 @@ describe('ActivityTable', () => {
     render(<ActivityTable items={[makeRow({ status: 'completed' })]} />)
     expect(screen.queryByRole('button', { name: /mark complete/i })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Edit task' })).toBeInTheDocument()
+  })
+
+  it('renders the complete action as an icon-only button carrying the accessible name', () => {
+    render(<ActivityTable items={[makeRow({ status: 'pending', recurrence: null })]} />)
+    const completeButton = screen.getByRole('button', { name: /mark complete/i })
+    expect(completeButton).toHaveTextContent('')
+    expect(completeButton.querySelector('svg')).not.toBeNull()
+  })
+
+  it('renders the status cell as a colored Badge per status value', () => {
+    render(
+      <ActivityTable
+        items={[
+          makeRow({ id: 'p', title: 'Pending row', status: 'pending' }),
+          makeRow({ id: 'i', title: 'In-progress row', status: 'in_progress' }),
+          makeRow({ id: 'c', title: 'Completed row', status: 'completed' }),
+        ]}
+      />,
+    )
+    const pendingBadge = screen.getByText('pending')
+    expect(pendingBadge).toHaveClass('text-foreground')
+
+    const inProgressBadge = screen.getByText('in_progress')
+    expect(inProgressBadge).toHaveClass('bg-secondary')
+    expect(inProgressBadge).toHaveClass('text-secondary-foreground')
+
+    const completedBadge = screen.getByText('completed')
+    expect(completedBadge).toHaveClass('border-transparent')
+    expect(completedBadge).toHaveClass('bg-emerald-500/15')
+    expect(completedBadge).toHaveClass('text-emerald-400')
+  })
+
+  it('renders the type cell as a colored Badge per type value', () => {
+    render(
+      <ActivityTable
+        items={[
+          makeRow({ id: 't', title: 'Task row', type: 'task' }),
+          makeRow({ id: 'g', title: 'Goal row', type: 'goal' }),
+        ]}
+      />,
+    )
+    const taskBadge = screen.getByText('task')
+    expect(taskBadge).toHaveClass('bg-secondary')
+    expect(taskBadge).toHaveClass('text-secondary-foreground')
+
+    const goalBadge = screen.getByText('goal')
+    expect(goalBadge).toHaveClass('text-foreground')
+  })
+
+  it('renders the social cell as two Badges (activityType outline, visibility secondary)', () => {
+    render(<ActivityTable items={[makeRow({ activityType: 'group', visibility: 'everyone' })]} />)
+    const activityTypeBadge = screen.getByText('group')
+    expect(activityTypeBadge).toHaveClass('text-foreground')
+
+    const visibilityBadge = screen.getByText('everyone')
+    expect(visibilityBadge).toHaveClass('bg-secondary')
+    expect(visibilityBadge).toHaveClass('text-secondary-foreground')
   })
 })
