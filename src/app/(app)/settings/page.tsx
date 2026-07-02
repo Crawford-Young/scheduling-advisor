@@ -14,7 +14,7 @@ export default async function SettingsPage() {
   const prefs = await getCalendarPrefs()
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className="mx-auto max-w-5xl space-y-6">
       <PageHeader title="Settings" />
       <SettingsForm
         initialUsername={user?.username ?? ''}

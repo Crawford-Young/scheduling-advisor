@@ -60,7 +60,7 @@ export default async function CalendarPage(): Promise<React.JSX.Element> {
     })
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4">
+    <div className="mx-auto max-w-5xl space-y-6">
       <PageHeader title="Cybond" />
       <ConsistencyBar
         plannedCount={consistency.plannedCount}

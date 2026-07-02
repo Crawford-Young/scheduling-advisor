@@ -40,7 +40,7 @@ interface DateFields {
   readonly dateLabel: string
 }
 
-/** Type-specific date sort key + display label (mirrors the old ActivityDetail). */
+/** Type-specific date sort key + display label: goals sort by date-only target, tasks by start instant. */
 function buildDateFields(task: UserTask): DateFields {
   if (task.type === 'goal') {
     const target = toDateOnly(task.targetDate)
@@ -104,7 +104,7 @@ export default async function ActivitiesPage({
   )
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6">
       <PageHeader title="Activities" />
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex-1">
