@@ -25,6 +25,26 @@ describe('createTaskSchema', () => {
     const result = createTaskSchema.safeParse({ title: 'Foo', type: 'invalid' })
     expect(result.success).toBe(false)
   })
+
+  it('accepts valid recurrenceDays weekday tokens', () => {
+    const result = createTaskSchema.safeParse({
+      title: 'test',
+      type: 'task',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Tue'],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects unknown recurrenceDays tokens', () => {
+    const result = createTaskSchema.safeParse({
+      title: 'test',
+      type: 'task',
+      recurrence: 'weekly',
+      recurrenceDays: ['Monday'],
+    })
+    expect(result.success).toBe(false)
+  })
 })
 
 describe('updateTaskSchema', () => {
