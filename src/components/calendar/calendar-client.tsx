@@ -383,7 +383,7 @@ export function CalendarClient({
 
   return (
     <>
-      <div className="mb-2 flex items-center justify-end">
+      <div className="mb-2 flex items-center justify-end gap-4">
         <SleepToggle enabled={!showFullDay} onToggle={(windowed) => setShowFullDay(!windowed)} />
         <Button type="button" onClick={() => setDialog({ mode: 'new' })}>
           + New

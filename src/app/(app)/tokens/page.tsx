@@ -52,7 +52,7 @@ export default async function TokensPage({ searchParams }: TokensPageProps) {
   ])
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
+    <div className="mx-auto max-w-5xl space-y-6">
       <PageHeader title="Tokens" />
       <TokenBanners success={success === '1'} canceled={canceled === '1'} />
 

@@ -62,7 +62,7 @@ function ActivityRowActions({ row }: ActivityRowActionsProps): React.JSX.Element
     })
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1 whitespace-nowrap">
       {!isComplete && (
         <Button variant="outline" size="sm" onClick={handleComplete} disabled={isPending}>
           {completeLabel}
@@ -83,10 +83,12 @@ const columns: ColumnDef<ActivityRow>[] = [
   {
     accessorKey: 'title',
     header: 'Title',
+    cell: ({ row }) => <span className="inline-block min-w-[12rem]">{row.original.title}</span>,
   },
   {
     accessorKey: 'type',
     header: 'Type',
+    cell: ({ row }) => <span className="whitespace-nowrap">{row.original.type}</span>,
   },
   {
     accessorKey: 'status',
@@ -105,7 +107,7 @@ const columns: ColumnDef<ActivityRow>[] = [
     accessorFn: (row) => row.dateIso ?? undefined,
     header: 'Date',
     sortUndefined: 'last',
-    cell: ({ row }) => row.original.dateLabel,
+    cell: ({ row }) => <span className="whitespace-nowrap">{row.original.dateLabel}</span>,
   },
   {
     accessorKey: 'recurrence',
