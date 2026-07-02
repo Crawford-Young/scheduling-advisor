@@ -139,11 +139,14 @@ export const calendarPrefs = pgTable('calendar_prefs', {
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' })
     .unique(),
-  workingHoursStart: integer('working_hours_start').notNull().default(9),
-  workingHoursEnd: integer('working_hours_end').notNull().default(17),
+  // Minutes-since-midnight: 540 = 09:00, 1020 = 17:00.
+  workingHoursStart: integer('working_hours_start').notNull().default(540),
+  workingHoursEnd: integer('working_hours_end').notNull().default(1020),
   maxDailyTaskMinutes: integer('max_daily_task_minutes').notNull().default(120),
   dayOverrides: jsonb('day_overrides').$type<CalendarDayOverrides>(),
   use24h: boolean('use_24h').notNull().default(false),
+  // TTL auto-delete window in days; null = disabled.
+  ttlDays: integer('ttl_days'),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 

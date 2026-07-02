@@ -94,47 +94,64 @@ describe('setCalendarWindow', () => {
     expect(result).toHaveProperty('error')
   })
 
-  it('persists dayOverrides and use24h when provided', async () => {
-    const dayOverrides = { '0': { wake: 6, sleep: 22 } }
+  it('persists dayOverrides, use24h and ttlDays when provided', async () => {
+    const dayOverrides = { '0': { wake: 360, sleep: 1320 } }
     const result = await setCalendarWindow({
-      workingHoursStart: 7,
-      workingHoursEnd: 23,
+      workingHoursStart: 420,
+      workingHoursEnd: 1380,
       dayOverrides,
       use24h: true,
+      ttlDays: 30,
     })
     expect(result).toMatchObject({ data: expect.anything() })
     expect(mockValuesInsert).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'user-123',
-        workingHoursStart: 7,
-        workingHoursEnd: 23,
+        workingHoursStart: 420,
+        workingHoursEnd: 1380,
         dayOverrides,
         use24h: true,
+        ttlDays: 30,
       }),
     )
     expect(mockOnConflictDoUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         set: expect.objectContaining({
-          workingHoursStart: 7,
-          workingHoursEnd: 23,
+          workingHoursStart: 420,
+          workingHoursEnd: 1380,
           dayOverrides,
           use24h: true,
+          ttlDays: 30,
           updatedAt: expect.any(Date),
         }),
       }),
     )
   })
 
-  it('does not include dayOverrides or use24h when omitted (back-compat)', async () => {
-    await setCalendarWindow({ workingHoursStart: 7, workingHoursEnd: 23 })
+  it('persists an explicit null ttlDays (TTL disabled)', async () => {
+    await setCalendarWindow({ workingHoursStart: 420, workingHoursEnd: 1380, ttlDays: null })
+
+    const valuesArg = mockValuesInsert.mock.calls[0]![0] as Record<string, unknown>
+    expect('ttlDays' in valuesArg).toBe(true)
+    expect(valuesArg.ttlDays).toBeNull()
+
+    const setArg = mockOnConflictDoUpdate.mock.calls[0]![0].set as Record<string, unknown>
+    expect('ttlDays' in setArg).toBe(true)
+    expect(setArg.ttlDays).toBeNull()
+  })
+
+  it('does not include dayOverrides, use24h or ttlDays when omitted (back-compat)', async () => {
+    await setCalendarWindow({ workingHoursStart: 420, workingHoursEnd: 1380 })
 
     const valuesArg = mockValuesInsert.mock.calls[0]![0] as Record<string, unknown>
     expect('dayOverrides' in valuesArg).toBe(false)
     expect('use24h' in valuesArg).toBe(false)
+    expect('ttlDays' in valuesArg).toBe(false)
 
     const setArg = mockOnConflictDoUpdate.mock.calls[0]![0].set as Record<string, unknown>
     expect('dayOverrides' in setArg).toBe(false)
     expect('use24h' in setArg).toBe(false)
+    expect('ttlDays' in setArg).toBe(false)
   })
 
   it('returns error when dayOverrides has sleep before wake', async () => {
