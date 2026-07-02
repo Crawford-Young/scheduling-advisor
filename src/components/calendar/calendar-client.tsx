@@ -17,8 +17,6 @@ import {
   Button,
   type CalendarEvent as LibraryCalendarEvent,
 } from '@/lib/ui'
-import { CheckInSheet } from '@/components/calendar/check-in-sheet'
-import { PerfectWeekCelebration } from '@/components/calendar/perfect-week-celebration'
 import {
   ActivityFormDialog,
   type ActivityFormValues,
@@ -211,8 +209,6 @@ export function CalendarClient({
   const sleepEnabled = showFullDay
   const sleepStart = sleepHour
   const sleepEnd = wakeHour
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [perfectWeekVisible, setPerfectWeekVisible] = useState(false)
   const [dialog, setDialog] = useState<DialogState>(null)
   // Bumping resetKey remounts WeekCalendarView to resync it from the events prop:
   // the library applies move/resize/delete to internal state optimistically and never
@@ -239,8 +235,6 @@ export function CalendarClient({
       setResetKey((k) => k + 1)
     }
   }, [isResyncing])
-
-  const selectedEvent = events.find((e) => e.id === selectedId) ?? null
 
   function isCompleted(id: string): boolean {
     return events.find((e) => e.id === id)?.status === 'completed'
@@ -395,10 +389,6 @@ export function CalendarClient({
           key={`${weekStart}-${resetKey}`}
           defaultWeekStart={weekStart}
           events={events.map(toLibraryEvent)}
-          onEventClick={(libEvent) => {
-            const appEvent = events.find((e) => e.id === libEvent.id)
-            if (appEvent && appEvent.status !== 'completed') setSelectedId(libEvent.id)
-          }}
           onEventMove={handleTimeChange}
           onEventResize={handleTimeChange}
           onEventDelete={(e) => setDialog({ mode: 'delete', target: e })}
@@ -411,28 +401,6 @@ export function CalendarClient({
           sleepEnd={sleepEnd}
         />
       </div>
-
-      {selectedEvent && (
-        <div className="fixed inset-x-0 bottom-0 z-40 p-4 sm:right-4 sm:left-auto sm:max-w-sm">
-          <CheckInSheet
-            item={{
-              taskId: selectedEvent.id,
-              title: selectedEvent.title,
-              status: selectedEvent.status,
-            }}
-            onClose={() => setSelectedId(null)}
-            onPerfectWeek={() => {
-              setSelectedId(null)
-              setPerfectWeekVisible(true)
-            }}
-          />
-        </div>
-      )}
-
-      <PerfectWeekCelebration
-        visible={perfectWeekVisible}
-        onDismiss={() => setPerfectWeekVisible(false)}
-      />
 
       <CalendarEventDialogs
         dialog={dialog}
