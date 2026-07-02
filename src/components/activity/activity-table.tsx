@@ -5,8 +5,7 @@ import { Badge, Button, DataTable, type BadgeProps, type ColumnDef } from '@/lib
 import { useActivityActions, type ActivityKind } from '@/components/activity/use-activity-actions'
 import type { ActivitySocial } from '@/components/activity/activity-form-dialog'
 
-const EMPTY_CELL = '—'
-const SOCIAL_SEPARATOR = ' · '
+const SEPARATOR = ' · '
 
 type BadgeVariant = NonNullable<BadgeProps['variant']>
 
@@ -39,7 +38,7 @@ export interface ActivityRow {
   readonly status: 'pending' | 'in_progress' | 'completed'
   /** Sort key: task `startAt` ISO or goal `targetDate` (date-only); null when unset. */
   readonly dateIso: string | null
-  /** Display label for the Date column. */
+  /** Display label for the When column. */
   readonly dateLabel: string
   readonly recurrence: string | null
   readonly location: string | null
@@ -112,19 +111,39 @@ const columns: ColumnDef<ActivityRow>[] = [
   {
     accessorKey: 'title',
     header: 'Title',
-    cell: ({ row }) => <span className="inline-block min-w-[12rem]">{row.original.title}</span>,
-  },
-  {
-    accessorKey: 'type',
-    header: 'Type',
     cell: ({ row }) => {
       const badgeStyle = TYPE_BADGE[row.original.type]
       return (
-        <Badge variant={badgeStyle.variant} className={badgeStyle.className}>
-          {row.original.type}
-        </Badge>
+        <span className="flex min-w-[12rem] items-center gap-2">
+          {row.original.color !== null && (
+            <span
+              aria-hidden
+              data-color={row.original.color}
+              className="border-border inline-block size-3 shrink-0 rounded-full border"
+              style={{ backgroundColor: row.original.color }}
+            />
+          )}
+          <span className="max-w-[16rem] min-w-0 truncate">{row.original.title}</span>
+          <Badge variant={badgeStyle.variant} className={badgeStyle.className}>
+            {row.original.type}
+          </Badge>
+        </span>
       )
     },
+  },
+  {
+    id: 'when',
+    accessorFn: (row) => row.dateIso ?? undefined,
+    header: 'When',
+    sortUndefined: 'last',
+    cell: ({ row }) => (
+      <span className="whitespace-nowrap">
+        {row.original.dateLabel}
+        {row.original.recurrence !== null && (
+          <span className="text-muted-foreground">{`${SEPARATOR}${row.original.recurrence}`}</span>
+        )}
+      </span>
+    ),
   },
   {
     accessorKey: 'status',
@@ -142,37 +161,8 @@ const columns: ColumnDef<ActivityRow>[] = [
     },
   },
   {
-    id: 'date',
-    accessorFn: (row) => row.dateIso ?? undefined,
-    header: 'Date',
-    sortUndefined: 'last',
-    cell: ({ row }) => <span className="whitespace-nowrap">{row.original.dateLabel}</span>,
-  },
-  {
-    accessorKey: 'recurrence',
-    header: 'Recurrence',
-    cell: ({ row }) => row.original.recurrence ?? EMPTY_CELL,
-  },
-  {
-    accessorKey: 'location',
-    header: 'Location',
-    cell: ({ row }) => row.original.location ?? EMPTY_CELL,
-  },
-  {
-    accessorKey: 'color',
-    header: 'Color',
-    cell: ({ row }) => (
-      <span
-        aria-hidden
-        data-color={row.original.color ?? ''}
-        className="border-border inline-block size-3 rounded-full border"
-        style={{ backgroundColor: row.original.color ?? undefined }}
-      />
-    ),
-  },
-  {
     id: 'social',
-    accessorFn: (row) => `${row.activityType}${SOCIAL_SEPARATOR}${row.visibility}`,
+    accessorFn: (row) => `${row.activityType}${SEPARATOR}${row.visibility}`,
     header: 'Social',
     cell: ({ row }) => (
       <span className="flex items-center gap-1 whitespace-nowrap">

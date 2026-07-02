@@ -87,13 +87,30 @@ describe('ActivityTable', () => {
     expect(screen.getByText('in_progress')).toBeInTheDocument()
     expect(screen.getByText('pending')).toBeInTheDocument()
     expect(screen.getByText('Target: 2026-07-15')).toBeInTheDocument()
-    expect(screen.getByText('weekly')).toBeInTheDocument()
-    expect(screen.getByText('Park')).toBeInTheDocument()
-    expect(screen.getByText('Gym')).toBeInTheDocument()
+    expect(screen.getByText('Jun 20, 5:00 AM')).toBeInTheDocument()
+    expect(screen.getByText('· weekly', { exact: false })).toBeInTheDocument()
     expect(screen.getByText('solo')).toBeInTheDocument()
     expect(screen.getByText('friends')).toBeInTheDocument()
     expect(screen.getByText('group')).toBeInTheDocument()
     expect(screen.getByText('everyone')).toBeInTheDocument()
+  })
+
+  it('no longer renders standalone Location/Color/Recurrence/Type columns', () => {
+    render(
+      <ActivityTable items={[makeRow({ location: 'Gym', color: 'blue', recurrence: 'daily' })]} />,
+    )
+    const headerRow = screen.getAllByRole('row')[0]!
+    expect(within(headerRow).queryByText('Location')).not.toBeInTheDocument()
+    expect(within(headerRow).queryByText('Color')).not.toBeInTheDocument()
+    expect(within(headerRow).queryByText('Recurrence')).not.toBeInTheDocument()
+    expect(within(headerRow).queryByText('Type')).not.toBeInTheDocument()
+    expect(within(headerRow).queryByText('Date')).not.toBeInTheDocument()
+    expect(screen.queryByText('Gym')).not.toBeInTheDocument()
+    expect(within(headerRow).getByText('Title')).toBeInTheDocument()
+    expect(within(headerRow).getByText('When')).toBeInTheDocument()
+    expect(within(headerRow).getByText('Status')).toBeInTheDocument()
+    expect(within(headerRow).getByText('Social')).toBeInTheDocument()
+    expect(within(headerRow).getByText('Actions')).toBeInTheDocument()
   })
 
   it('renders the color as a swatch dot carrying data-color, aria-hidden', () => {
@@ -104,6 +121,11 @@ describe('ActivityTable', () => {
     expect(swatch).toHaveStyle({ backgroundColor: 'blue' })
   })
 
+  it('skips the swatch dot entirely when color is null', () => {
+    const { container } = render(<ActivityTable items={[makeRow({ color: null })]} />)
+    expect(container.querySelector('[aria-hidden][data-color]')).toBeNull()
+  })
+
   it('appends a 🔥 streak suffix in the status column for recurring rows', () => {
     render(<ActivityTable items={[makeRow({ type: 'task', recurrence: 'daily', streak: 3 })]} />)
     expect(screen.getByText('🔥 3')).toBeInTheDocument()
@@ -112,6 +134,27 @@ describe('ActivityTable', () => {
   it('does not show a streak suffix for non-recurring rows', () => {
     render(<ActivityTable items={[makeRow({ recurrence: null, streak: 5 })]} />)
     expect(screen.queryByText(/🔥/)).not.toBeInTheDocument()
+  })
+
+  it('shows a muted recurrence suffix in the When column for recurring rows', () => {
+    render(
+      <ActivityTable items={[makeRow({ dateLabel: 'Jul 3, 5:00 AM', recurrence: 'daily' })]} />,
+    )
+    expect(screen.getByText('Jul 3, 5:00 AM')).toBeInTheDocument()
+    const suffix = screen.getByText('· daily', { exact: false })
+    expect(suffix).toHaveClass('text-muted-foreground')
+  })
+
+  it('does not show a recurrence suffix in the When column for non-recurring rows', () => {
+    render(<ActivityTable items={[makeRow({ dateLabel: 'Jul 3, 5:00 AM', recurrence: null })]} />)
+    expect(screen.getByText('Jul 3, 5:00 AM')).toBeInTheDocument()
+    expect(screen.queryByText('·', { exact: false })).not.toBeInTheDocument()
+  })
+
+  it('truncates the title text instead of wrapping', () => {
+    render(<ActivityTable items={[makeRow({ title: 'A very long activity title' })]} />)
+    const titleEl = screen.getByText('A very long activity title')
+    expect(titleEl).toHaveClass('truncate')
   })
 
   it('sorts rows when the Title header is clicked', async () => {
@@ -140,7 +183,7 @@ describe('ActivityTable', () => {
     expect(within(screen.getAllByRole('row')[1]!).getByText('A row')).toBeInTheDocument()
   })
 
-  it('sorts the Date column with null dates last', async () => {
+  it('sorts the When column with null dates last', async () => {
     const user = userEvent.setup()
     render(
       <ActivityTable
@@ -151,10 +194,10 @@ describe('ActivityTable', () => {
         ]}
       />,
     )
-    await user.click(screen.getByText('Date'))
+    await user.click(screen.getByText('When'))
     const rows = screen.getAllByRole('row')
     // header + 3 data rows; null-date row must be last
-    expect(within(rows[rows.length - 1]!).getByText('No date')).toBeInTheDocument()
+    expect(within(rows[rows.length - 1]!).getByText('No date label')).toBeInTheDocument()
   })
 
   it('exposes edit/delete/complete controls in the actions cell', () => {
@@ -212,7 +255,7 @@ describe('ActivityTable', () => {
     expect(completedBadge).toHaveClass('text-emerald-400')
   })
 
-  it('renders the type cell as a colored Badge per type value', () => {
+  it('renders the type badge inline in the title cell per type value', () => {
     render(
       <ActivityTable
         items={[
