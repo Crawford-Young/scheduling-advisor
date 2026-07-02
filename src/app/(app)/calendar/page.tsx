@@ -5,6 +5,9 @@ import { getUserTasks } from '@/server/queries/tasks'
 import { getTaskStreaks } from '@/server/queries/consistency'
 import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
 import { CalendarClient } from '@/components/calendar/calendar-client'
+import { DEFAULT_WAKE_MINUTES, DEFAULT_SLEEP_MINUTES } from '@/lib/calendar-windows'
+
+const MINUTES_PER_HOUR = 60
 
 function getCurrentWeekStart(): string {
   const now = new Date()
@@ -23,8 +26,12 @@ export default async function CalendarPage(): Promise<React.JSX.Element> {
   const weekStart = getCurrentWeekStart()
 
   const prefs = await getCalendarPrefs()
-  const wakeHour = prefs?.workingHoursStart ?? 9
-  const sleepHour = prefs?.workingHoursEnd ?? 17
+  // Prefs are minutes-since-midnight; CalendarClient still consumes whole hours.
+  // Convert at this boundary until A9 makes the calendar grid minute-aware.
+  const wakeMinutes = prefs?.workingHoursStart ?? DEFAULT_WAKE_MINUTES
+  const sleepMinutes = prefs?.workingHoursEnd ?? DEFAULT_SLEEP_MINUTES
+  const wakeHour = Math.floor(wakeMinutes / MINUTES_PER_HOUR)
+  const sleepHour = Math.ceil(sleepMinutes / MINUTES_PER_HOUR)
 
   const allTasks = await getUserTasks()
 

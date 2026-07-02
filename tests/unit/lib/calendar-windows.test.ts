@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as Sentry from '@sentry/nextjs'
-import { resolveDayWindows, DEFAULT_WAKE_HOUR, DEFAULT_SLEEP_HOUR } from '@/lib/calendar-windows'
+import {
+  resolveDayWindows,
+  DEFAULT_WAKE_MINUTES,
+  DEFAULT_SLEEP_MINUTES,
+} from '@/lib/calendar-windows'
 
 vi.mock('@sentry/nextjs', () => ({
   captureMessage: vi.fn(),
@@ -11,12 +15,17 @@ describe('resolveDayWindows', () => {
     vi.clearAllMocks()
   })
 
-  it('returns 7 default windows when prefs is null', () => {
+  it('returns 7 default windows in minutes when prefs is null', () => {
     const result = resolveDayWindows(null)
 
+    expect(DEFAULT_WAKE_MINUTES).toBe(540)
+    expect(DEFAULT_SLEEP_MINUTES).toBe(1020)
     expect(result).toHaveLength(7)
     expect(result).toEqual(
-      Array.from({ length: 7 }, () => ({ wake: DEFAULT_WAKE_HOUR, sleep: DEFAULT_SLEEP_HOUR })),
+      Array.from({ length: 7 }, () => ({
+        wake: DEFAULT_WAKE_MINUTES,
+        sleep: DEFAULT_SLEEP_MINUTES,
+      })),
     )
   })
 

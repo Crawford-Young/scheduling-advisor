@@ -1,8 +1,9 @@
 import * as Sentry from '@sentry/nextjs'
 import { dayOverridesSchema, type CalendarDayOverrides } from '@/lib/schemas/calendar-prefs'
 
-export const DEFAULT_WAKE_HOUR = 9
-export const DEFAULT_SLEEP_HOUR = 17
+// Defaults are minutes-since-midnight: 09:00 wake, 17:00 sleep.
+export const DEFAULT_WAKE_MINUTES = 540
+export const DEFAULT_SLEEP_MINUTES = 1020
 
 const DAYS_PER_WEEK = 7
 
@@ -33,8 +34,8 @@ function resolveOverrides(dayOverrides: unknown): CalendarDayOverrides {
 export function resolveDayWindows(prefs: CalendarWindowPrefs | null): readonly DayWindow[] {
   if (prefs === null) {
     return Array.from({ length: DAYS_PER_WEEK }, () => ({
-      wake: DEFAULT_WAKE_HOUR,
-      sleep: DEFAULT_SLEEP_HOUR,
+      wake: DEFAULT_WAKE_MINUTES,
+      sleep: DEFAULT_SLEEP_MINUTES,
     }))
   }
 
