@@ -1,133 +1,19 @@
 'use client'
 import * as React from 'react'
-import { useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-  toast,
-} from '@/lib/ui'
-import {
-  ActivityFormDialog,
-  type ActivityFormValues,
-  type ActivitySocial,
-} from '@/components/activity/activity-form-dialog'
+import { Button } from '@/lib/ui'
 import { Pencil, Trash2 } from 'lucide-react'
-import { updateTask, deleteTask } from '@/server/actions/tasks'
-import { recordCompletion } from '@/server/actions/consistency'
+import {
+  useActivityActions,
+  type ActivityKind,
+  type ActivityCardActionsProps,
+} from '@/components/activity/use-activity-actions'
 
-const TARGET_DATE_TIME_SUFFIX = 'T12:00:00.000Z'
+export type { ActivityKind, ActivityCardActionsProps }
 
-export type ActivityKind = 'task' | 'goal'
-
-export interface ActivityCardActionsProps {
-  readonly taskId: string
-  readonly type: ActivityKind
-  readonly title: string
-  readonly status: 'pending' | 'in_progress' | 'completed'
-  readonly startAt?: string | null
-  readonly endAt?: string | null
-  readonly recurrence?: string | null
-  /** Date-only `YYYY-MM-DD` for goals. */
-  readonly targetDate?: string | null
-  readonly color?: string | null
-  readonly location?: string | null
-  readonly description?: string | null
-  readonly allDay?: boolean
-  readonly social: ActivitySocial
-}
-
-/** Goal target dates are edited as date-only but persisted as full ISO datetime. */
-function toIsoTargetDate(dateOnly: string | null | undefined): string | null {
-  return dateOnly ? new Date(`${dateOnly}${TARGET_DATE_TIME_SUFFIX}`).toISOString() : null
-}
-
-export function ActivityCardActions({
-  taskId,
-  type,
-  title,
-  status,
-  startAt,
-  endAt,
-  recurrence,
-  targetDate,
-  color,
-  location,
-  description,
-  allDay,
-  social,
-}: ActivityCardActionsProps): React.JSX.Element {
-  const router = useRouter()
-  const [editOpen, setEditOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [isPending, startTransition] = useTransition()
-
-  const isComplete = status === 'completed'
-  const completeLabel = recurrence ? 'Log today' : 'Mark complete'
-
-  function handleComplete(): void {
-    startTransition(async () => {
-      const result =
-        recurrence != null
-          ? await recordCompletion({ taskId, outcome: 'done' })
-          : await updateTask({ id: taskId, status: 'completed' })
-      if ('error' in result) {
-        toast.error(recurrence != null ? 'Could not log completion' : 'Could not mark complete')
-        return
-      }
-      router.refresh()
-    })
-  }
-
-  function handleEditSubmit(values: ActivityFormValues): void {
-    startTransition(async () => {
-      const result = await updateTask(
-        values.type === 'goal'
-          ? {
-              id: taskId,
-              title: values.title,
-              targetDate: toIsoTargetDate(values.targetDate),
-              location: values.location ?? null,
-              description: values.description ?? null,
-            }
-          : {
-              id: taskId,
-              title: values.title,
-              recurrence: values.recurrence ?? null,
-              startAt: values.startAt ?? null,
-              endAt: values.endAt ?? null,
-              color: values.color ?? null,
-              location: values.location ?? null,
-              description: values.description ?? null,
-              allDay: values.allDay,
-            },
-      )
-      if ('error' in result) {
-        toast.error('Could not save activity')
-        return
-      }
-      setEditOpen(false)
-      router.refresh()
-    })
-  }
-
-  function handleConfirmDelete(): void {
-    startTransition(async () => {
-      const result = await deleteTask({ id: taskId })
-      if ('error' in result) {
-        toast.error('Could not delete activity')
-        return
-      }
-      router.refresh()
-    })
-  }
+export function ActivityCardActions(props: ActivityCardActionsProps): React.JSX.Element {
+  const { type } = props
+  const { isComplete, completeLabel, isPending, handleComplete, openEdit, openDelete, dialogs } =
+    useActivityActions(props)
 
   return (
     <>
@@ -137,60 +23,15 @@ export function ActivityCardActions({
             {completeLabel}
           </Button>
         )}
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={`Edit ${type}`}
-          onClick={() => setEditOpen(true)}
-        >
+        <Button variant="ghost" size="icon" aria-label={`Edit ${type}`} onClick={openEdit}>
           <Pencil className="h-3.5 w-3.5" aria-hidden />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={`Delete ${type}`}
-          onClick={() => setDeleteOpen(true)}
-        >
+        <Button variant="ghost" size="icon" aria-label={`Delete ${type}`} onClick={openDelete}>
           <Trash2 className="h-3.5 w-3.5" aria-hidden />
         </Button>
       </div>
 
-      <ActivityFormDialog
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        onSubmit={handleEditSubmit}
-        initialType={type}
-        lockType
-        isPending={isPending}
-        initialValues={{
-          type,
-          title,
-          startAt: startAt ?? undefined,
-          endAt: endAt ?? undefined,
-          recurrence: recurrence ?? undefined,
-          targetDate: targetDate ?? undefined,
-          color: color ?? undefined,
-          location: location ?? undefined,
-          description: description ?? undefined,
-          allDay,
-          social,
-        }}
-      />
-
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this {type}?</AlertDialogTitle>
-            <AlertDialogDescription>This cannot be undone.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction aria-label="Confirm delete" onClick={handleConfirmDelete}>
-              Confirm
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {dialogs}
     </>
   )
 }
