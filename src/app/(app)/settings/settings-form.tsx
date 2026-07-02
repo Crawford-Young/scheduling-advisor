@@ -18,6 +18,7 @@ import {
 import { setUsername } from '@/server/actions/profile'
 import { setCalendarWindow } from '@/server/actions/calendar-prefs'
 import type { CalendarDayOverrides } from '@/lib/schemas/calendar-prefs'
+import { MAX_DISPLAY_MINUTES } from '@/lib/calendar-windows'
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
 
@@ -27,10 +28,6 @@ const TIME_PAD_LENGTH = 2
 const TTL_MIN_DAYS = 1
 const TTL_MAX_DAYS = 365
 const DEFAULT_TTL_DAYS = 30
-
-// TimeInput has no 24:00 representation — the latest displayable/persistable sleep time is
-// 23:59. Rows migrated from the old hour-24 (1440) sleep value clamp down to this on seed.
-export const MAX_DISPLAY_MINUTES = 1439
 
 function minutesToTimeString(totalMinutes: number): string {
   const hours = Math.floor(totalMinutes / MINUTES_PER_HOUR)
