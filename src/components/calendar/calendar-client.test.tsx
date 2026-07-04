@@ -137,6 +137,14 @@ vi.mock('@/lib/ui', () => ({
       // Round-tripped recurrenceFrequency for the first event (mapping assertion).
       data-evt0-recurrence={props.events?.[0]?.recurrenceFrequency ?? ''}
       data-evt0-has-recurrence-days={String(props.events?.[0]?.recurrenceDays !== undefined)}
+      // A8.11: persisted null color must map to the library's 'default'
+      // variant, and allDay/location/description must be forwarded.
+      data-evt0-color={props.events?.[0]?.color ?? ''}
+      data-evt0-all-day={String(props.events?.[0]?.allDay ?? '')}
+      data-evt0-location={props.events?.[0]?.location ?? ''}
+      data-evt0-description={props.events?.[0]?.description ?? ''}
+      // A persisted, truthy color (evt-done) must pass through unchanged.
+      data-evt1-color={props.events?.[1]?.color ?? ''}
     >
       <button type="button" onClick={() => props.onEventDelete?.(STUB_LIB_EVENT)}>
         trigger-delete
@@ -264,6 +272,13 @@ const EVENTS = [
     activityType: 'solo',
     visibility: 'only_me',
     recurrence: 'weekly',
+    // Persisted null color (A8.11): the default popover swatch persists as
+    // null, and must map to the library's literal 'default' variant — NOT
+    // the stale type-based blue/amber fallback.
+    color: null,
+    allDay: true,
+    location: 'Gym',
+    description: 'leg day',
   },
   {
     id: 'evt-done',
@@ -275,6 +290,8 @@ const EVENTS = [
     streak: 0,
     activityType: 'solo',
     visibility: 'only_me',
+    // Persisted, truthy user-chosen color must pass through unchanged.
+    color: 'violet',
   },
 ]
 
@@ -471,6 +488,37 @@ describe('CalendarClient — event edit persistence', () => {
     expect(view.dataset.evt0Recurrence).toBe('weekly')
     // Fanned rows are standalone — recurrenceDays must stay undefined.
     expect(view.dataset.evt0HasRecurrenceDays).toBe('false')
+  })
+})
+
+// ── color and detail field mapping (A8.11) ──────────────────────────────────
+//
+// A8.11: an event created via the calendar popover's default (pre-selected)
+// swatch persists color:null. The library's own semantics for a missing color
+// are the literal 'default' variant (emerald) — not a type-based blue/amber
+// fallback, which flips the chip's color on the post-create remount/refresh.
+// Sibling bug: allDay/location/description were dropped by the mapper, so
+// they display optimistically then vanish after router.refresh().
+
+describe('CalendarClient — color and detail field mapping (A8.11)', () => {
+  it('maps a persisted null color to the library "default" variant, not a type-based blue/amber fallback', () => {
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    const view = screen.getByTestId('week-calendar-view')
+    expect(view.dataset.evt0Color).toBe('default')
+  })
+
+  it('forwards allDay, location, and description to the library event', () => {
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    const view = screen.getByTestId('week-calendar-view')
+    expect(view.dataset.evt0AllDay).toBe('true')
+    expect(view.dataset.evt0Location).toBe('Gym')
+    expect(view.dataset.evt0Description).toBe('leg day')
+  })
+
+  it('passes a persisted, truthy user-chosen color through unchanged', () => {
+    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    const view = screen.getByTestId('week-calendar-view')
+    expect(view.dataset.evt1Color).toBe('violet')
   })
 })
 

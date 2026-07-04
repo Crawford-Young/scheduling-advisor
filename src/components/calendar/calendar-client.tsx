@@ -58,20 +58,24 @@ function toLibraryRecurrenceFrequency(
 }
 
 // ─── Color mapping ────────────────────────────────────────────────────────────
-// Prefer the event's persisted color (user-chosen) over the type-based default.
-
-function toLibraryColor(type: 'task' | 'goal'): LibraryCalendarEvent['color'] {
-  return type === 'goal' ? 'amber' : 'blue'
-}
+// Prefer the event's persisted color (user-chosen). A falsy persisted color
+// means the popover's default (pre-selected) swatch was used, which the
+// library's create-form emits as `undefined` and the app persists as `null`.
+// The library's own semantics for a missing color are the literal 'default'
+// variant (its chip does `ev.color ?? 'default'`) — fall back to that literal,
+// not a type-based blue/amber guess, or the chip flips color after refresh.
 
 function toLibraryEvent(e: AppCalendarEvent): LibraryCalendarEvent {
-  const color = e.color ? (e.color as LibraryCalendarEvent['color']) : toLibraryColor(e.type)
+  const color = e.color ? (e.color as LibraryCalendarEvent['color']) : 'default'
   return {
     id: e.id,
     title: e.title,
     start: e.start,
     end: e.end,
     color,
+    allDay: e.allDay ?? undefined,
+    location: e.location ?? undefined,
+    description: e.description ?? undefined,
     // Round-trip the frequency so the chip's edit form seeds the Repeat select.
     recurrenceFrequency: toLibraryRecurrenceFrequency(e.recurrence),
     // recurrenceDays is intentionally omitted: each stored row is a standalone
