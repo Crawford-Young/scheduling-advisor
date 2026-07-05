@@ -8,6 +8,7 @@ const authMock = vi.fn()
 const getUserTasksMock = vi.fn()
 const getTaskStreaksMock = vi.fn()
 const safeDeleteExpiredEventsMock = vi.fn()
+const getCalendarPrefsMock = vi.fn()
 
 vi.mock('@/auth', () => ({ auth: () => authMock() }))
 
@@ -29,12 +30,18 @@ vi.mock('@/server/actions/event-ttl', () => ({
   safeDeleteExpiredEvents: () => safeDeleteExpiredEventsMock(),
 }))
 
+vi.mock('@/server/queries/calendar-prefs', () => ({
+  getCalendarPrefs: () => getCalendarPrefsMock(),
+}))
+
 vi.mock('@/components/activity/activity-filters', () => ({
   ActivityFilters: () => <div data-testid="activity-filters" />,
 }))
 
 vi.mock('@/components/activity/activity-create-button', () => ({
-  ActivityCreateButton: () => <div data-testid="activity-create-button" />,
+  ActivityCreateButton: ({ use24h }: { use24h?: boolean }) => (
+    <div data-testid="activity-create-button" data-use24h={String(use24h)} />
+  ),
 }))
 
 interface MockActivityRow {
@@ -61,8 +68,8 @@ interface MockActivityRow {
 
 // Render each row's data props so page-side row-building contract bugs surface.
 vi.mock('@/components/activity/activity-table', () => ({
-  ActivityTable: ({ items }: { items: MockActivityRow[] }) => (
-    <div data-testid="activity-table">
+  ActivityTable: ({ items, use24h }: { items: MockActivityRow[]; use24h?: boolean }) => (
+    <div data-testid="activity-table" data-use24h={String(use24h)}>
       {items.map((row) => (
         <div
           key={row.id}
@@ -141,6 +148,7 @@ describe('ActivitiesPage', () => {
     getUserTasksMock.mockReset()
     getTaskStreaksMock.mockReset().mockResolvedValue({})
     safeDeleteExpiredEventsMock.mockReset().mockResolvedValue(undefined)
+    getCalendarPrefsMock.mockReset().mockResolvedValue(null)
   })
 
   it('no longer imports the ActivityCreate quick-add bar', () => {
@@ -302,6 +310,24 @@ describe('ActivitiesPage', () => {
     expect(row).toHaveAttribute('data-all-day', 'true')
     expect(row).toHaveAttribute('data-activity-type', 'solo')
     expect(row).toHaveAttribute('data-visibility', 'only_me')
+  })
+
+  it('threads use24h=true from calendar prefs into the create button and table', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([makeTask({ id: 't1', type: 'task' })])
+    getCalendarPrefsMock.mockResolvedValue({ use24h: true })
+    render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
+    expect(screen.getByTestId('activity-create-button')).toHaveAttribute('data-use24h', 'true')
+    expect(screen.getByTestId('activity-table')).toHaveAttribute('data-use24h', 'true')
+  })
+
+  it('defaults use24h to false when there is no calendar prefs row', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([makeTask({ id: 't1', type: 'task' })])
+    getCalendarPrefsMock.mockResolvedValue(null)
+    render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
+    expect(screen.getByTestId('activity-create-button')).toHaveAttribute('data-use24h', 'false')
+    expect(screen.getByTestId('activity-table')).toHaveAttribute('data-use24h', 'false')
   })
 
   it('shows the empty state when there are no activities', async () => {

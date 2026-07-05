@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { getUserTasks } from '@/server/queries/tasks'
 import { getTaskStreaks } from '@/server/queries/consistency'
+import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
 import { safeDeleteExpiredEvents } from '@/server/actions/event-ttl'
 import { EmptyState } from '@/lib/ui'
 import { OpenChatButton } from '@/components/chat/open-chat-button'
@@ -89,6 +90,8 @@ export default async function ActivitiesPage({
   const filter = resolveFilter(type)
 
   await safeDeleteExpiredEvents()
+  const prefs = await getCalendarPrefs()
+  const use24h = prefs?.use24h ?? false
   const allTasks = await getUserTasks()
   const items = allTasks
     .filter((t) => filter === 'all' || t.type === filter)
@@ -111,7 +114,7 @@ export default async function ActivitiesPage({
         <div className="flex-1">
           <ActivityFilters />
         </div>
-        <ActivityCreateButton />
+        <ActivityCreateButton use24h={use24h} />
       </div>
 
       {items.length === 0 ? (
@@ -121,7 +124,7 @@ export default async function ActivitiesPage({
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <ActivityTable items={rows} />
+          <ActivityTable items={rows} use24h={use24h} />
         </div>
       )}
     </div>

@@ -3,6 +3,7 @@ import * as React from 'react'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
+  ActivityFormDialog,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -12,12 +13,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   toast,
-} from '@/lib/ui'
-import {
-  ActivityFormDialog,
   type ActivityFormValues,
   type ActivitySocial,
-} from '@/components/activity/activity-form-dialog'
+} from '@/lib/ui'
 import { updateTask, deleteTask } from '@/server/actions/tasks'
 import { recordCompletion } from '@/server/actions/consistency'
 
@@ -40,6 +38,8 @@ export interface ActivityCardActionsProps {
   readonly description?: string | null
   readonly allDay?: boolean
   readonly social: ActivitySocial
+  /** Display task times as 24-hour instead of 12-hour with AM/PM. */
+  readonly use24h?: boolean
 }
 
 /** Goal target dates are edited as date-only but persisted as full ISO datetime. */
@@ -72,6 +72,7 @@ export function useActivityActions({
   description,
   allDay,
   social,
+  use24h,
 }: ActivityCardActionsProps): UseActivityActionsResult {
   const router = useRouter()
   const [editOpen, setEditOpen] = useState(false)
@@ -147,6 +148,7 @@ export function useActivityActions({
         initialType={type}
         lockType
         isPending={isPending}
+        use24h={use24h}
         initialValues={{
           type,
           title,
