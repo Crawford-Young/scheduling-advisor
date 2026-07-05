@@ -3,11 +3,7 @@ import * as React from 'react'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
-import { Button, toast } from '@/lib/ui'
-import {
-  ActivityFormDialog,
-  type ActivityFormValues,
-} from '@/components/activity/activity-form-dialog'
+import { ActivityFormDialog, Button, toast, type ActivityFormValues } from '@/lib/ui'
 import { createTask } from '@/server/actions/tasks'
 
 const TARGET_DATE_TIME_SUFFIX = 'T12:00:00.000Z'
@@ -21,7 +17,12 @@ function toIsoTargetDate(dateOnly: string | null | undefined): string | null {
   return dateOnly ? new Date(`${dateOnly}${TARGET_DATE_TIME_SUFFIX}`).toISOString() : null
 }
 
-export function ActivityCreateButton(): React.JSX.Element {
+export interface ActivityCreateButtonProps {
+  /** Display task times as 24-hour instead of 12-hour with AM/PM. */
+  readonly use24h?: boolean
+}
+
+export function ActivityCreateButton({ use24h }: ActivityCreateButtonProps): React.JSX.Element {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -58,6 +59,7 @@ export function ActivityCreateButton(): React.JSX.Element {
         onOpenChange={setOpen}
         onSubmit={handleSubmit}
         isPending={isPending}
+        use24h={use24h}
       />
     </>
   )

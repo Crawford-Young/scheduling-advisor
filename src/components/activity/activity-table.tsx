@@ -1,9 +1,15 @@
 'use client'
 import * as React from 'react'
 import { Check, Pencil, Trash2 } from 'lucide-react'
-import { Badge, Button, DataTable, type BadgeProps, type ColumnDef } from '@/lib/ui'
+import {
+  Badge,
+  Button,
+  DataTable,
+  type ActivitySocial,
+  type BadgeProps,
+  type ColumnDef,
+} from '@/lib/ui'
 import { useActivityActions, type ActivityKind } from '@/components/activity/use-activity-actions'
-import type { ActivitySocial } from '@/components/activity/activity-form-dialog'
 
 const SEPARATOR = ' · '
 
@@ -57,10 +63,11 @@ export interface ActivityRow {
 
 interface ActivityRowActionsProps {
   readonly row: ActivityRow
+  readonly use24h?: boolean
 }
 
 /** Per-row complete/edit/delete controls, wired through the shared hook. */
-function ActivityRowActions({ row }: ActivityRowActionsProps): React.JSX.Element {
+function ActivityRowActions({ row, use24h }: ActivityRowActionsProps): React.JSX.Element {
   const { isComplete, completeLabel, isPending, handleComplete, openEdit, openDelete, dialogs } =
     useActivityActions({
       taskId: row.id,
@@ -81,6 +88,7 @@ function ActivityRowActions({ row }: ActivityRowActionsProps): React.JSX.Element
         joinability: row.joinability ?? undefined,
         maxParticipants: row.maxParticipants ?? undefined,
       },
+      use24h,
     })
 
   return (
@@ -107,82 +115,87 @@ function ActivityRowActions({ row }: ActivityRowActionsProps): React.JSX.Element
   )
 }
 
-const columns: ColumnDef<ActivityRow>[] = [
-  {
-    accessorKey: 'title',
-    header: 'Title',
-    cell: ({ row }) => {
-      const badgeStyle = TYPE_BADGE[row.original.type]
-      return (
-        <span className="flex min-w-[12rem] items-center gap-2">
-          {row.original.color !== null && (
-            <span
-              aria-hidden
-              data-color={row.original.color}
-              className="border-border inline-block size-3 shrink-0 rounded-full border"
-              style={{ backgroundColor: row.original.color }}
-            />
+function buildColumns(use24h?: boolean): ColumnDef<ActivityRow>[] {
+  return [
+    {
+      accessorKey: 'title',
+      header: 'Title',
+      cell: ({ row }) => {
+        const badgeStyle = TYPE_BADGE[row.original.type]
+        return (
+          <span className="flex min-w-[12rem] items-center gap-2">
+            {row.original.color !== null && (
+              <span
+                aria-hidden
+                data-color={row.original.color}
+                className="border-border inline-block size-3 shrink-0 rounded-full border"
+                style={{ backgroundColor: row.original.color }}
+              />
+            )}
+            <span className="max-w-[16rem] min-w-0 truncate">{row.original.title}</span>
+            <Badge variant={badgeStyle.variant} className={badgeStyle.className}>
+              {row.original.type}
+            </Badge>
+          </span>
+        )
+      },
+    },
+    {
+      id: 'when',
+      accessorFn: (row) => row.dateIso ?? undefined,
+      header: 'When',
+      sortUndefined: 'last',
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap">
+          {row.original.dateLabel}
+          {row.original.recurrence !== null && (
+            <span className="text-muted-foreground">{`${SEPARATOR}${row.original.recurrence}`}</span>
           )}
-          <span className="max-w-[16rem] min-w-0 truncate">{row.original.title}</span>
-          <Badge variant={badgeStyle.variant} className={badgeStyle.className}>
-            {row.original.type}
-          </Badge>
         </span>
-      )
+      ),
     },
-  },
-  {
-    id: 'when',
-    accessorFn: (row) => row.dateIso ?? undefined,
-    header: 'When',
-    sortUndefined: 'last',
-    cell: ({ row }) => (
-      <span className="whitespace-nowrap">
-        {row.original.dateLabel}
-        {row.original.recurrence !== null && (
-          <span className="text-muted-foreground">{`${SEPARATOR}${row.original.recurrence}`}</span>
-        )}
-      </span>
-    ),
-  },
-  {
-    accessorKey: 'status',
-    header: 'Status',
-    cell: ({ row }) => {
-      const badgeStyle = STATUS_BADGE[row.original.status]
-      return (
+    {
+      accessorKey: 'status',
+      header: 'Status',
+      cell: ({ row }) => {
+        const badgeStyle = STATUS_BADGE[row.original.status]
+        return (
+          <span className="flex items-center gap-1 whitespace-nowrap">
+            <Badge variant={badgeStyle.variant} className={badgeStyle.className}>
+              {row.original.status}
+            </Badge>
+            {row.original.recurrence !== null && <span>{`🔥 ${row.original.streak}`}</span>}
+          </span>
+        )
+      },
+    },
+    {
+      id: 'social',
+      accessorFn: (row) => `${row.activityType}${SEPARATOR}${row.visibility}`,
+      header: 'Social',
+      cell: ({ row }) => (
         <span className="flex items-center gap-1 whitespace-nowrap">
-          <Badge variant={badgeStyle.variant} className={badgeStyle.className}>
-            {row.original.status}
-          </Badge>
-          {row.original.recurrence !== null && <span>{`🔥 ${row.original.streak}`}</span>}
+          <Badge variant="outline">{row.original.activityType}</Badge>
+          <Badge variant="secondary">{row.original.visibility}</Badge>
         </span>
-      )
+      ),
     },
-  },
-  {
-    id: 'social',
-    accessorFn: (row) => `${row.activityType}${SEPARATOR}${row.visibility}`,
-    header: 'Social',
-    cell: ({ row }) => (
-      <span className="flex items-center gap-1 whitespace-nowrap">
-        <Badge variant="outline">{row.original.activityType}</Badge>
-        <Badge variant="secondary">{row.original.visibility}</Badge>
-      </span>
-    ),
-  },
-  {
-    id: 'actions',
-    header: 'Actions',
-    enableSorting: false,
-    cell: ({ row }) => <ActivityRowActions row={row.original} />,
-  },
-]
+    {
+      id: 'actions',
+      header: 'Actions',
+      enableSorting: false,
+      cell: ({ row }) => <ActivityRowActions row={row.original} use24h={use24h} />,
+    },
+  ]
+}
 
 interface ActivityTableProps {
   readonly items: readonly ActivityRow[]
+  /** Display task times as 24-hour instead of 12-hour with AM/PM. */
+  readonly use24h?: boolean
 }
 
-export function ActivityTable({ items }: ActivityTableProps): React.JSX.Element {
+export function ActivityTable({ items, use24h }: ActivityTableProps): React.JSX.Element {
+  const columns = React.useMemo(() => buildColumns(use24h), [use24h])
   return <DataTable columns={columns} data={[...items]} />
 }

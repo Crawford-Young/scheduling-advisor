@@ -22,7 +22,7 @@ vi.mock('@/server/actions/consistency', () => ({
   recordCompletion: (input: unknown) => recordCompletionMock(input),
 }))
 
-// @/lib/ui — AlertDialog family + Button + toast (no ActivityFormDialog here anymore)
+// @/lib/ui — AlertDialog family + Button + toast + the library ActivityFormDialog (mocked to surface data props).
 vi.mock('@/lib/ui', () => ({
   Button: ({ children, ...props }: React.ComponentProps<'button'>) => (
     <button {...props}>{children}</button>
@@ -39,21 +39,20 @@ vi.mock('@/lib/ui', () => ({
   AlertDialogAction: ({ children, ...props }: React.ComponentProps<'button'>) => (
     <button {...props}>{children}</button>
   ),
-}))
-
-// App-owned ActivityFormDialog — renders key props as visible text so contract bugs surface.
-vi.mock('@/components/activity/activity-form-dialog', () => ({
+  // Library ActivityFormDialog — renders key props as visible text so contract bugs surface.
   ActivityFormDialog: ({
     open,
     onSubmit,
     initialType,
     lockType,
+    use24h,
     initialValues,
   }: {
     open: boolean
     onSubmit: (values: unknown) => void
     initialType?: string
     lockType?: boolean
+    use24h?: boolean
     initialValues?: {
       type?: string
       title?: string
@@ -71,6 +70,7 @@ vi.mock('@/components/activity/activity-form-dialog', () => ({
       <div data-testid="activity-form-dialog">
         <span data-testid="dialog-initial-type">{initialType}</span>
         <span data-testid="dialog-lock-type">{String(lockType)}</span>
+        <span data-testid="dialog-use24h">{String(use24h)}</span>
         <span data-testid="dialog-target-date">{initialValues?.targetDate ?? ''}</span>
         <span data-testid="dialog-start-at">{initialValues?.startAt ?? ''}</span>
         <span data-testid="dialog-end-at">{initialValues?.endAt ?? ''}</span>
@@ -208,6 +208,13 @@ describe('ActivityCardActions', () => {
     expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
     expect(screen.getByTestId('dialog-initial-type')).toHaveTextContent('goal')
     expect(screen.getByTestId('dialog-lock-type')).toHaveTextContent('true')
+  })
+
+  it('threads the use24h preference into the edit dialog', async () => {
+    const user = userEvent.setup()
+    render(<ActivityCardActions {...goalProps} use24h />)
+    await user.click(screen.getByRole('button', { name: /edit goal/i }))
+    expect(screen.getByTestId('dialog-use24h')).toHaveTextContent('true')
   })
 
   it('goal edit initialValues passes date-only targetDate (not a full ISO)', async () => {
