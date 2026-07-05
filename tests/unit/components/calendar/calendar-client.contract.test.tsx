@@ -20,8 +20,15 @@ const createTaskMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 
 const deleteTaskMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { success: true } }))
 const rescheduleTaskMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: {} }))
 const refreshMock = vi.hoisted(() => vi.fn())
+const recordCompletionMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: {} }))
 
-vi.mock('@/server/actions/consistency', () => ({ rescheduleTask: rescheduleTaskMock }))
+// Full-day per-day windows (fractional hours) so the 9am event stays in view.
+const DAY_WINDOWS = Array.from({ length: 7 }, () => ({ wake: 0, sleep: 24 }))
+
+vi.mock('@/server/actions/consistency', () => ({
+  rescheduleTask: rescheduleTaskMock,
+  recordCompletion: recordCompletionMock,
+}))
 vi.mock('@/server/actions/tasks', () => ({
   createTask: createTaskMock,
   updateTask: updateTaskMock,
@@ -57,7 +64,16 @@ describe('CalendarClient — library contract (real WeekCalendarView)', () => {
   it('clicking a chip opens the library popover with event details', async () => {
     const user = userEvent.setup()
     // Full-day window so the 9am event is always in view regardless of defaults.
-    render(<CalendarClient weekStart="2026-01-04" events={events} wakeHour={0} sleepHour={24} />)
+    render(
+      <CalendarClient
+        weekStart="2026-01-04"
+        events={events}
+        wakeHour={0}
+        sleepHour={24}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     const chip = screen.getByRole('button', { name: /Morning run/i })
     await user.click(chip)
@@ -70,7 +86,16 @@ describe('CalendarClient — library contract (real WeekCalendarView)', () => {
 
   it('editing via the chip popover Save persists the finished edit through updateTask', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart="2026-01-04" events={events} wakeHour={0} sleepHour={24} />)
+    render(
+      <CalendarClient
+        weekStart="2026-01-04"
+        events={events}
+        wakeHour={0}
+        sleepHour={24}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: /Morning run/i }))
     await user.click(await screen.findByRole('button', { name: /^Edit$/i }))
@@ -97,7 +122,16 @@ describe('CalendarClient — library contract (real WeekCalendarView)', () => {
 
   it('the chip popover carries no app-owned activity dialog', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart="2026-01-04" events={events} wakeHour={0} sleepHour={24} />)
+    render(
+      <CalendarClient
+        weekStart="2026-01-04"
+        events={events}
+        wakeHour={0}
+        sleepHour={24}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: /Morning run/i }))
     await user.click(await screen.findByRole('button', { name: /^Edit$/i }))
@@ -110,7 +144,16 @@ describe('CalendarClient — library contract (real WeekCalendarView)', () => {
 
   it('deleting via the chip popover opens the app confirm dialog and calls deleteTask', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart="2026-01-04" events={events} wakeHour={0} sleepHour={24} />)
+    render(
+      <CalendarClient
+        weekStart="2026-01-04"
+        events={events}
+        wakeHour={0}
+        sleepHour={24}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: /Morning run/i }))
     await user.click(await screen.findByRole('button', { name: /^Delete$/i }))

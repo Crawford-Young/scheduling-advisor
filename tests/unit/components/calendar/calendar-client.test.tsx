@@ -6,13 +6,20 @@ import { axe } from 'jest-axe'
 import { CalendarClient } from '@/components/calendar/calendar-client'
 
 const mockRescheduleTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e1' } }))
+const mockRecordCompletion = vi.hoisted(() => vi.fn().mockResolvedValue({ data: {} }))
 const mockDeleteTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { success: true } }))
 const mockUpdateTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e1' } }))
 const mockToastError = vi.hoisted(() => vi.fn())
 const mockRefresh = vi.hoisted(() => vi.fn())
 const mountCount = vi.hoisted(() => ({ value: 0 }))
 
-vi.mock('@/server/actions/consistency', () => ({ rescheduleTask: mockRescheduleTask }))
+// Per-day awake windows in fractional hours, Sun-first (7 entries).
+const DAY_WINDOWS = Array.from({ length: 7 }, () => ({ wake: 9, sleep: 17 }))
+
+vi.mock('@/server/actions/consistency', () => ({
+  rescheduleTask: mockRescheduleTask,
+  recordCompletion: mockRecordCompletion,
+}))
 vi.mock('@/server/actions/tasks', () => ({
   createTask: vi.fn(),
   updateTask: mockUpdateTask,
@@ -96,6 +103,19 @@ const events = [
     activityType: 'solo',
     visibility: 'only_me',
   },
+  {
+    id: 'e5',
+    title: 'Daily standup',
+    start: '2026-05-29T15:00:00',
+    end: '2026-05-29T15:30:00',
+    type: 'task' as const,
+    status: 'pending' as const,
+    streak: 4,
+    activityType: 'solo',
+    visibility: 'only_me',
+    // Recurring: the complete-toggle logs an occurrence via recordCompletion.
+    recurrence: 'daily',
+  },
 ]
 
 describe('CalendarClient', () => {
@@ -106,7 +126,16 @@ describe('CalendarClient', () => {
   })
 
   it('renders the calendar', () => {
-    render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart="2026-05-25"
+        events={events}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
     expect(screen.getByText('Morning run')).toBeInTheDocument()
   })
 
@@ -115,7 +144,16 @@ describe('CalendarClient', () => {
   // wires an onEventClick handler, so no app-owned check-in UI can stack on
   // top of the library popover.
   it('clicking an event does not open an app-owned check-in sheet (no onEventClick wired)', async () => {
-    render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart="2026-05-25"
+        events={events}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
     await userEvent.click(screen.getByText('Morning run'))
     expect(capturedProps.onEventClick).toBeUndefined()
     expect(screen.queryByTestId('check-in-sheet')).not.toBeInTheDocument()
@@ -124,14 +162,30 @@ describe('CalendarClient', () => {
 
   it('passes axe', async () => {
     const { container } = render(
-      <CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />,
+      <CalendarClient
+        weekStart="2026-05-25"
+        events={events}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
     )
     expect(await axe(container)).toHaveNoViolations()
   })
 
   describe('move and resize', () => {
     it('calls rescheduleTask with UTC ISO times on move', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
       const onEventMove = capturedProps.onEventMove as (e: unknown) => void
       onEventMove({
         id: 'e1',
@@ -150,7 +204,16 @@ describe('CalendarClient', () => {
     })
 
     it('calls rescheduleTask on resize', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
       const onEventResize = capturedProps.onEventResize as (e: unknown) => void
       onEventResize({
         id: 'e1',
@@ -162,7 +225,16 @@ describe('CalendarClient', () => {
     })
 
     it('ignores move of completed event and refreshes to snap back', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
       const onEventMove = capturedProps.onEventMove as (e: unknown) => void
       onEventMove({
         id: 'e2',
@@ -176,7 +248,16 @@ describe('CalendarClient', () => {
 
     it('shows toast on reschedule error', async () => {
       mockRescheduleTask.mockResolvedValueOnce({ error: 'Not found' })
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
       const onEventMove = capturedProps.onEventMove as (e: unknown) => void
       onEventMove({
         id: 'e1',
@@ -189,7 +270,16 @@ describe('CalendarClient', () => {
     })
 
     it('remounts calendar on completed-event move (guard path)', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
       const initialMountCount = mountCount.value
       const onEventMove = capturedProps.onEventMove as (e: unknown) => void
       onEventMove({
@@ -203,7 +293,16 @@ describe('CalendarClient', () => {
 
     it('remounts calendar on reschedule error', async () => {
       mockRescheduleTask.mockResolvedValueOnce({ error: 'Not found' })
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
       const initialMountCount = mountCount.value
       const onEventMove = capturedProps.onEventMove as (e: unknown) => void
       onEventMove({
@@ -216,7 +315,16 @@ describe('CalendarClient', () => {
     })
 
     it('does NOT remount calendar on successful reschedule', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
       const initialMountCount = mountCount.value
       const onEventMove = capturedProps.onEventMove as (e: unknown) => void
       onEventMove({
@@ -232,7 +340,16 @@ describe('CalendarClient', () => {
 
   describe('delete', () => {
     it('opens confirm dialog on onEventDelete, deletes on confirm', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
       const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
       onEventDelete({ id: 'e1', title: 'Morning run' })
       expect(await screen.findByText(/delete "Morning run"/i)).toBeInTheDocument()
@@ -242,7 +359,16 @@ describe('CalendarClient', () => {
     })
 
     it('does not delete on cancel', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
       const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
       onEventDelete({ id: 'e1', title: 'Morning run' })
       await userEvent.click(await screen.findByRole('button', { name: /cancel/i }))
@@ -251,7 +377,16 @@ describe('CalendarClient', () => {
 
     it('shows toast on delete error', async () => {
       mockDeleteTask.mockResolvedValueOnce({ error: 'Not found' })
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
       const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
       onEventDelete({ id: 'e1', title: 'Morning run' })
       await userEvent.click(await screen.findByRole('button', { name: /^delete$/i }))
@@ -259,7 +394,16 @@ describe('CalendarClient', () => {
     })
 
     it('remounts calendar on cancel (restores optimistic delete)', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
       const initialMountCount = mountCount.value
       const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
       onEventDelete({ id: 'e1', title: 'Morning run' })
@@ -269,7 +413,16 @@ describe('CalendarClient', () => {
     })
 
     it('does NOT remount calendar on successful delete', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
       const initialMountCount = mountCount.value
       const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
       onEventDelete({ id: 'e1', title: 'Morning run' })
@@ -281,7 +434,16 @@ describe('CalendarClient', () => {
 
     it('remounts calendar on delete error', async () => {
       mockDeleteTask.mockResolvedValueOnce({ error: 'Not found' })
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
       const initialMountCount = mountCount.value
       const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
       onEventDelete({ id: 'e1', title: 'Morning run' })
@@ -295,7 +457,16 @@ describe('CalendarClient', () => {
   // FINISHED edit to persist directly (no app-owned dialog).
   describe('edit persistence', () => {
     it('persists the finished edit via updateTask (no app dialog)', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
       ;(capturedProps.onEventEdit as (e: unknown) => void)({
         id: 'e4',
         title: 'Ship report v2',
@@ -322,7 +493,16 @@ describe('CalendarClient', () => {
     })
 
     it('ignores edit of a completed event (no updateTask) but remounts to restore', async () => {
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
       const initialMountCount = mountCount.value
       ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e2', title: 'Done event' })
       await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
@@ -331,7 +511,16 @@ describe('CalendarClient', () => {
 
     it('shows a toast and remounts when the edit fails to persist', async () => {
       mockUpdateTask.mockResolvedValueOnce({ error: 'Not found' })
-      render(<CalendarClient weekStart="2026-05-25" events={events} wakeHour={9} sleepHour={17} />)
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
       const initialMountCount = mountCount.value
       ;(capturedProps.onEventEdit as (e: unknown) => void)({
         id: 'e4',
@@ -340,6 +529,132 @@ describe('CalendarClient', () => {
         end: '2026-05-29T14:00:00.000Z',
       })
       await vi.waitFor(() => expect(mockToastError).toHaveBeenCalled())
+      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+    })
+  })
+
+  // A9: per-day windows (fractional hours) + 24h format threaded from prefs.
+  describe('per-day windows and 24h pass-through', () => {
+    it('forwards dayWindows and use24h to WeekCalendarView', () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={true}
+        />,
+      )
+      expect(capturedProps.dayWindows).toEqual(DAY_WINDOWS)
+      expect(capturedProps.use24h).toBe(true)
+    })
+  })
+
+  // The 0.17.0 completion contract: status→completed, opt-in completable, streak.
+  describe('completion contract mapping (0.17.0)', () => {
+    it('maps status to completed, marks chips completable, and forwards streak', () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const libEvents = capturedProps.events as ReadonlyArray<{
+        id: string
+        completed?: boolean
+        completable?: boolean
+        streak?: number
+      }>
+      const run = libEvents.find((e) => e.id === 'e1')!
+      const done = libEvents.find((e) => e.id === 'e2')!
+      expect(run.completed).toBe(false)
+      expect(done.completed).toBe(true)
+      expect(run.completable).toBe(true)
+      expect(run.streak).toBe(3)
+    })
+  })
+
+  // The chip complete circle fires onEventToggleComplete; persistence mirrors
+  // useActivityActions: recurring → recordCompletion, non-recurring → updateTask.
+  describe('complete-toggle persistence (0.17.0)', () => {
+    it('logs a recurring event via recordCompletion', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({ id: 'e5' })
+      await vi.waitFor(() =>
+        expect(mockRecordCompletion).toHaveBeenCalledWith({ taskId: 'e5', outcome: 'done' }),
+      )
+      expect(mockUpdateTask).not.toHaveBeenCalled()
+      expect(mockRefresh).toHaveBeenCalled()
+    })
+
+    it('marks a non-recurring event complete via updateTask', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({ id: 'e1' })
+      await vi.waitFor(() =>
+        expect(mockUpdateTask).toHaveBeenCalledWith({ id: 'e1', status: 'completed' }),
+      )
+      expect(mockRecordCompletion).not.toHaveBeenCalled()
+      expect(mockRefresh).toHaveBeenCalled()
+    })
+
+    it('toasts and remounts when a recurring completion fails', async () => {
+      mockRecordCompletion.mockResolvedValueOnce({ error: 'Unauthorized' })
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const initialMountCount = mountCount.value
+      ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({ id: 'e5' })
+      await vi.waitFor(() =>
+        expect(mockToastError).toHaveBeenCalledWith('Could not log completion'),
+      )
+      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+    })
+
+    it('toasts and remounts when a non-recurring completion fails', async () => {
+      mockUpdateTask.mockResolvedValueOnce({ error: 'Not found' })
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const initialMountCount = mountCount.value
+      ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({ id: 'e1' })
+      await vi.waitFor(() => expect(mockToastError).toHaveBeenCalledWith('Could not mark complete'))
       await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
     })
   })

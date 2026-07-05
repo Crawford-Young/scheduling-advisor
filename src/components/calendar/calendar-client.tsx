@@ -15,8 +15,9 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
   type CalendarEvent as LibraryCalendarEvent,
+  type DayWindow,
 } from '@/lib/ui'
-import { rescheduleTask } from '@/server/actions/consistency'
+import { rescheduleTask, recordCompletion } from '@/server/actions/consistency'
 import { createTask, deleteTask, updateTask } from '@/server/actions/tasks'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -76,6 +77,12 @@ function toLibraryEvent(e: AppCalendarEvent): LibraryCalendarEvent {
     allDay: e.allDay ?? undefined,
     location: e.location ?? undefined,
     description: e.description ?? undefined,
+    // Completion contract (0.17.0): the chip renders a one-click complete circle
+    // (opt-in via `completable`) and a flame+count when `streak > 0`. `completed`
+    // drives the filled-circle state; toggling it fires onEventToggleComplete.
+    completed: e.status === 'completed',
+    completable: true,
+    streak: e.streak,
     // Round-trip the frequency so the chip's edit form seeds the Repeat select.
     recurrenceFrequency: toLibraryRecurrenceFrequency(e.recurrence),
     // recurrenceDays is intentionally omitted: each stored row is a standalone
@@ -91,6 +98,10 @@ interface CalendarClientProps {
   readonly events: readonly AppCalendarEvent[]
   readonly wakeHour: number
   readonly sleepHour: number
+  /** Per-day awake windows in fractional hours, Sun-first (7 entries). */
+  readonly dayWindows: readonly DayWindow[]
+  /** Render task times as 24-hour instead of 12-hour with AM/PM. */
+  readonly use24h: boolean
 }
 
 export function CalendarClient({
@@ -98,6 +109,8 @@ export function CalendarClient({
   events,
   wakeHour,
   sleepHour,
+  dayWindows,
+  use24h,
 }: CalendarClientProps): React.JSX.Element {
   const [showFullDay, setShowFullDay] = useState(false)
   const hourStart = showFullDay ? 0 : wakeHour
@@ -210,6 +223,24 @@ export function CalendarClient({
     })
   }
 
+  // The chip's complete circle (0.17.0) fires onEventToggleComplete. Persistence
+  // mirrors useActivityActions.handleComplete: recurring tasks log an occurrence
+  // via recordCompletion, non-recurring tasks/goals flip status via updateTask.
+  // On failure, remount to restore the chip's optimistic state (calendar pattern).
+  function handleEventToggleComplete(libEvent: LibraryCalendarEvent): void {
+    const isRecurring = events.find((e) => e.id === libEvent.id)?.recurrence != null
+    startTransition(async () => {
+      const result = isRecurring
+        ? await recordCompletion({ taskId: libEvent.id, outcome: 'done' })
+        : await updateTask({ id: libEvent.id, status: 'completed' })
+      if ('error' in result) {
+        toast.error(isRecurring ? 'Could not log completion' : 'Could not mark complete')
+        setResetKey((k) => k + 1)
+      }
+      router.refresh()
+    })
+  }
+
   function handleEventCreate(payload: Omit<LibraryCalendarEvent, 'id'>): void {
     resyncQueuedRef.current = true
     startResyncTransition(async () => {
@@ -248,11 +279,14 @@ export function CalendarClient({
           onEventDelete={(e) => setDeleteTarget(e)}
           onEventEdit={handleEventEdit}
           onEventCreate={handleEventCreate}
+          onEventToggleComplete={handleEventToggleComplete}
           hourStart={hourStart}
           hourCount={hourCount}
           sleepEnabled={sleepEnabled}
           sleepStart={sleepStart}
           sleepEnd={sleepEnd}
+          dayWindows={dayWindows}
+          use24h={use24h}
         />
       </div>
 
