@@ -25,8 +25,8 @@ importers:
         specifier: ^1.11.2
         version: 1.11.2
       '@crawfordyoung/ui':
-        specifier: ^0.13.1
-        version: 0.13.1(@tanstack/react-table@8.21.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(cmdk@1.1.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(date-fns@4.1.0)(framer-motion@12.40.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(lucide-react@1.11.0(react@19.2.4))(react-day-picker@9.14.0(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react-is@18.3.1)(react@19.2.4)(redux@5.0.1)(sonner@2.0.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(tailwindcss-animate@1.0.7(tailwindcss@4.2.4))(tailwindcss@4.2.4)
+        specifier: ^0.17.0
+        version: 0.17.0(@tanstack/react-table@8.21.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(cmdk@1.1.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(date-fns@4.1.0)(framer-motion@12.40.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(lucide-react@1.11.0(react@19.2.4))(react-day-picker@9.14.0(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react-is@18.3.1)(react@19.2.4)(redux@5.0.1)(sonner@2.0.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(tailwindcss-animate@1.0.7(tailwindcss@4.2.4))(tailwindcss@4.2.4)
       '@neondatabase/serverless':
         specifier: ^1.1.0
         version: 1.1.0
@@ -454,8 +454,8 @@ packages:
       conventional-commits-parser:
         optional: true
 
-  '@crawfordyoung/ui@0.13.1':
-    resolution: {integrity: sha512-NH41k7aZSJeErY/ItqeYawklyd0o6mP1eUtMqLW7nxc4hQam7DTzx+xwxAyfE/MYObjb/h4xyUiPqZ4sGgI1nQ==}
+  '@crawfordyoung/ui@0.17.0':
+    resolution: {integrity: sha512-8wdWksqmUXGCVCLXihvVkzHIRrXqJW9xs4jFAMxFzq6U2C81iSXc+otsgOQznHNE6ath6vC//CYCBPkcqVoRhw==}
     peerDependencies:
       '@tanstack/react-table': '>=8'
       cmdk: '>=1'
@@ -6576,7 +6576,7 @@ snapshots:
     optionalDependencies:
       conventional-commits-parser: 6.4.0
 
-  '@crawfordyoung/ui@0.13.1(@tanstack/react-table@8.21.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(cmdk@1.1.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(date-fns@4.1.0)(framer-motion@12.40.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(lucide-react@1.11.0(react@19.2.4))(react-day-picker@9.14.0(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react-is@18.3.1)(react@19.2.4)(redux@5.0.1)(sonner@2.0.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(tailwindcss-animate@1.0.7(tailwindcss@4.2.4))(tailwindcss@4.2.4)':
+  '@crawfordyoung/ui@0.17.0(@tanstack/react-table@8.21.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(cmdk@1.1.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(date-fns@4.1.0)(framer-motion@12.40.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(lucide-react@1.11.0(react@19.2.4))(react-day-picker@9.14.0(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react-is@18.3.1)(react@19.2.4)(redux@5.0.1)(sonner@2.0.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(tailwindcss-animate@1.0.7(tailwindcss@4.2.4))(tailwindcss@4.2.4)':
     dependencies:
       '@radix-ui/react-accordion': 1.2.13(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@radix-ui/react-alert-dialog': 1.1.16(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)

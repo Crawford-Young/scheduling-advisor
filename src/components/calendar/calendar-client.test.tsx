@@ -10,6 +10,7 @@ const refreshMock = vi.fn()
 const createTaskMock = vi.fn()
 const deleteTaskMock = vi.fn()
 const rescheduleTaskMock = vi.fn()
+const recordCompletionMock = vi.fn()
 const updateTaskMock = vi.fn()
 const toastErrorMock = vi.fn()
 
@@ -37,6 +38,7 @@ vi.mock('@/server/actions/tasks', () => ({
 
 vi.mock('@/server/actions/consistency', () => ({
   rescheduleTask: (input: unknown) => rescheduleTaskMock(input),
+  recordCompletion: (input: unknown) => recordCompletionMock(input),
 }))
 
 // ── @/lib/ui mock ──────────────────────────────────────────────────────────
@@ -52,6 +54,14 @@ interface MockLibEvent {
   readonly allDay?: boolean
   readonly recurrenceFrequency?: string
   readonly recurrenceDays?: readonly string[]
+  readonly completed?: boolean
+  readonly completable?: boolean
+  readonly streak?: number
+}
+
+interface MockDayWindow {
+  readonly wake: number
+  readonly sleep: number
 }
 
 interface MockCreatePayload {
@@ -74,11 +84,14 @@ interface WeekCalendarViewProps {
   readonly onEventDelete?: (e: MockLibEvent) => void
   readonly onEventEdit?: (e: MockLibEvent) => void
   readonly onEventCreate?: (e: MockCreatePayload) => void
+  readonly onEventToggleComplete?: (e: MockLibEvent) => void
   readonly hourStart?: number
   readonly hourCount?: number
   readonly sleepEnabled?: boolean
   readonly sleepStart?: number
   readonly sleepEnd?: number
+  readonly dayWindows?: readonly MockDayWindow[]
+  readonly use24h?: boolean
 }
 
 // id matches EVENTS[0].id so isCompleted() returns false.
@@ -145,6 +158,15 @@ vi.mock('@/lib/ui', () => ({
       data-evt0-description={props.events?.[0]?.description ?? ''}
       // A persisted, truthy color (evt-done) must pass through unchanged.
       data-evt1-color={props.events?.[1]?.color ?? ''}
+      // A9: 24h format + per-day windows threaded from prefs, and the 0.17.0
+      // completion contract (completed/completable/streak) mapped onto chips.
+      data-use24h={String(props.use24h ?? '')}
+      data-day-windows-length={String(props.dayWindows?.length ?? '')}
+      data-day-windows-wake0={String(props.dayWindows?.[0]?.wake ?? '')}
+      data-evt0-completed={String(props.events?.[0]?.completed ?? '')}
+      data-evt0-completable={String(props.events?.[0]?.completable ?? '')}
+      data-evt0-streak={String(props.events?.[0]?.streak ?? '')}
+      data-evt1-completed={String(props.events?.[1]?.completed ?? '')}
     >
       <button type="button" onClick={() => props.onEventDelete?.(STUB_LIB_EVENT)}>
         trigger-delete
@@ -190,6 +212,14 @@ vi.mock('@/lib/ui', () => ({
       </button>
       <button type="button" onClick={() => props.onEventEdit?.(STUB_COMPLETED_LIB_EVENT)}>
         trigger-edit-completed
+      </button>
+      {/* Recurring event (evt-1 has recurrence 'weekly') → recordCompletion. */}
+      <button type="button" onClick={() => props.onEventToggleComplete?.(STUB_LIB_EVENT)}>
+        trigger-toggle-recurring
+      </button>
+      {/* Non-recurring event (evt-done has no recurrence) → updateTask status. */}
+      <button type="button" onClick={() => props.onEventToggleComplete?.(STUB_COMPLETED_LIB_EVENT)}>
+        trigger-toggle-nonrecurring
       </button>
     </div>
   ),
@@ -260,6 +290,10 @@ vi.mock('@/lib/ui', () => ({
 
 const WEEK_START = '2026-01-06'
 
+// Per-day awake windows in fractional hours, Sun-first (7 entries) — the shape
+// page.tsx builds from prefs (minutes ÷ 60) and threads through CalendarClient.
+const DAY_WINDOWS = Array.from({ length: 7 }, () => ({ wake: 9, sleep: 17 }))
+
 const EVENTS = [
   {
     id: 'evt-1',
@@ -268,7 +302,7 @@ const EVENTS = [
     end: '2026-01-06T10:00:00.000Z',
     type: 'task' as const,
     status: 'pending' as const,
-    streak: 0,
+    streak: 5,
     activityType: 'solo',
     visibility: 'only_me',
     recurrence: 'weekly',
@@ -321,7 +355,16 @@ describe('CalendarClient — resync machinery (characterization)', () => {
   it('failed delete bumps resetKey (WeekCalendarView remounts) and calls toast.error', async () => {
     deleteTaskMock.mockResolvedValueOnce({ error: 'Not found' })
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     const beforeNode = screen.getByTestId('week-calendar-view')
 
@@ -337,7 +380,16 @@ describe('CalendarClient — resync machinery (characterization)', () => {
 
   it('successful delete does NOT bump resetKey (confirmedRef guards against remount)', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     const beforeNode = screen.getByTestId('week-calendar-view')
 
@@ -354,7 +406,16 @@ describe('CalendarClient — resync machinery (characterization)', () => {
 
   it('cancelling the delete dialog bumps resetKey (WeekCalendarView remounts)', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     const beforeNode = screen.getByTestId('week-calendar-view')
 
@@ -371,7 +432,16 @@ describe('CalendarClient — resync machinery (characterization)', () => {
   it('reschedule failure (move) bumps resetKey (WeekCalendarView remounts) and calls toast.error', async () => {
     rescheduleTaskMock.mockResolvedValueOnce({ error: 'Unauthorized' })
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     const beforeNode = screen.getByTestId('week-calendar-view')
 
@@ -388,7 +458,16 @@ describe('CalendarClient — resync machinery (characterization)', () => {
 
   it('resize wires to the same reschedule path', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
     await user.click(screen.getByRole('button', { name: 'trigger-resize' }))
     await waitFor(() => expect(rescheduleTaskMock).toHaveBeenCalled())
   })
@@ -410,7 +489,16 @@ describe('CalendarClient — event edit persistence', () => {
 
   it('persists the finished chip-popover edit via updateTask (no app dialog opens)', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: 'trigger-edit' }))
 
@@ -434,7 +522,16 @@ describe('CalendarClient — event edit persistence', () => {
 
   it('maps missing optional fields to null / allDay:false on edit', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: 'trigger-edit-min' }))
 
@@ -454,7 +551,16 @@ describe('CalendarClient — event edit persistence', () => {
 
   it('refuses to edit a completed event (remounts to restore, no updateTask)', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     const beforeNode = screen.getByTestId('week-calendar-view')
     await user.click(screen.getByRole('button', { name: 'trigger-edit-completed' }))
@@ -469,7 +575,16 @@ describe('CalendarClient — event edit persistence', () => {
   it('surfaces a toast and remounts when the edit fails to persist', async () => {
     updateTaskMock.mockResolvedValueOnce({ error: 'Not found' })
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     const beforeNode = screen.getByTestId('week-calendar-view')
     await user.click(screen.getByRole('button', { name: 'trigger-edit' }))
@@ -482,7 +597,16 @@ describe('CalendarClient — event edit persistence', () => {
   })
 
   it('round-trips the stored recurrence into recurrenceFrequency (no recurrenceDays)', () => {
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
     const view = screen.getByTestId('week-calendar-view')
     // EVENTS[0].recurrence === 'weekly' → library recurrenceFrequency.
     expect(view.dataset.evt0Recurrence).toBe('weekly')
@@ -502,13 +626,31 @@ describe('CalendarClient — event edit persistence', () => {
 
 describe('CalendarClient — color and detail field mapping (A8.11)', () => {
   it('maps a persisted null color to the library "default" variant, not a type-based blue/amber fallback', () => {
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
     const view = screen.getByTestId('week-calendar-view')
     expect(view.dataset.evt0Color).toBe('default')
   })
 
   it('forwards allDay, location, and description to the library event', () => {
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
     const view = screen.getByTestId('week-calendar-view')
     expect(view.dataset.evt0AllDay).toBe('true')
     expect(view.dataset.evt0Location).toBe('Gym')
@@ -516,7 +658,16 @@ describe('CalendarClient — color and detail field mapping (A8.11)', () => {
   })
 
   it('passes a persisted, truthy user-chosen color through unchanged', () => {
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
     const view = screen.getByTestId('week-calendar-view')
     expect(view.dataset.evt1Color).toBe('violet')
   })
@@ -537,7 +688,16 @@ describe('CalendarClient — event create wiring', () => {
 
   it('onEventCreate persists a task from the library payload including recurrenceDays', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: 'trigger-create' }))
 
@@ -563,7 +723,16 @@ describe('CalendarClient — event create wiring', () => {
 
   it('onEventCreate with a minimal payload applies the null/false fallbacks', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: 'trigger-create-min' }))
 
@@ -585,7 +754,16 @@ describe('CalendarClient — event create wiring', () => {
   it('onEventCreate error surfaces toast.error', async () => {
     createTaskMock.mockResolvedValueOnce({ error: 'Too many requests' })
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: 'trigger-create' }))
 
@@ -607,12 +785,30 @@ describe('CalendarClient — library-only calendar UI', () => {
   })
 
   it('renders no "+ New" button', () => {
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
     expect(screen.queryByRole('button', { name: '+ New' })).not.toBeInTheDocument()
   })
 
   it('renders no app-owned activity dialog', () => {
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
     expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
   })
 })
@@ -625,7 +821,16 @@ describe('CalendarClient — wake/sleep window', () => {
   })
 
   it('passes windowed props (hourStart=9, hourCount=8, sleepEnabled=false, sleepStart=17, sleepEnd=9) by default', () => {
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     const view = screen.getByTestId('week-calendar-view')
     expect(view.dataset.hourStart).toBe('9')
@@ -637,7 +842,16 @@ describe('CalendarClient — wake/sleep window', () => {
 
   it('clicking SleepToggle flips to full-day view (hourStart=0, hourCount=24, sleepEnabled=true)', async () => {
     const user = userEvent.setup()
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: 'sleep-toggle' }))
 
@@ -652,9 +866,189 @@ describe('CalendarClient — wake/sleep window', () => {
 
 describe('CalendarClient — no app-owned click handler (A8.7)', () => {
   it('does not pass an onEventClick handler to WeekCalendarView', () => {
-    render(<CalendarClient weekStart={WEEK_START} events={EVENTS} wakeHour={9} sleepHour={17} />)
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
 
     const view = screen.getByTestId('week-calendar-view')
     expect(view.dataset.hasEventClick).toBe('false')
+  })
+})
+
+// ── per-day windows + 24h format pass-through (A9) ──────────────────────────
+//
+// page.tsx resolves per-day awake windows (fractional hours) and the 24h format
+// preference and threads them through CalendarClient into WeekCalendarView.
+
+describe('CalendarClient — per-day windows and 24h pass-through (A9)', () => {
+  it('forwards dayWindows (7 Sun-first entries) to WeekCalendarView unchanged', () => {
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+    const view = screen.getByTestId('week-calendar-view')
+    expect(view.dataset.dayWindowsLength).toBe('7')
+    expect(view.dataset.dayWindowsWake0).toBe('9')
+  })
+
+  it('forwards use24h to WeekCalendarView', () => {
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={true}
+      />,
+    )
+    const view = screen.getByTestId('week-calendar-view')
+    expect(view.dataset.use24h).toBe('true')
+  })
+})
+
+// ── completion contract mapping (0.17.0) ────────────────────────────────────
+//
+// toLibraryEvent maps the app status/streak onto the library's completion
+// contract: completed (status === 'completed'), completable (always opt-in),
+// and streak (flame+count on the time line).
+
+describe('CalendarClient — completion contract mapping (0.17.0)', () => {
+  it('maps status to completed and marks every chip completable, forwarding streak', () => {
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+    const view = screen.getByTestId('week-calendar-view')
+    // evt-1 is pending → completed:false; evt-done is completed → completed:true.
+    expect(view.dataset.evt0Completed).toBe('false')
+    expect(view.dataset.evt1Completed).toBe('true')
+    expect(view.dataset.evt0Completable).toBe('true')
+    // Streak is forwarded verbatim (evt-1 fixture has streak 5).
+    expect(view.dataset.evt0Streak).toBe('5')
+  })
+})
+
+// ── complete-toggle persistence (0.17.0) ────────────────────────────────────
+//
+// onEventToggleComplete mirrors useActivityActions.handleComplete: recurring
+// tasks log an occurrence via recordCompletion, non-recurring tasks/goals flip
+// status via updateTask. On failure it toasts and remounts to restore.
+
+describe('CalendarClient — complete-toggle persistence (0.17.0)', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    recordCompletionMock.mockClear()
+    recordCompletionMock.mockResolvedValue({})
+    updateTaskMock.mockClear()
+    updateTaskMock.mockResolvedValue({})
+    toastErrorMock.mockClear()
+  })
+
+  it('logs a recurring event via recordCompletion (not updateTask)', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-toggle-recurring' }))
+
+    await waitFor(() =>
+      expect(recordCompletionMock).toHaveBeenCalledWith({ taskId: 'evt-1', outcome: 'done' }),
+    )
+    expect(updateTaskMock).not.toHaveBeenCalled()
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('marks a non-recurring event complete via updateTask (not recordCompletion)', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-toggle-nonrecurring' }))
+
+    await waitFor(() =>
+      expect(updateTaskMock).toHaveBeenCalledWith({ id: 'evt-done', status: 'completed' }),
+    )
+    expect(recordCompletionMock).not.toHaveBeenCalled()
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('toasts and remounts when a recurring completion fails to persist', async () => {
+    recordCompletionMock.mockResolvedValueOnce({ error: 'Unauthorized' })
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    const beforeNode = screen.getByTestId('week-calendar-view')
+    await user.click(screen.getByRole('button', { name: 'trigger-toggle-recurring' }))
+
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not log completion'))
+    expect(screen.getByTestId('week-calendar-view')).not.toBe(beforeNode)
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('toasts and remounts when a non-recurring completion fails to persist', async () => {
+    updateTaskMock.mockResolvedValueOnce({ error: 'Not found' })
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    const beforeNode = screen.getByTestId('week-calendar-view')
+    await user.click(screen.getByRole('button', { name: 'trigger-toggle-nonrecurring' }))
+
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not mark complete'))
+    expect(screen.getByTestId('week-calendar-view')).not.toBe(beforeNode)
+    expect(refreshMock).toHaveBeenCalled()
   })
 })

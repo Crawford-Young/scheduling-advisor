@@ -6,7 +6,11 @@ import { getTaskStreaks } from '@/server/queries/consistency'
 import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
 import { safeDeleteExpiredEvents } from '@/server/actions/event-ttl'
 import { CalendarClient } from '@/components/calendar/calendar-client'
-import { DEFAULT_WAKE_MINUTES, DEFAULT_SLEEP_MINUTES } from '@/lib/calendar-windows'
+import {
+  DEFAULT_WAKE_MINUTES,
+  DEFAULT_SLEEP_MINUTES,
+  resolveDayWindows,
+} from '@/lib/calendar-windows'
 
 const MINUTES_PER_HOUR = 60
 
@@ -33,6 +37,15 @@ export default async function CalendarPage(): Promise<React.JSX.Element> {
   const sleepMinutes = prefs?.workingHoursEnd ?? DEFAULT_SLEEP_MINUTES
   const wakeHour = Math.floor(wakeMinutes / MINUTES_PER_HOUR)
   const sleepHour = Math.ceil(sleepMinutes / MINUTES_PER_HOUR)
+
+  // resolveDayWindows emits minutes-since-midnight (A2.1 persistence); the
+  // library's dayWindows expect fractional HOURS (L4.1). Convert at this single
+  // boundary. WeekCalendarView ignores the hour/sleep window props when
+  // dayWindows is present, but passing both is the documented compatible path.
+  const dayWindows = resolveDayWindows(prefs).map((w) => ({
+    wake: w.wake / MINUTES_PER_HOUR,
+    sleep: w.sleep / MINUTES_PER_HOUR,
+  }))
 
   await safeDeleteExpiredEvents()
   const allTasks = await getUserTasks()
@@ -73,6 +86,8 @@ export default async function CalendarPage(): Promise<React.JSX.Element> {
         events={events}
         wakeHour={wakeHour}
         sleepHour={sleepHour}
+        dayWindows={dayWindows}
+        use24h={prefs?.use24h ?? false}
       />
     </div>
   )
