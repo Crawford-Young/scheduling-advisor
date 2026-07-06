@@ -1,6 +1,6 @@
 # Cybond
 
-Consistency-first scheduling app. The week calendar is home: plan tasks and goals (recurring tasks cover what used to be "habits"); check in on what you did; keep per-task streaks and a weekly consistency score. Cybond's AI assistant helps you find time and reschedule around your real calendar.
+Consistency-first scheduling app. The week calendar is home: plan tasks and goals (recurring tasks cover what used to be "habits"); check in on what you did; keep streaks per activity and a weekly consistency score. Cybond's AI assistant helps you find time and reschedule around your real calendar.
 
 ## Features
 
@@ -9,11 +9,12 @@ Consistency-first scheduling app. The week calendar is home: plan tasks and goal
   - Edit / + New: the library's `ActivityFormDialog` dialog (morphs task ↔ goal)
   - Reschedule: drag or resize events; completed events are locked and snap back
   - Delete: confirm dialog, optimistic UI with automatic restore on error or cancel
+  - Repeat: setting Repeat on any event — at create or later via edit — materializes a series of distinct occurrence rows sharing the event's info; series edits apply to this-and-following occurrences and never touch the past
   - Wake→sleep window by default (hours from Settings, default 9–17); the Sleep mode toggle switches to a full 24h grid with shaded sleep zones where drag-create is blocked
 - **Activities** — one `/activities` destination unifying goals and tasks as a sortable 5-column DataTable: Title (incl. color dot + type badge) · When (date + recurrence) · Status (badge + streak flame) · Social (activityType + visibility) · Actions (complete check-icon, edit, delete). Search (`?q=`, debounced), type/status filters, recurring-only toggle, and a `+ New` button. Replaces the former separate `/goals`, `/habits`, and `/tasks` routes.
 - **Check-in flow** — tap an event to log Done / Skipped; perfect weeks get a celebration
 - **Ask Cybond** — "Ask Cybond" on a check-in opens the chat panel pre-filled with a reschedule request; the assistant proposes times via tools you confirm or deny
-- **Streaks + consistency** — per-task streak badges and a weekly consistency bar
+- **Streaks + consistency** — streak badges and a weekly consistency bar; a recurring series keeps one shared streak across its occurrences (derived from the group's completion history), while completion itself is always per-occurrence
 - **Activity settings** — visibility and joinability per activity; wake/sleep hours under Settings → Calendar
 - **Tokens** — the app is free to use; tokens purchase AI assistance (Cy chat, AI reflections). Buy a monthly subscription (Starter/Growth/Pro) or one-off token packs at `/tokens`
 
