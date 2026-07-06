@@ -8,6 +8,9 @@ export const taskStatusSchema = z.enum(['pending', 'in_progress', 'completed'])
 // library emits these strings in `onEventCreate`/`onEventEdit` recurrenceDays.
 export const dayOfWeekSchema = z.enum(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'])
 
+// A set of selected weekday tokens for a weekly recurrence pattern.
+export const dayTokenArraySchema = z.array(dayOfWeekSchema).readonly()
+
 export const createTaskSchema = z.object({
   title: z.string().min(1, 'Title required').max(200),
   type: taskTypeSchema,
@@ -43,7 +46,17 @@ export const deleteTaskSchema = z.object({
   id: z.string().uuid(),
 })
 
+// Regenerate a recurrence group's future pending occurrences from a new pattern.
+// `taskId` resolves the group; the anchor row supplies title/time-of-day/duration.
+export const updateTaskSeriesSchema = z.object({
+  taskId: z.string().min(1),
+  recurrence: z.enum(['daily', 'weekly', 'monthly']),
+  recurrenceDays: dayTokenArraySchema.optional(),
+  recurrenceCount: z.number().int().min(1).max(52).optional(),
+})
+
 export type DayOfWeek = z.infer<typeof dayOfWeekSchema>
 export type CreateTask = z.infer<typeof createTaskSchema>
 export type UpdateTask = z.infer<typeof updateTaskSchema>
 export type DeleteTask = z.infer<typeof deleteTaskSchema>
+export type UpdateTaskSeries = z.infer<typeof updateTaskSeriesSchema>
