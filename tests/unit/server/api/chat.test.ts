@@ -148,7 +148,7 @@ describe('POST /api/chat', () => {
       makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: VALID_UUID }),
     )
     expect(vi.mocked(streamText)).toHaveBeenCalledWith(
-      expect.objectContaining({ system: 'test-system-prompt', maxSteps: 5 }),
+      expect.objectContaining({ system: 'test-system-prompttest-context-block', maxSteps: 5 }),
     )
   })
 
