@@ -2,12 +2,23 @@
 import { auth } from '@/auth'
 import { db } from '@/db'
 import { tasks } from '@/db/schema'
-import { createTaskSchema, updateTaskSchema, deleteTaskSchema } from '@/lib/schemas/task'
-import { eq, and } from 'drizzle-orm'
+import {
+  createTaskSchema,
+  updateTaskSchema,
+  deleteTaskSchema,
+  updateTaskSeriesSchema,
+  type DayOfWeek,
+} from '@/lib/schemas/task'
+import { eq, and, gt } from 'drizzle-orm'
 import { ratelimit } from '@/lib/redis'
 import { logger } from '@/lib/logger'
 
 type TaskActionResult = { data: (typeof tasks)['$inferSelect'] } | { error: unknown }
+type TaskInsert = (typeof tasks)['$inferInsert']
+
+// A fanned-out occurrence always carries a concrete startAt, which lets callers
+// key on it (e.g. the completed-slot skip in updateTaskSeries) without a re-guard.
+type GeneratedRow = TaskInsert & { readonly startAt: Date; readonly endAt: Date | null }
 
 const SUPPORTED_RECURRENCES = ['daily', 'weekly', 'monthly'] as const
 
@@ -15,6 +26,77 @@ const SUPPORTED_RECURRENCES = ['daily', 'weekly', 'monthly'] as const
 // the library's DAY_ABBR ordering so recurrenceDays map to the right column.
 const DAY_TOKENS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
 const DAYS_PER_WEEK = 7
+
+// Fields shared by every row of a recurrence group; the fan-out helpers stamp
+// startAt/endAt onto copies of this base.
+interface SeriesBaseFields {
+  readonly userId: string
+  readonly title: string
+  readonly type: TaskInsert['type']
+  readonly recurrence: string | null
+  readonly recurrenceGroupId: string
+  readonly recurrenceDays: readonly DayOfWeek[] | null
+  readonly recurrenceCount: number | null
+  readonly targetDate: Date | null
+  readonly location: string | null
+  readonly description: string | null
+  readonly color: string | null
+  readonly allDay: boolean
+}
+
+// Weekly multi-day fan-out: one row per selected weekday, anchored to that
+// weekday within `baseStart`'s week and repeated over `weeks` weeks. Times are
+// carried from baseStart/baseEnd.
+function buildWeekdayRows(
+  base: SeriesBaseFields,
+  baseStart: Date,
+  baseEnd: Date | null,
+  selectedDows: readonly number[],
+  weeks: number,
+): GeneratedRow[] {
+  const rows: GeneratedRow[] = []
+  const baseDow = baseStart.getUTCDay()
+  for (let week = 0; week < weeks; week++) {
+    for (const dow of selectedDows) {
+      const dayShift = dow - baseDow + week * DAYS_PER_WEEK
+      const start = new Date(baseStart)
+      start.setUTCDate(start.getUTCDate() + dayShift)
+      let end: Date | null = null
+      if (baseEnd) {
+        end = new Date(baseEnd)
+        end.setUTCDate(end.getUTCDate() + dayShift)
+      }
+      rows.push({ ...base, startAt: start, endAt: end })
+    }
+  }
+  return rows
+}
+
+// Interval fan-out: `count` occurrences stepping by the daily/weekly/monthly
+// recurrence from baseStart, times carried from baseStart/baseEnd.
+function buildIntervalRows(
+  base: SeriesBaseFields,
+  recurrence: string,
+  baseStart: Date,
+  baseEnd: Date | null,
+  count: number,
+): GeneratedRow[] {
+  return Array.from({ length: count }, (_, i) => {
+    const start = new Date(baseStart)
+    const end = baseEnd ? new Date(baseEnd) : null
+    if (recurrence === 'daily') {
+      start.setUTCDate(start.getUTCDate() + i)
+      if (end) end.setUTCDate(end.getUTCDate() + i)
+    } else if (recurrence === 'weekly') {
+      start.setUTCDate(start.getUTCDate() + i * DAYS_PER_WEEK)
+      if (end) end.setUTCDate(end.getUTCDate() + i * DAYS_PER_WEEK)
+    } else {
+      start.setUTCMonth(start.getUTCMonth() + i)
+      if (end) end.setUTCMonth(end.getUTCMonth() + i)
+    }
+    return { ...base, startAt: start, endAt: end }
+  })
+}
 
 export async function createTask(input: unknown): Promise<TaskActionResult> {
   const session = await auth()
@@ -45,40 +127,31 @@ export async function createTask(input: unknown): Promise<TaskActionResult> {
     const groupId = crypto.randomUUID()
     const baseStart = new Date(startAt)
     const baseEnd = endAt ? new Date(endAt) : null
-    const baseDow = baseStart.getUTCDay()
     const selectedDows = recurrenceDays
       .map((token) => DAY_TOKENS.indexOf(token))
       .sort((a, b) => a - b)
 
-    const rows = []
-    for (let week = 0; week < weeks; week++) {
-      for (const dow of selectedDows) {
-        const dayShift = dow - baseDow + week * DAYS_PER_WEEK
-        const start = new Date(baseStart)
-        start.setUTCDate(start.getUTCDate() + dayShift)
-        let end: Date | null = null
-        if (baseEnd) {
-          end = new Date(baseEnd)
-          end.setUTCDate(end.getUTCDate() + dayShift)
-        }
-        rows.push({
-          userId: session.user.id,
-          title: rest.title,
-          type: rest.type,
-          recurrence: rest.recurrence ?? null,
-          recurrenceGroupId: groupId,
-          recurrenceDays: recurrenceDays,
-          recurrenceCount: hasWeekCount ? weeks : null,
-          targetDate: rest.targetDate ? new Date(rest.targetDate) : null,
-          startAt: start,
-          endAt: end,
-          location: rest.location ?? null,
-          description: rest.description ?? null,
-          color: rest.color ?? null,
-          allDay: rest.allDay ?? false,
-        })
-      }
-    }
+    const rows = buildWeekdayRows(
+      {
+        userId: session.user.id,
+        title: rest.title,
+        type: rest.type,
+        // rest.recurrence is 'weekly' throughout this branch (weekdayFanOut guard).
+        recurrence: rest.recurrence!,
+        recurrenceGroupId: groupId,
+        recurrenceDays,
+        recurrenceCount: hasWeekCount ? weeks : null,
+        targetDate: rest.targetDate ? new Date(rest.targetDate) : null,
+        location: rest.location ?? null,
+        description: rest.description ?? null,
+        color: rest.color ?? null,
+        allDay: rest.allDay ?? false,
+      },
+      baseStart,
+      baseEnd,
+      selectedDows,
+      weeks,
+    )
 
     const inserted = await db.insert(tasks).values(rows).returning()
     const first = inserted[0]
@@ -98,38 +171,27 @@ export async function createTask(input: unknown): Promise<TaskActionResult> {
 
   if (shouldFanOut) {
     const groupId = crypto.randomUUID()
-    const rows = Array.from({ length: recurrenceCount! }, (_, i) => {
-      const start = new Date(startAt!)
-      const end = endAt ? new Date(endAt) : null
-
-      if (rest.recurrence === 'daily') {
-        start.setUTCDate(start.getUTCDate() + i)
-        if (end) end.setUTCDate(end.getUTCDate() + i)
-      } else if (rest.recurrence === 'weekly') {
-        start.setUTCDate(start.getUTCDate() + i * 7)
-        if (end) end.setUTCDate(end.getUTCDate() + i * 7)
-      } else if (rest.recurrence === 'monthly') {
-        start.setUTCMonth(start.getUTCMonth() + i)
-        if (end) end.setUTCMonth(end.getUTCMonth() + i)
-      }
-
-      return {
+    const rows = buildIntervalRows(
+      {
         userId: session.user.id,
         title: rest.title,
         type: rest.type,
-        recurrence: rest.recurrence ?? null,
+        // shouldFanOut guarantees rest.recurrence is a non-null frequency string.
+        recurrence: rest.recurrence!,
         recurrenceGroupId: groupId,
         recurrenceDays: null,
         recurrenceCount: recurrenceCount!,
         targetDate: rest.targetDate ? new Date(rest.targetDate) : null,
-        startAt: start,
-        endAt: end,
         location: rest.location ?? null,
         description: rest.description ?? null,
         color: rest.color ?? null,
         allDay: rest.allDay ?? false,
-      }
-    })
+      },
+      rest.recurrence!,
+      new Date(startAt!),
+      endAt ? new Date(endAt) : null,
+      recurrenceCount!,
+    )
 
     const inserted = await db.insert(tasks).values(rows).returning()
     const first = inserted[0]
@@ -226,4 +288,125 @@ export async function deleteTask(
   if (deleted.length === 0) return { error: 'Not found' }
 
   return { data: { success: true } }
+}
+
+export async function updateTaskSeries(input: unknown): Promise<TaskActionResult> {
+  const session = await auth()
+  if (!session?.user?.id) return { error: 'Unauthorized' }
+
+  const { success } = await ratelimit.limit(session.user.id)
+  if (!success) return { error: 'Too many requests' }
+
+  const parsed = updateTaskSeriesSchema.safeParse(input)
+  if (!parsed.success) return { error: parsed.error.flatten() }
+
+  const { taskId, recurrence, recurrenceDays, recurrenceCount } = parsed.data
+  const userId = session.user.id
+  const now = new Date()
+
+  const [anchor] = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
+    .limit(1)
+
+  if (!anchor) return { error: 'Not found' }
+  // A group id is what makes the row a series; without a start there are no
+  // occurrences to anchor a regenerated pattern to.
+  if (!anchor.recurrenceGroupId || !anchor.startAt) return { error: 'Not a series' }
+
+  const groupId = anchor.recurrenceGroupId
+  const anchorStart = anchor.startAt
+
+  // Delete only the group's FUTURE pending rows; past rows and completed rows of
+  // any date survive the regenerate.
+  await db
+    .delete(tasks)
+    .where(
+      and(
+        eq(tasks.recurrenceGroupId, groupId),
+        eq(tasks.userId, userId),
+        eq(tasks.status, 'pending'),
+        gt(tasks.startAt, now),
+      ),
+    )
+
+  // Surviving completed occurrences — a regenerated slot on the exact (day, time)
+  // of one of these is skipped so the recorded completion is not duplicated.
+  const completedRows = await db
+    .select({ startAt: tasks.startAt })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.recurrenceGroupId, groupId),
+        eq(tasks.userId, userId),
+        eq(tasks.status, 'completed'),
+      ),
+    )
+  const completedSlots = new Set(
+    completedRows
+      .filter((row): row is { startAt: Date } => row.startAt !== null)
+      .map((row) => row.startAt.toISOString()),
+  )
+
+  // Anchor regeneration to the week of `now` (UTC) while preserving the series'
+  // original time-of-day and duration.
+  const baseStart = new Date(anchorStart)
+  baseStart.setUTCFullYear(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  const durationMs = anchor.endAt ? anchor.endAt.getTime() - anchorStart.getTime() : null
+  const baseEnd = durationMs === null ? null : new Date(baseStart.getTime() + durationMs)
+
+  const baseFields: Omit<SeriesBaseFields, 'recurrenceDays'> = {
+    userId,
+    title: anchor.title,
+    type: anchor.type,
+    recurrence,
+    recurrenceGroupId: groupId,
+    recurrenceCount: recurrenceCount ?? null,
+    targetDate: anchor.targetDate,
+    location: anchor.location,
+    description: anchor.description,
+    color: anchor.color,
+    allDay: anchor.allDay,
+  }
+
+  const useWeekdays =
+    recurrence === 'weekly' && recurrenceDays !== undefined && recurrenceDays.length > 0
+  const weeks = recurrenceCount !== undefined && recurrenceCount > 1 ? recurrenceCount : 1
+
+  // Only the weekday path persists the token array — matches createTask, where
+  // the interval fan-out always stamps recurrenceDays null.
+  const generated = useWeekdays
+    ? buildWeekdayRows(
+        { ...baseFields, recurrenceDays },
+        baseStart,
+        baseEnd,
+        recurrenceDays.map((token) => DAY_TOKENS.indexOf(token)).sort((a, b) => a - b),
+        weeks,
+      )
+    : buildIntervalRows(
+        { ...baseFields, recurrenceDays: null },
+        recurrence,
+        baseStart,
+        baseEnd,
+        recurrenceCount ?? 1,
+      )
+
+  // Series edits are future-only ("this and following" semantics, symmetric with
+  // the future-pending delete predicate above): a regenerated slot landing at or
+  // before `now` — e.g. a selected weekday earlier in the current week than
+  // today — is dropped rather than inserted as a duplicate/backdated occurrence.
+  const futureRows = generated.filter((row) => row.startAt.getTime() > now.getTime())
+  const rows = futureRows.filter((row) => !completedSlots.has(row.startAt.toISOString()))
+
+  if (rows.length === 0) {
+    logger.info({ userId, groupId }, 'Task series regenerate produced no new rows')
+    return { data: anchor }
+  }
+
+  const inserted = await db.insert(tasks).values(rows).returning()
+  const first = inserted[0]
+  if (!first) return { error: 'Insert failed' }
+  logger.info({ userId, groupId, count: rows.length }, 'Task series regenerated')
+  return { data: first }
 }
