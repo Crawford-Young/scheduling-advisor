@@ -114,20 +114,25 @@ export function useActivityActions({
       // Series-shaped vs row-shaped routing. When a task already part of a
       // recurrence group changes its frequency or repeat count, regenerate the
       // group's future pending rows via updateTaskSeries. Everything else
-      // (goals, one-off tasks, row-shaped-only task edits) keeps updateTask.
+      // (goals, row-shaped-only task edits) keeps updateTask.
       //
       // Mixed edit (a pattern change AND a row-shaped change like title/time in
       // the same save): the series change owns the save — updateTaskSeries
       // regenerates from the anchor row's persisted fields, and the co-changed
       // row-shaped fields are NOT separately written here (interim until S9).
+      //
+      // S10: setting a series frequency on a NON-recurring task ALSO routes to
+      // updateTaskSeries, which materializes the series (updates the anchor in
+      // place and fans out future occurrences). Clearing recurrence on an
+      // already-recurring task (frequency drops to a non-series value) stays on
+      // updateTask — that direction is unchanged.
       const wasRecurring = recurrence != null
       const recurrenceChanged = (values.recurrence ?? null) !== (recurrence ?? null)
       const countChanged = (values.recurrenceCount ?? null) !== (recurrenceCount ?? null)
       const routeToSeries =
         values.type !== 'goal' &&
-        wasRecurring &&
         isSeriesFrequency(values.recurrence) &&
-        (recurrenceChanged || countChanged)
+        (!wasRecurring || recurrenceChanged || countChanged)
 
       const result = routeToSeries
         ? await updateTaskSeries({

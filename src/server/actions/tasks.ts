@@ -26,6 +26,19 @@ const SUPPORTED_RECURRENCES = ['daily', 'weekly', 'monthly'] as const
 // the library's DAY_ABBR ordering so recurrenceDays map to the right column.
 const DAY_TOKENS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
 const DAYS_PER_WEEK = 7
+const SINGLE_WEEK = 1
+// Distinct from SINGLE_WEEK: this is a fallback occurrence COUNT (buildIntervalRows'
+// `count` param), not a week count — same numeric value, different unit.
+const SINGLE_OCCURRENCE = 1
+
+// Weeks to fan a weekday pattern out over: `recurrenceCount` when it specifies
+// more than one week, else a single week. Shared by createTask's weekday
+// fan-out and updateTaskSeries' materialize/regenerate paths.
+function weeksFromCount(recurrenceCount: number | undefined): number {
+  return recurrenceCount !== undefined && recurrenceCount > SINGLE_WEEK
+    ? recurrenceCount
+    : SINGLE_WEEK
+}
 
 // Fields shared by every row of a recurrence group; the fan-out helpers stamp
 // startAt/endAt onto copies of this base.
@@ -122,8 +135,8 @@ export async function createTask(input: unknown): Promise<TaskActionResult> {
     startAt !== undefined
 
   if (weekdayFanOut) {
-    const hasWeekCount = recurrenceCount !== undefined && recurrenceCount > 1
-    const weeks = hasWeekCount ? recurrenceCount : 1
+    const weeks = weeksFromCount(recurrenceCount)
+    const hasWeekCount = weeks > SINGLE_WEEK
     const groupId = crypto.randomUUID()
     const baseStart = new Date(startAt)
     const baseEnd = endAt ? new Date(endAt) : null
@@ -311,9 +324,91 @@ export async function updateTaskSeries(input: unknown): Promise<TaskActionResult
     .limit(1)
 
   if (!anchor) return { error: 'Not found' }
-  // A group id is what makes the row a series; without a start there are no
-  // occurrences to anchor a regenerated pattern to.
-  if (!anchor.recurrenceGroupId || !anchor.startAt) return { error: 'Not a series' }
+  // Without a start there are no occurrences to anchor a regenerated pattern to.
+  if (!anchor.startAt) return { error: 'Not a series' }
+
+  // S10: a row with a startAt but no group id is a standalone (one-off) event.
+  // Setting a recurrence on it MATERIALIZES the series — the anchor becomes the
+  // first member of a fresh group (identity/id/startAt/status untouched, gains
+  // the pattern + a new group id), and future occurrences fan out around it.
+  if (!anchor.recurrenceGroupId) {
+    const newGroupId = crypto.randomUUID()
+    const anchorStart = anchor.startAt
+    const useWeekdays =
+      recurrence === 'weekly' && recurrenceDays !== undefined && recurrenceDays.length > 0
+
+    // Update the anchor in place: pattern + fresh group id only. The weekday path
+    // persists the token array; the interval path persists null (matches
+    // createTask and the existing regenerate path).
+    const [updatedAnchor] = await db
+      .update(tasks)
+      .set({
+        recurrence,
+        recurrenceDays: useWeekdays ? recurrenceDays : null,
+        recurrenceCount: recurrenceCount ?? null,
+        recurrenceGroupId: newGroupId,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
+      .returning()
+
+    if (!updatedAnchor) return { error: 'Not found' }
+
+    // Regenerate around the week of `now`, preserving the anchor's time-of-day
+    // and duration (identical anchoring to the existing series path below).
+    const baseStart = new Date(anchorStart)
+    baseStart.setUTCFullYear(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+    const durationMs = anchor.endAt ? anchor.endAt.getTime() - anchorStart.getTime() : null
+    const baseEnd = durationMs === null ? null : new Date(baseStart.getTime() + durationMs)
+
+    const baseFields: Omit<SeriesBaseFields, 'recurrenceDays'> = {
+      userId,
+      title: anchor.title,
+      type: anchor.type,
+      recurrence,
+      recurrenceGroupId: newGroupId,
+      recurrenceCount: recurrenceCount ?? null,
+      targetDate: anchor.targetDate,
+      location: anchor.location,
+      description: anchor.description,
+      color: anchor.color,
+      allDay: anchor.allDay,
+    }
+    const weeks = weeksFromCount(recurrenceCount)
+    const generated = useWeekdays
+      ? buildWeekdayRows(
+          { ...baseFields, recurrenceDays },
+          baseStart,
+          baseEnd,
+          recurrenceDays.map((token) => DAY_TOKENS.indexOf(token)).sort((a, b) => a - b),
+          weeks,
+        )
+      : buildIntervalRows(
+          { ...baseFields, recurrenceDays: null },
+          recurrence,
+          baseStart,
+          baseEnd,
+          recurrenceCount ?? SINGLE_OCCURRENCE,
+        )
+
+    // Future-only, and skip the anchor's own (day, time) slot — the anchor IS
+    // that occurrence, so a regenerated copy of it would be a duplicate.
+    const anchorSlot = anchorStart.toISOString()
+    const rows = generated
+      .filter((row) => row.startAt.getTime() > now.getTime())
+      .filter((row) => row.startAt.toISOString() !== anchorSlot)
+
+    if (rows.length === 0) {
+      logger.info({ userId, groupId: newGroupId }, 'Task series materialized with no extra rows')
+      return { data: updatedAnchor }
+    }
+
+    const inserted = await db.insert(tasks).values(rows).returning()
+    const first = inserted[0]
+    if (!first) return { error: 'Insert failed' }
+    logger.info({ userId, groupId: newGroupId, count: rows.length }, 'Task series materialized')
+    return { data: updatedAnchor }
+  }
 
   const groupId = anchor.recurrenceGroupId
   const anchorStart = anchor.startAt
@@ -372,7 +467,7 @@ export async function updateTaskSeries(input: unknown): Promise<TaskActionResult
 
   const useWeekdays =
     recurrence === 'weekly' && recurrenceDays !== undefined && recurrenceDays.length > 0
-  const weeks = recurrenceCount !== undefined && recurrenceCount > 1 ? recurrenceCount : 1
+  const weeks = weeksFromCount(recurrenceCount)
 
   // Only the weekday path persists the token array — matches createTask, where
   // the interval fan-out always stamps recurrenceDays null.
@@ -389,7 +484,7 @@ export async function updateTaskSeries(input: unknown): Promise<TaskActionResult
         recurrence,
         baseStart,
         baseEnd,
-        recurrenceCount ?? 1,
+        recurrenceCount ?? SINGLE_OCCURRENCE,
       )
 
   // Series edits are future-only ("this and following" semantics, symmetric with

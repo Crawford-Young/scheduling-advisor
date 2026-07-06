@@ -244,6 +244,38 @@ vi.mock('@/lib/ui', () => ({
       >
         trigger-edit-freq-change
       </button>
+      {/* S10: a NON-recurring event (evt-oneoff) gains a frequency in the chip
+          popover → must route to updateTaskSeries to materialize the series. */}
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventEdit?.({
+            id: 'evt-oneoff',
+            title: 'One off',
+            start: '2026-01-06T11:00:00.000Z',
+            end: '2026-01-06T12:00:00.000Z',
+            recurrenceFrequency: 'weekly',
+          })
+        }
+      >
+        trigger-edit-make-recurring
+      </button>
+      {/* Review fix: a GOAL (evt-goal) edited with a series frequency must NEVER
+          route to updateTaskSeries — goals never materialize into a series. */}
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventEdit?.({
+            id: 'evt-goal',
+            title: 'Read a book',
+            start: '2026-01-06T13:00:00.000Z',
+            end: '2026-01-06T14:00:00.000Z',
+            recurrenceFrequency: 'weekly',
+          })
+        }
+      >
+        trigger-edit-goal-recurrence
+      </button>
       {/* Recurring event (evt-1 has recurrence 'weekly') → recordCompletion.
           Library hands off the TOGGLED event (completed: true = user wants
           it completed now) — see WeekCalendarView.handleEventToggleComplete. */}
@@ -383,6 +415,32 @@ const EVENTS = [
     visibility: 'only_me',
     // Persisted, truthy user-chosen color must pass through unchanged.
     color: 'violet',
+  },
+  // A pending, NON-recurring event — the S10 make-recurring routing fixture.
+  {
+    id: 'evt-oneoff',
+    title: 'One off',
+    start: '2026-01-06T11:00:00.000Z',
+    end: '2026-01-06T12:00:00.000Z',
+    type: 'task' as const,
+    status: 'pending' as const,
+    streak: 0,
+    activityType: 'solo',
+    visibility: 'only_me',
+    recurrence: null,
+  },
+  // A goal (never a series) — the S10 review-fix goal-exclusion fixture.
+  {
+    id: 'evt-goal',
+    title: 'Read a book',
+    start: '2026-01-06T13:00:00.000Z',
+    end: '2026-01-06T14:00:00.000Z',
+    type: 'goal' as const,
+    status: 'pending' as const,
+    streak: 0,
+    activityType: 'solo',
+    visibility: 'only_me',
+    recurrence: null,
   },
 ]
 
@@ -786,6 +844,96 @@ describe('CalendarClient — series-shaped edit routing (S8)', () => {
     )
     expect(screen.getByTestId('week-calendar-view')).not.toBe(beforeNode)
     expect(refreshMock).toHaveBeenCalled()
+  })
+})
+
+// ── make-recurring routing (S10) ────────────────────────────────────────────
+//
+// Setting a frequency on a NON-recurring event routes to updateTaskSeries, which
+// materializes the series (updates the anchor in place + fans out future rows).
+// Clearing recurrence on an already-recurring event stays on updateTask.
+
+describe('CalendarClient — make-recurring routing (S10)', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    updateTaskMock.mockClear()
+    updateTaskMock.mockResolvedValue({})
+    updateTaskSeriesMock.mockClear()
+    updateTaskSeriesMock.mockResolvedValue({})
+    toastErrorMock.mockClear()
+  })
+
+  it('routes making a non-recurring event recurring to updateTaskSeries (not updateTask)', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-edit-make-recurring' }))
+
+    await waitFor(() =>
+      expect(updateTaskSeriesMock).toHaveBeenCalledWith({
+        taskId: 'evt-oneoff',
+        recurrence: 'weekly',
+        recurrenceDays: undefined,
+      }),
+    )
+    expect(updateTaskMock).not.toHaveBeenCalled()
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('keeps clearing recurrence on a recurring event on updateTask (series → one-off)', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    // evt-1 is stored 'weekly'; the minimal edit payload carries no
+    // recurrenceFrequency → recurrence cleared → row-shaped updateTask.
+    await user.click(screen.getByRole('button', { name: 'trigger-edit-min' }))
+
+    await waitFor(() => expect(updateTaskMock).toHaveBeenCalled())
+    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+  })
+
+  // Review fix: goals never materialize into a series — the pre-S10 wasRecurring
+  // gate implicitly protected goals (never recurring → false → updateTask); the
+  // !wasRecurring materialize arm must not remove that protection.
+  it('never routes a goal edited with a series frequency to updateTaskSeries', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-edit-goal-recurrence' }))
+
+    await waitFor(() =>
+      expect(updateTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'evt-goal', recurrence: 'weekly' }),
+      ),
+    )
+    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
   })
 })
 

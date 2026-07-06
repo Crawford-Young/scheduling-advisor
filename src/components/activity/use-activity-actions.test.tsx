@@ -444,6 +444,54 @@ describe('useActivityActions', () => {
     expect(refreshMock).toHaveBeenCalled()
   })
 
+  // S10: setting a frequency (± count) on a NON-recurring task routes to
+  // updateTaskSeries, which materializes the series. Clearing recurrence on an
+  // already-recurring task stays on updateTask (series → one-off, unchanged).
+  it('routes making a non-recurring task recurring to updateTaskSeries (materialize)', async () => {
+    const user = userEvent.setup()
+    render(
+      <ActivityActionsHarness
+        taskId="task-oneoff"
+        type="task"
+        title="One off"
+        status="pending"
+        startAt="2026-07-01T09:00:00.000Z"
+        social={{ activityType: 'solo', visibility: 'only_me' }}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /edit task/i }))
+    await user.click(screen.getByRole('button', { name: 'submit-series-edit' }))
+    await waitFor(() =>
+      expect(updateTaskSeriesMock).toHaveBeenCalledWith({
+        taskId: 'task-oneoff',
+        recurrence: 'weekly',
+        recurrenceCount: 8,
+      }),
+    )
+    expect(updateTaskMock).not.toHaveBeenCalled()
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('keeps clearing recurrence on a recurring task on updateTask (series → one-off)', async () => {
+    const user = userEvent.setup()
+    render(
+      <ActivityActionsHarness
+        taskId="task-clear"
+        type="task"
+        title="Weekly review"
+        status="pending"
+        startAt="2026-07-01T09:00:00.000Z"
+        recurrence="weekly"
+        social={{ activityType: 'solo', visibility: 'only_me' }}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /edit task/i }))
+    // submit-edit emits recurrence: null for a task → recurrence cleared.
+    await user.click(screen.getByRole('button', { name: 'submit-edit' }))
+    await waitFor(() => expect(updateTaskMock).toHaveBeenCalled())
+    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+  })
+
   it('keeps a row-shaped-only task edit on updateTask (not updateTaskSeries)', async () => {
     const user = userEvent.setup()
     render(

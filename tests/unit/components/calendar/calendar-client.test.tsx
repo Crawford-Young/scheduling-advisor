@@ -469,13 +469,14 @@ describe('CalendarClient', () => {
           use24h={false}
         />,
       )
+      // Row-shaped edit on a non-recurring event, no frequency set → updateTask.
+      // (A frequency here would materialize the series — see the S10 test below.)
       ;(capturedProps.onEventEdit as (e: unknown) => void)({
         id: 'e4',
         title: 'Ship report v2',
         start: '2026-05-29T13:00:00.000Z',
         end: '2026-05-29T14:30:00.000Z',
         color: 'violet',
-        recurrenceFrequency: 'weekly',
       })
       await vi.waitFor(() =>
         expect(mockUpdateTask).toHaveBeenCalledWith(
@@ -485,13 +486,75 @@ describe('CalendarClient', () => {
             startAt: '2026-05-29T13:00:00.000Z',
             endAt: '2026-05-29T14:30:00.000Z',
             color: 'violet',
-            recurrence: 'weekly',
+            recurrence: null,
             allDay: false,
           }),
         ),
       )
+      expect(mockUpdateTaskSeries).not.toHaveBeenCalled()
       expect(mockRefresh).toHaveBeenCalled()
       expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
+    })
+
+    // S10: setting a series frequency on a NON-recurring event (e4) materializes
+    // the series — routes to updateTaskSeries, not updateTask.
+    it('routes making a non-recurring event recurring to updateTaskSeries', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({
+        id: 'e4',
+        title: 'Ship report',
+        start: '2026-05-29T13:00:00.000Z',
+        end: '2026-05-29T14:00:00.000Z',
+        recurrenceFrequency: 'weekly',
+      })
+      await vi.waitFor(() =>
+        expect(mockUpdateTaskSeries).toHaveBeenCalledWith({
+          taskId: 'e4',
+          recurrence: 'weekly',
+          recurrenceDays: undefined,
+        }),
+      )
+      expect(mockUpdateTask).not.toHaveBeenCalled()
+      expect(mockRefresh).toHaveBeenCalled()
+    })
+
+    // Review fix: goals never materialize into a series. Pre-S10 the
+    // wasRecurring gate implicitly protected goals (never recurring → false →
+    // updateTask); the !wasRecurring materialize arm must not remove that
+    // protection. e3 is a goal.
+    it('never routes a goal edited with a series frequency to updateTaskSeries', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({
+        id: 'e3',
+        title: 'Write book',
+        start: '2026-05-29T10:00:00.000Z',
+        end: '2026-05-29T11:00:00.000Z',
+        recurrenceFrequency: 'weekly',
+      })
+      await vi.waitFor(() =>
+        expect(mockUpdateTask).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 'e3', recurrence: 'weekly' }),
+        ),
+      )
+      expect(mockUpdateTaskSeries).not.toHaveBeenCalled()
     })
 
     // S8: a chip edit that changes the recurrence PATTERN (a new weekday set or
