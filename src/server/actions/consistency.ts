@@ -1,11 +1,12 @@
 'use server'
 import { auth } from '@/auth'
 import { db } from '@/db'
-import { tasks, streaks } from '@/db/schema'
+import { tasks } from '@/db/schema'
 import { recordCompletionSchema, updateTaskDateSchema } from '@/lib/schemas/consistency'
 import { eq, and } from 'drizzle-orm'
 import { ratelimit } from '@/lib/redis'
 import { revalidatePath } from 'next/cache'
+import { computeGroupStreak } from '@/lib/streaks'
 
 interface CompletionResult {
   readonly currentStreak: number
@@ -14,20 +15,6 @@ interface CompletionResult {
 }
 
 type ActionResult<T> = { data: T } | { error: string }
-
-function isSameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  )
-}
-
-function isYesterday(date: Date, relativeTo: Date): boolean {
-  const yesterday = new Date(relativeTo)
-  yesterday.setDate(relativeTo.getDate() - 1)
-  return isSameDay(date, yesterday)
-}
 
 export async function recordCompletion(input: unknown): Promise<ActionResult<CompletionResult>> {
   const session = await auth()
@@ -39,62 +26,29 @@ export async function recordCompletion(input: unknown): Promise<ActionResult<Com
   const parsed = recordCompletionSchema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.message }
 
-  const { taskId, outcome } = parsed.data
+  const { taskId } = parsed.data
   const userId = session.user.id
   const now = new Date()
 
-  if (outcome === 'done') {
-    await db
-      .update(tasks)
-      .set({ status: 'completed', updatedAt: now })
-      .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
-  }
+  await db
+    .update(tasks)
+    .set({ status: 'completed', updatedAt: now })
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
 
-  const [existing] = await db
-    .select()
-    .from(streaks)
-    .where(and(eq(streaks.taskId, taskId), eq(streaks.userId, userId)))
+  const [row] = await db
+    .select({ groupId: tasks.recurrenceGroupId })
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
     .limit(1)
 
-  let newCurrentStreak: number
-  let newBestStreak: number
-
-  if (outcome === 'skip') {
-    newCurrentStreak = 0
-    newBestStreak = existing?.bestStreak ?? 0
-  } else {
-    if (!existing || !existing.lastCompletedAt) {
-      newCurrentStreak = 1
-    } else if (isSameDay(existing.lastCompletedAt, now)) {
-      newCurrentStreak = existing.currentStreak
-    } else if (isYesterday(existing.lastCompletedAt, now)) {
-      newCurrentStreak = existing.currentStreak + 1
-    } else {
-      newCurrentStreak = 1
-    }
-    newBestStreak = Math.max(newCurrentStreak, existing?.bestStreak ?? 0)
+  let streak = { current: 0, best: 0 }
+  if (row?.groupId) {
+    const occurrences = await db
+      .select({ startAt: tasks.startAt, status: tasks.status })
+      .from(tasks)
+      .where(and(eq(tasks.userId, userId), eq(tasks.recurrenceGroupId, row.groupId)))
+    streak = computeGroupStreak(occurrences, now)
   }
-
-  const [updated] = await db
-    .insert(streaks)
-    .values({
-      userId,
-      taskId,
-      currentStreak: newCurrentStreak,
-      bestStreak: newBestStreak,
-      lastCompletedAt: outcome === 'done' ? now : (existing?.lastCompletedAt ?? null),
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: [streaks.userId, streaks.taskId],
-      set: {
-        currentStreak: newCurrentStreak,
-        bestStreak: newBestStreak,
-        lastCompletedAt: outcome === 'done' ? now : (existing?.lastCompletedAt ?? null),
-        updatedAt: now,
-      },
-    })
-    .returning()
 
   revalidatePath('/calendar')
 
@@ -103,13 +57,7 @@ export async function recordCompletion(input: unknown): Promise<ActionResult<Com
   const isPerfectWeek =
     consistency.plannedCount > 0 && consistency.completedCount === consistency.plannedCount
 
-  return {
-    data: {
-      currentStreak: updated?.currentStreak ?? newCurrentStreak,
-      bestStreak: updated?.bestStreak ?? newBestStreak,
-      isPerfectWeek,
-    },
-  }
+  return { data: { currentStreak: streak.current, bestStreak: streak.best, isPerfectWeek } }
 }
 
 export async function rescheduleTask(input: unknown): Promise<ActionResult<{ id: string }>> {

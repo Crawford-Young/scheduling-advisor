@@ -602,9 +602,7 @@ describe('CalendarClient', () => {
         id: 'e5',
         completed: true,
       })
-      await vi.waitFor(() =>
-        expect(mockRecordCompletion).toHaveBeenCalledWith({ taskId: 'e5', outcome: 'done' }),
-      )
+      await vi.waitFor(() => expect(mockRecordCompletion).toHaveBeenCalledWith({ taskId: 'e5' }))
       expect(mockUpdateTask).not.toHaveBeenCalled()
       expect(mockRefresh).toHaveBeenCalled()
     })
@@ -677,8 +675,8 @@ describe('CalendarClient', () => {
 
     // Direction bug fix (wave 2.2 Preview Gate): un-completing must set status
     // 'pending' via updateTask for BOTH recurring and non-recurring events —
-    // there is no undo-completion primitive (recordCompletion outcomes are
-    // only 'done'|'skip'), and streak history is deliberately left untouched.
+    // there is no undo-completion primitive (recordCompletion only marks a
+    // task done); streak values are derived on read, so un-completing recomputes.
     it('marks a recurring event incomplete via updateTask status pending (not recordCompletion)', async () => {
       render(
         <CalendarClient

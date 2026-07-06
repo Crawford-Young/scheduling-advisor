@@ -1005,9 +1005,7 @@ describe('CalendarClient — complete-toggle persistence (0.17.0)', () => {
 
     await user.click(screen.getByRole('button', { name: 'trigger-toggle-recurring' }))
 
-    await waitFor(() =>
-      expect(recordCompletionMock).toHaveBeenCalledWith({ taskId: 'evt-1', outcome: 'done' }),
-    )
+    await waitFor(() => expect(recordCompletionMock).toHaveBeenCalledWith({ taskId: 'evt-1' }))
     expect(updateTaskMock).not.toHaveBeenCalled()
     expect(refreshMock).toHaveBeenCalled()
   })
@@ -1081,8 +1079,8 @@ describe('CalendarClient — complete-toggle persistence (0.17.0)', () => {
   // Direction bug (wave 2.2 Preview Gate): the library hands off the TOGGLED
   // event, so completed:false means "un-complete this now" — both recurring
   // and non-recurring events must go through updateTask({status:'pending'}).
-  // There is no undo-completion primitive (recordCompletion outcomes are only
-  // 'done'|'skip'), and streak history is deliberately left untouched.
+  // There is no undo-completion primitive (recordCompletion only marks a task
+  // done); streak values are derived on read, so un-completing recomputes them.
   it('marks a recurring event incomplete via updateTask status pending (not recordCompletion)', async () => {
     const user = userEvent.setup()
     render(

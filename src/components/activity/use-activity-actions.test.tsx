@@ -191,9 +191,7 @@ describe('useActivityActions', () => {
       />,
     )
     await user.click(screen.getByRole('button', { name: /log today/i }))
-    await waitFor(() =>
-      expect(recordCompletionMock).toHaveBeenCalledWith({ taskId: 'task-rec-1', outcome: 'done' }),
-    )
+    await waitFor(() => expect(recordCompletionMock).toHaveBeenCalledWith({ taskId: 'task-rec-1' }))
     expect(updateTaskMock).not.toHaveBeenCalled()
   })
 

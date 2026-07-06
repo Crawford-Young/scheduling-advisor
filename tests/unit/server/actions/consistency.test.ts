@@ -1,40 +1,43 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// ── select chain for existing streak lookup: select().from().where().limit() ──
-const mockExistingLimit = vi.hoisted(() => vi.fn().mockResolvedValue([]))
-const mockExistingWhere = vi.hoisted(() => vi.fn().mockReturnValue({ limit: mockExistingLimit }))
-const mockExistingFrom = vi.hoisted(() => vi.fn().mockReturnValue({ where: mockExistingWhere }))
-const mockSelect = vi.hoisted(() => vi.fn().mockReturnValue({ from: mockExistingFrom }))
+// ── update().set().where()  — status flip (no returning) — and
+//    update().set().where().returning() for rescheduleTask ──
+const mockUpdateReturning = vi.hoisted(() =>
+  vi.fn().mockResolvedValue([{ id: '550e8400-e29b-41d4-a716-446655440000' }]),
+)
+const mockUpdateWhere = vi.hoisted(() =>
+  vi.fn(() => {
+    const p = Promise.resolve(undefined) as Promise<unknown> & {
+      returning: typeof mockUpdateReturning
+    }
+    p.returning = mockUpdateReturning
+    return p
+  }),
+)
+const mockUpdateSet = vi.hoisted(() => vi.fn().mockReturnValue({ where: mockUpdateWhere }))
+const mockUpdate = vi.hoisted(() => vi.fn().mockReturnValue({ set: mockUpdateSet }))
 
-// ── update chain: update().set().where().returning() ──
-const mockTaskReturning = vi.hoisted(() =>
-  vi.fn().mockResolvedValue([{ id: 't-1', status: 'completed', type: 'habit' }]),
+// ── select().from().where() — dual purpose: .limit(1) resolves the group
+//    lookup, awaiting the where() directly resolves the occurrence rows ──
+const mockGroupRows = vi.hoisted(() => vi.fn().mockResolvedValue([{ groupId: null }]))
+const mockOccurrences = vi.hoisted(() => vi.fn().mockResolvedValue([]))
+const mockSelectWhere = vi.hoisted(() =>
+  vi.fn(() => {
+    const p = mockOccurrences() as Promise<unknown> & { limit: () => unknown }
+    p.limit = () => mockGroupRows()
+    return p
+  }),
 )
-const mockTaskWhere = vi.hoisted(() => vi.fn().mockReturnValue({ returning: mockTaskReturning }))
-const mockTaskSet = vi.hoisted(() => vi.fn().mockReturnValue({ where: mockTaskWhere }))
-const mockUpdate = vi.hoisted(() => vi.fn().mockReturnValue({ set: mockTaskSet }))
+const mockFrom = vi.hoisted(() => vi.fn().mockReturnValue({ where: mockSelectWhere }))
+const mockSelect = vi.hoisted(() => vi.fn().mockReturnValue({ from: mockFrom }))
 
-// ── insert chain: insert().values().onConflictDoUpdate().returning() ──
-const mockStreakReturning = vi.hoisted(() =>
-  vi.fn().mockResolvedValue([{ id: 's-1', currentStreak: 1, bestStreak: 1 }]),
-)
-const mockStreakOnConflict = vi.hoisted(() =>
-  vi.fn().mockReturnValue({ returning: mockStreakReturning }),
-)
-const mockStreakValues = vi.hoisted(() =>
-  vi.fn().mockReturnValue({ onConflictDoUpdate: mockStreakOnConflict }),
-)
-const mockInsert = vi.hoisted(() => vi.fn().mockReturnValue({ values: mockStreakValues }))
+// A streaks-table write would go through db.insert — it must never be called.
+const mockInsert = vi.hoisted(() => vi.fn())
 
 vi.mock('@/db', () => ({
-  db: {
-    select: mockSelect,
-    update: mockUpdate,
-    insert: mockInsert,
-  },
+  db: { select: mockSelect, update: mockUpdate, insert: mockInsert },
 }))
-
-vi.mock('@/db/schema', () => ({ tasks: {}, streaks: {} }))
+vi.mock('@/db/schema', () => ({ tasks: {} }))
 vi.mock('@/auth', () => ({ auth: vi.fn().mockResolvedValue({ user: { id: 'user-123' } }) }))
 vi.mock('@/lib/redis', () => ({
   ratelimit: { limit: vi.fn().mockResolvedValue({ success: true }) },
@@ -45,8 +48,12 @@ vi.mock('@/server/queries/consistency', () => ({
     .fn()
     .mockResolvedValue({ plannedCount: 5, completedCount: 3, consistencyPct: 60 }),
 }))
+vi.mock('@/lib/streaks', () => ({
+  computeGroupStreak: vi.fn().mockReturnValue({ current: 0, best: 0 }),
+}))
 
 import { recordCompletion, rescheduleTask } from '@/server/actions/consistency'
+import { computeGroupStreak } from '@/lib/streaks'
 
 const UUID = '550e8400-e29b-41d4-a716-446655440000'
 
@@ -56,106 +63,63 @@ describe('recordCompletion', () => {
   it('returns error when unauthenticated', async () => {
     const { auth } = await import('@/auth')
     vi.mocked(auth).mockResolvedValueOnce(null as never)
-    const result = await recordCompletion({ taskId: UUID, outcome: 'done' })
-    expect(result).toMatchObject({ error: 'Unauthorized' })
+    expect(await recordCompletion({ taskId: UUID })).toMatchObject({ error: 'Unauthorized' })
   })
 
   it('returns error when rate limited', async () => {
     const { ratelimit } = await import('@/lib/redis')
     vi.mocked(ratelimit.limit).mockResolvedValueOnce({ success: false } as never)
-    const result = await recordCompletion({ taskId: UUID, outcome: 'done' })
-    expect(result).toMatchObject({ error: 'Too many requests' })
+    expect(await recordCompletion({ taskId: UUID })).toMatchObject({ error: 'Too many requests' })
   })
 
   it('returns error for invalid input', async () => {
-    const result = await recordCompletion({ taskId: 'bad', outcome: 'done' })
-    expect(result).toHaveProperty('error')
+    expect(await recordCompletion({ taskId: '' })).toHaveProperty('error')
   })
 
-  it('returns streak data on done outcome (new streak)', async () => {
-    // existing = [] → no prior streak
-    mockExistingLimit.mockResolvedValueOnce([])
-    const result = await recordCompletion({ taskId: UUID, outcome: 'done' })
-    expect(result).toMatchObject({ data: { currentStreak: 1 } })
+  it('flips the task status to completed', async () => {
+    await recordCompletion({ taskId: UUID })
+    expect(mockUpdate).toHaveBeenCalled()
+    expect(mockUpdateSet).toHaveBeenCalledWith(expect.objectContaining({ status: 'completed' }))
   })
 
-  it('increments streak when last completed yesterday', async () => {
-    const yesterday = new Date()
-    yesterday.setDate(yesterday.getDate() - 1)
-    mockExistingLimit.mockResolvedValueOnce([
-      {
-        currentStreak: 3,
-        bestStreak: 5,
-        lastCompletedAt: yesterday,
-      },
-    ])
-    mockStreakReturning.mockResolvedValueOnce([{ id: 's-1', currentStreak: 4, bestStreak: 5 }])
-    const result = await recordCompletion({ taskId: UUID, outcome: 'done' })
-    expect(result).toMatchObject({ data: { currentStreak: 4 } })
+  it('never writes to a streaks table', async () => {
+    await recordCompletion({ taskId: UUID })
+    expect(mockInsert).not.toHaveBeenCalled()
   })
 
-  it('resets streak to 1 when gap > 1 day', async () => {
-    const threeDaysAgo = new Date()
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
-    mockExistingLimit.mockResolvedValueOnce([
-      {
-        currentStreak: 7,
-        bestStreak: 10,
-        lastCompletedAt: threeDaysAgo,
-      },
-    ])
-    mockStreakReturning.mockResolvedValueOnce([{ id: 's-1', currentStreak: 1, bestStreak: 10 }])
-    const result = await recordCompletion({ taskId: UUID, outcome: 'done' })
-    expect(result).toMatchObject({ data: { currentStreak: 1 } })
+  it('returns a group-derived streak for a recurring task', async () => {
+    mockGroupRows.mockResolvedValueOnce([{ groupId: 'g1' }])
+    const occ = [{ startAt: new Date('2026-07-06T10:00:00Z'), status: 'completed' }]
+    mockOccurrences.mockResolvedValue(occ)
+    vi.mocked(computeGroupStreak).mockReturnValueOnce({ current: 4, best: 6 })
+    const result = await recordCompletion({ taskId: UUID })
+    expect(result).toMatchObject({ data: { currentStreak: 4, bestStreak: 6 } })
+    expect(computeGroupStreak).toHaveBeenCalledWith(occ, expect.any(Date))
   })
 
-  it('resets streak to 0 on skip', async () => {
-    mockExistingLimit.mockResolvedValueOnce([
-      { currentStreak: 5, bestStreak: 10, lastCompletedAt: new Date() },
-    ])
-    mockStreakReturning.mockResolvedValueOnce([{ id: 's-1', currentStreak: 0, bestStreak: 10 }])
-    const result = await recordCompletion({ taskId: UUID, outcome: 'skip' })
-    expect(result).toMatchObject({ data: { currentStreak: 0 } })
-  })
-
-  it('handles skip with no existing streak', async () => {
-    mockExistingLimit.mockResolvedValueOnce([])
-    mockStreakReturning.mockResolvedValueOnce([{ id: 's-1', currentStreak: 0, bestStreak: 0 }])
-    const result = await recordCompletion({ taskId: UUID, outcome: 'skip' })
+  it('returns a zero streak for a non-recurring (null group) task without computing', async () => {
+    mockGroupRows.mockResolvedValueOnce([{ groupId: null }])
+    const result = await recordCompletion({ taskId: UUID })
     expect(result).toMatchObject({ data: { currentStreak: 0, bestStreak: 0 } })
+    expect(computeGroupStreak).not.toHaveBeenCalled()
   })
 
-  it('sets isPerfectWeek true when all planned completed', async () => {
+  it('sets isPerfectWeek true when all planned tasks are completed', async () => {
     const { getWeeklyConsistency } = await import('@/server/queries/consistency')
     vi.mocked(getWeeklyConsistency).mockResolvedValueOnce({
       plannedCount: 5,
       completedCount: 5,
       consistencyPct: 100,
     })
-    mockExistingLimit.mockResolvedValueOnce([])
-    const result = await recordCompletion({ taskId: UUID, outcome: 'done' })
-    expect(result).toMatchObject({ data: { isPerfectWeek: true } })
+    expect(await recordCompletion({ taskId: UUID })).toMatchObject({
+      data: { isPerfectWeek: true },
+    })
   })
 
-  it('keeps streak unchanged when completed same day', async () => {
-    mockExistingLimit.mockResolvedValueOnce([
-      {
-        currentStreak: 3,
-        bestStreak: 5,
-        lastCompletedAt: new Date(),
-      },
-    ])
-    mockStreakReturning.mockResolvedValueOnce([{ id: 's-1', currentStreak: 3, bestStreak: 5 }])
-    const result = await recordCompletion({ taskId: UUID, outcome: 'done' })
-    expect(result).toMatchObject({ data: { currentStreak: 3 } })
-  })
-
-  it('falls back to computed streak when insert returns empty', async () => {
-    mockExistingLimit.mockResolvedValueOnce([])
-    // Simulate insert returning empty (updated is undefined)
-    mockStreakReturning.mockResolvedValueOnce([])
-    const result = await recordCompletion({ taskId: UUID, outcome: 'done' })
-    expect(result).toMatchObject({ data: { currentStreak: 1, bestStreak: 1 } })
+  it('sets isPerfectWeek false when not all planned tasks are completed', async () => {
+    expect(await recordCompletion({ taskId: UUID })).toMatchObject({
+      data: { isPerfectWeek: false },
+    })
   })
 })
 
@@ -182,19 +146,19 @@ describe('rescheduleTask', () => {
   })
 
   it('returns task id on success', async () => {
-    mockTaskReturning.mockResolvedValueOnce([{ id: UUID }])
+    mockUpdateReturning.mockResolvedValueOnce([{ id: UUID }])
     const result = await rescheduleTask({ taskId: UUID, newStartAt: new Date().toISOString() })
     expect(result).toMatchObject({ data: { id: UUID } })
   })
 
   it('returns not found when task does not belong to user', async () => {
-    mockTaskReturning.mockResolvedValueOnce([])
+    mockUpdateReturning.mockResolvedValueOnce([])
     const result = await rescheduleTask({ taskId: UUID, newStartAt: new Date().toISOString() })
     expect(result).toMatchObject({ error: 'Not found' })
   })
 
   it('reschedules with newEndAt and newTargetDate', async () => {
-    mockTaskReturning.mockResolvedValueOnce([{ id: UUID }])
+    mockUpdateReturning.mockResolvedValueOnce([{ id: UUID }])
     const result = await rescheduleTask({
       taskId: UUID,
       newEndAt: new Date().toISOString(),

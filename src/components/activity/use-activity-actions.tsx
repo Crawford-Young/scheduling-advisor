@@ -86,7 +86,7 @@ export function useActivityActions({
     startTransition(async () => {
       const result =
         recurrence != null
-          ? await recordCompletion({ taskId, outcome: 'done' })
+          ? await recordCompletion({ taskId })
           : await updateTask({ id: taskId, status: 'completed' })
       if ('error' in result) {
         toast.error(recurrence != null ? 'Could not log completion' : 'Could not mark complete')
