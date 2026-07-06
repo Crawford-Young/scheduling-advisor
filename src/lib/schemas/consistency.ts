@@ -1,8 +1,7 @@
 import { z } from 'zod'
 
 export const recordCompletionSchema = z.object({
-  taskId: z.string().uuid(),
-  outcome: z.enum(['done', 'skip']),
+  taskId: z.string().min(1),
 })
 
 export const updateTaskDateSchema = z.object({

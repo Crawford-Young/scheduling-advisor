@@ -230,8 +230,8 @@ export function CalendarClient({
   // recurring tasks log an occurrence via recordCompletion, non-recurring
   // tasks/goals flip status via updateTask. Un-completing always goes through
   // updateTask({status:'pending'}) for BOTH kinds — there is no undo-completion
-  // primitive (recordCompletion outcomes are only 'done'|'skip') and streak
-  // history is deliberately left untouched (append-only by design). On
+  // primitive (recordCompletion only marks a task done) and streak values are
+  // derived on read from row statuses, so un-completing recomputes them. On
   // failure, remount to restore the chip's optimistic state (calendar pattern).
   function handleEventToggleComplete(libEvent: LibraryCalendarEvent): void {
     const isRecurring = events.find((e) => e.id === libEvent.id)?.recurrence != null
@@ -239,7 +239,7 @@ export function CalendarClient({
     startTransition(async () => {
       const result = isCompleting
         ? isRecurring
-          ? await recordCompletion({ taskId: libEvent.id, outcome: 'done' })
+          ? await recordCompletion({ taskId: libEvent.id })
           : await updateTask({ id: libEvent.id, status: 'completed' })
         : await updateTask({ id: libEvent.id, status: 'pending' })
       if ('error' in result) {
