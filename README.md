@@ -6,11 +6,11 @@ Consistency-first scheduling app. The week calendar is home: plan tasks and goal
 
 - **Week calendar (home)** — full CRUD on calendar events:
   - Drag-create: drag an empty slot to open the library's inline create popover (title, color, times, all-day, location, description, repeat) — saves straight to a task
-  - Edit / + New: the app-owned `ActivityFormDialog` (morphs task ↔ goal)
+  - Edit / + New: the library's `ActivityFormDialog` dialog (morphs task ↔ goal)
   - Reschedule: drag or resize events; completed events are locked and snap back
   - Delete: confirm dialog, optimistic UI with automatic restore on error or cancel
   - Wake→sleep window by default (hours from Settings, default 9–17); the Sleep mode toggle switches to a full 24h grid with shaded sleep zones where drag-create is blocked
-- **Activities** — one `/activities` destination unifying goals and tasks (backed by the single polymorphic `tasks` table; type taxonomy is `task` + `goal`). Search (`?q=`, debounced), type/status filters, a recurring-only toggle, and a `+ New` button opening the morphing dialog. Replaces the former separate `/goals`, `/habits`, and `/tasks` routes.
+- **Activities** — one `/activities` destination unifying goals and tasks as a sortable 5-column DataTable: Title (incl. color dot + type badge) · When (date + recurrence) · Status (badge + streak flame) · Social (activityType + visibility) · Actions (complete check-icon, edit, delete). Search (`?q=`, debounced), type/status filters, recurring-only toggle, and a `+ New` button. Replaces the former separate `/goals`, `/habits`, and `/tasks` routes.
 - **Check-in flow** — tap an event to log Done / Skipped; perfect weeks get a celebration
 - **Ask Cybond** — "Ask Cybond" on a check-in opens the chat panel pre-filled with a reschedule request; the assistant proposes times via tools you confirm or deny
 - **Streaks + consistency** — per-task streak badges and a weekly consistency bar
@@ -39,8 +39,8 @@ Copy `.env.example` to `.env.local` and fill in all values — `t3-env` validate
 
 - Mutations are Server Actions with Zod validation at every boundary; API routes exist only for externally-consumed endpoints (chat, webhooks, health).
 - `WeekCalendarView` (library) applies moves/resizes/deletes optimistically and never resyncs from props. `CalendarClient` owns the workaround: a `resetKey` remount restores server truth on cancel/error paths, and a dedicated transition delays the remount after create until `router.refresh()` has delivered fresh data.
-- The app owns `ActivityFormDialog` (`src/components/activity/activity-form-dialog.tsx`) — the single create/edit dialog for both Activities and the calendar (edit locks the type). Goal target dates are emitted date-only and converted to noon-UTC ISO (`T12:00:00.000Z`) before `createTaskSchema` — the `.datetime()` schema rejects date-only, and this avoids the goal-date-wipe trap. The former per-type `TaskFormDialog`/`GoalFormDialog`/`HabitFormDialog` were deleted in Wave 2.1.
-- The shared task scheduling field group (`TaskTimeFields`) and the UTC helpers (`buildIso` / `toTimeSlot`) live in `@crawfordyoung/ui` (≥0.13.1) and are consumed by `ActivityFormDialog`. UTC semantics are load-bearing — local `HH:MM` is a timezone bug UTC CI masks.
+- `ActivityFormDialog` (library, `@crawfordyoung/ui` ≥0.17.0) is the single create/edit dialog for both Activities and the calendar (app wires data only; edit passes `lockType`). Goal target dates are emitted date-only and converted to noon-UTC ISO (`T12:00:00.000Z`) before `createTaskSchema` — the `.datetime()` schema rejects date-only, and this avoids the goal-date-wipe trap. The app-owned per-type dialogs were deleted in Wave 2.1.
+- `TaskTimeFields`, `buildIso`, and `toTimeSlot` are bundled in `@crawfordyoung/ui` (≥0.17.0) and used by the library's `ActivityFormDialog`; the app does not duplicate them. UTC semantics are load-bearing — local `HH:MM` is a timezone bug UTC CI masks.
 - The chat panel listens for an `open-chat` CustomEvent; dispatchers may pass `detail.prefill` to seed the input (used by Ask Cybond).
 
 ## Testing
