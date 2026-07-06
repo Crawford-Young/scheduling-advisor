@@ -223,18 +223,33 @@ export function CalendarClient({
     })
   }
 
-  // The chip's complete circle (0.17.0) fires onEventToggleComplete. Persistence
-  // mirrors useActivityActions.handleComplete: recurring tasks log an occurrence
-  // via recordCompletion, non-recurring tasks/goals flip status via updateTask.
-  // On failure, remount to restore the chip's optimistic state (calendar pattern).
+  // The chip's complete circle (0.17.0) fires onEventToggleComplete with the
+  // TOGGLED event (WeekCalendarView flips `completed` before calling back), so
+  // `libEvent.completed` is the direction the user wants NOW: true = complete,
+  // false = un-complete. Completing mirrors useActivityActions.handleComplete:
+  // recurring tasks log an occurrence via recordCompletion, non-recurring
+  // tasks/goals flip status via updateTask. Un-completing always goes through
+  // updateTask({status:'pending'}) for BOTH kinds — there is no undo-completion
+  // primitive (recordCompletion outcomes are only 'done'|'skip') and streak
+  // history is deliberately left untouched (append-only by design). On
+  // failure, remount to restore the chip's optimistic state (calendar pattern).
   function handleEventToggleComplete(libEvent: LibraryCalendarEvent): void {
     const isRecurring = events.find((e) => e.id === libEvent.id)?.recurrence != null
+    const isCompleting = libEvent.completed === true
     startTransition(async () => {
-      const result = isRecurring
-        ? await recordCompletion({ taskId: libEvent.id, outcome: 'done' })
-        : await updateTask({ id: libEvent.id, status: 'completed' })
+      const result = isCompleting
+        ? isRecurring
+          ? await recordCompletion({ taskId: libEvent.id, outcome: 'done' })
+          : await updateTask({ id: libEvent.id, status: 'completed' })
+        : await updateTask({ id: libEvent.id, status: 'pending' })
       if ('error' in result) {
-        toast.error(isRecurring ? 'Could not log completion' : 'Could not mark complete')
+        toast.error(
+          isCompleting
+            ? isRecurring
+              ? 'Could not log completion'
+              : 'Could not mark complete'
+            : 'Could not mark incomplete',
+        )
         setResetKey((k) => k + 1)
       }
       router.refresh()

@@ -581,6 +581,11 @@ describe('CalendarClient', () => {
 
   // The chip complete circle fires onEventToggleComplete; persistence mirrors
   // useActivityActions: recurring → recordCompletion, non-recurring → updateTask.
+  //
+  // The library hands off the TOGGLED event (see WeekCalendarView's
+  // handleEventToggleComplete: `{...event, completed: !event.completed}`), so
+  // `completed: true` means "complete this now" and `completed: false` means
+  // "un-complete this now" — the payloads below make that direction explicit.
   describe('complete-toggle persistence (0.17.0)', () => {
     it('logs a recurring event via recordCompletion', async () => {
       render(
@@ -593,7 +598,10 @@ describe('CalendarClient', () => {
           use24h={false}
         />,
       )
-      ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({ id: 'e5' })
+      ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({
+        id: 'e5',
+        completed: true,
+      })
       await vi.waitFor(() =>
         expect(mockRecordCompletion).toHaveBeenCalledWith({ taskId: 'e5', outcome: 'done' }),
       )
@@ -612,7 +620,10 @@ describe('CalendarClient', () => {
           use24h={false}
         />,
       )
-      ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({ id: 'e1' })
+      ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({
+        id: 'e1',
+        completed: true,
+      })
       await vi.waitFor(() =>
         expect(mockUpdateTask).toHaveBeenCalledWith({ id: 'e1', status: 'completed' }),
       )
@@ -633,7 +644,10 @@ describe('CalendarClient', () => {
         />,
       )
       const initialMountCount = mountCount.value
-      ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({ id: 'e5' })
+      ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({
+        id: 'e5',
+        completed: true,
+      })
       await vi.waitFor(() =>
         expect(mockToastError).toHaveBeenCalledWith('Could not log completion'),
       )
@@ -653,8 +667,82 @@ describe('CalendarClient', () => {
         />,
       )
       const initialMountCount = mountCount.value
-      ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({ id: 'e1' })
+      ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({
+        id: 'e1',
+        completed: true,
+      })
       await vi.waitFor(() => expect(mockToastError).toHaveBeenCalledWith('Could not mark complete'))
+      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+    })
+
+    // Direction bug fix (wave 2.2 Preview Gate): un-completing must set status
+    // 'pending' via updateTask for BOTH recurring and non-recurring events —
+    // there is no undo-completion primitive (recordCompletion outcomes are
+    // only 'done'|'skip'), and streak history is deliberately left untouched.
+    it('marks a recurring event incomplete via updateTask status pending (not recordCompletion)', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({
+        id: 'e5',
+        completed: false,
+      })
+      await vi.waitFor(() =>
+        expect(mockUpdateTask).toHaveBeenCalledWith({ id: 'e5', status: 'pending' }),
+      )
+      expect(mockRecordCompletion).not.toHaveBeenCalled()
+      expect(mockRefresh).toHaveBeenCalled()
+    })
+
+    it('marks a non-recurring event incomplete via updateTask status pending', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({
+        id: 'e1',
+        completed: false,
+      })
+      await vi.waitFor(() =>
+        expect(mockUpdateTask).toHaveBeenCalledWith({ id: 'e1', status: 'pending' }),
+      )
+      expect(mockRecordCompletion).not.toHaveBeenCalled()
+      expect(mockRefresh).toHaveBeenCalled()
+    })
+
+    it('toasts and remounts when marking incomplete fails to persist', async () => {
+      mockUpdateTask.mockResolvedValueOnce({ error: 'Not found' })
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const initialMountCount = mountCount.value
+      ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({
+        id: 'e1',
+        completed: false,
+      })
+      await vi.waitFor(() =>
+        expect(mockToastError).toHaveBeenCalledWith('Could not mark incomplete'),
+      )
       await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
     })
   })
