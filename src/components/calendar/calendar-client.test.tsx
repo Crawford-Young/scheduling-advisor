@@ -213,13 +213,39 @@ vi.mock('@/lib/ui', () => ({
       <button type="button" onClick={() => props.onEventEdit?.(STUB_COMPLETED_LIB_EVENT)}>
         trigger-edit-completed
       </button>
-      {/* Recurring event (evt-1 has recurrence 'weekly') → recordCompletion. */}
-      <button type="button" onClick={() => props.onEventToggleComplete?.(STUB_LIB_EVENT)}>
+      {/* Recurring event (evt-1 has recurrence 'weekly') → recordCompletion.
+          Library hands off the TOGGLED event (completed: true = user wants
+          it completed now) — see WeekCalendarView.handleEventToggleComplete. */}
+      <button
+        type="button"
+        onClick={() => props.onEventToggleComplete?.({ ...STUB_LIB_EVENT, completed: true })}
+      >
         trigger-toggle-recurring
       </button>
+      {/* Un-complete direction: completed: false = user wants it un-completed. */}
+      <button
+        type="button"
+        onClick={() => props.onEventToggleComplete?.({ ...STUB_LIB_EVENT, completed: false })}
+      >
+        trigger-toggle-recurring-uncomplete
+      </button>
       {/* Non-recurring event (evt-done has no recurrence) → updateTask status. */}
-      <button type="button" onClick={() => props.onEventToggleComplete?.(STUB_COMPLETED_LIB_EVENT)}>
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventToggleComplete?.({ ...STUB_COMPLETED_LIB_EVENT, completed: true })
+        }
+      >
         trigger-toggle-nonrecurring
+      </button>
+      {/* Un-complete direction for a non-recurring event. */}
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventToggleComplete?.({ ...STUB_COMPLETED_LIB_EVENT, completed: false })
+        }
+      >
+        trigger-toggle-nonrecurring-uncomplete
       </button>
     </div>
   ),
@@ -1048,6 +1074,77 @@ describe('CalendarClient — complete-toggle persistence (0.17.0)', () => {
     await user.click(screen.getByRole('button', { name: 'trigger-toggle-nonrecurring' }))
 
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not mark complete'))
+    expect(screen.getByTestId('week-calendar-view')).not.toBe(beforeNode)
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  // Direction bug (wave 2.2 Preview Gate): the library hands off the TOGGLED
+  // event, so completed:false means "un-complete this now" — both recurring
+  // and non-recurring events must go through updateTask({status:'pending'}).
+  // There is no undo-completion primitive (recordCompletion outcomes are only
+  // 'done'|'skip'), and streak history is deliberately left untouched.
+  it('marks a recurring event incomplete via updateTask status pending (not recordCompletion)', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-toggle-recurring-uncomplete' }))
+
+    await waitFor(() =>
+      expect(updateTaskMock).toHaveBeenCalledWith({ id: 'evt-1', status: 'pending' }),
+    )
+    expect(recordCompletionMock).not.toHaveBeenCalled()
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('marks a non-recurring event incomplete via updateTask status pending', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-toggle-nonrecurring-uncomplete' }))
+
+    await waitFor(() =>
+      expect(updateTaskMock).toHaveBeenCalledWith({ id: 'evt-done', status: 'pending' }),
+    )
+    expect(recordCompletionMock).not.toHaveBeenCalled()
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('toasts and remounts when marking incomplete fails to persist', async () => {
+    updateTaskMock.mockResolvedValueOnce({ error: 'Not found' })
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    const beforeNode = screen.getByTestId('week-calendar-view')
+    await user.click(screen.getByRole('button', { name: 'trigger-toggle-recurring-uncomplete' }))
+
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not mark incomplete'))
     expect(screen.getByTestId('week-calendar-view')).not.toBe(beforeNode)
     expect(refreshMock).toHaveBeenCalled()
   })
