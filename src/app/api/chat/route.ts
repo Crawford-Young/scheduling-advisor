@@ -7,6 +7,7 @@ import { ratelimit } from '@/lib/redis'
 import { streamText } from 'ai'
 import { getMode } from '@/lib/chat/modes'
 import { buildChatTools, pickTools } from '@/lib/chat/tools'
+import { computeWeightedTokens } from '@/lib/chat/token-weights'
 import { chatRequestSchema } from '@/lib/schemas/chat'
 import { logger } from '@/lib/logger'
 import { getTokenBalance, deductTokens } from '@/server/queries/tokens'
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     onError: ({ error }) => {
       logger.error({ error }, 'streamText error')
     },
-    onFinish: async ({ response, usage }) => {
+    onFinish: async ({ response, usage, providerMetadata }) => {
       if (mode.persisted) {
         const persistedConversationId = conversationId as string
         const assistantMsg = response.messages[response.messages.length - 1]
@@ -113,8 +114,18 @@ export async function POST(req: NextRequest): Promise<Response> {
       }
 
       if (usage) {
+        const anthropicMeta = providerMetadata?.anthropic as
+          | { cacheReadInputTokens?: number; cacheCreationInputTokens?: number }
+          | undefined
+        const weighted = computeWeightedTokens({
+          promptTokens: usage.promptTokens,
+          completionTokens: usage.completionTokens,
+          cacheReadTokens: Number(anthropicMeta?.cacheReadInputTokens ?? 0),
+          cacheWriteTokens: Number(anthropicMeta?.cacheCreationInputTokens ?? 0),
+        })
+        logger.info({ usage, anthropicMeta, weighted, mode: mode.name }, 'chat token usage')
         try {
-          await deductTokens(userId, usage.promptTokens + usage.completionTokens)
+          await deductTokens(userId, weighted)
         } catch (err) {
           logger.error({ err, userId }, 'Failed to deduct tokens — user may have free usage')
         }

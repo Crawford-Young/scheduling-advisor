@@ -206,6 +206,21 @@ describe('POST /api/chat', () => {
     )
   })
 
+  it('deducts cache-class-weighted tokens via onFinish', async () => {
+    mockAuthed()
+    const { deductTokens } = await import('@/server/queries/tokens')
+    await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: CONVO_ID }),
+    )
+    const args = vi.mocked(streamText).mock.calls[0]![0]
+    await args.onFinish!({
+      response: { messages: [] },
+      usage: { promptTokens: 1000, completionTokens: 200 },
+      providerMetadata: { anthropic: { cacheReadInputTokens: 800 } },
+    } as never)
+    expect(deductTokens).toHaveBeenCalledWith('u1', 480)
+  })
+
   it('persists incoming user message before streaming', async () => {
     vi.mocked(auth).mockResolvedValue({ user: { id: 'u1', plan: 'pro' } } as never)
     mockFindFirst.mockResolvedValueOnce({ timezone: 'UTC' })
