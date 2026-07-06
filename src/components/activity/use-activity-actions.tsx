@@ -16,10 +16,20 @@ import {
   type ActivityFormValues,
   type ActivitySocial,
 } from '@/lib/ui'
-import { updateTask, deleteTask } from '@/server/actions/tasks'
+import { updateTask, updateTaskSeries, deleteTask } from '@/server/actions/tasks'
 import { recordCompletion } from '@/server/actions/consistency'
 
 const TARGET_DATE_TIME_SUFFIX = 'T12:00:00.000Z'
+
+// The subset of frequencies updateTaskSeries can regenerate (its schema is a
+// daily|weekly|monthly enum). The dialog has no weekday picker (ActivityFormValues
+// lacks recurrenceDays), so a series edit here changes frequency and/or count.
+const SERIES_FREQUENCIES = ['daily', 'weekly', 'monthly'] as const
+type SeriesFrequency = (typeof SERIES_FREQUENCIES)[number]
+
+function isSeriesFrequency(value: string | null | undefined): value is SeriesFrequency {
+  return value != null && (SERIES_FREQUENCIES as readonly string[]).includes(value)
+}
 
 export type ActivityKind = 'task' | 'goal'
 
@@ -31,6 +41,8 @@ export interface ActivityCardActionsProps {
   readonly startAt?: string | null
   readonly endAt?: string | null
   readonly recurrence?: string | null
+  /** Repeat count of the recurrence group (persisted since S3); seeds the dialog. */
+  readonly recurrenceCount?: number | null
   /** Date-only `YYYY-MM-DD` for goals. */
   readonly targetDate?: string | null
   readonly color?: string | null
@@ -66,6 +78,7 @@ export function useActivityActions({
   startAt,
   endAt,
   recurrence,
+  recurrenceCount,
   targetDate,
   color,
   location,
@@ -98,27 +111,51 @@ export function useActivityActions({
 
   function handleEditSubmit(values: ActivityFormValues): void {
     startTransition(async () => {
-      const result = await updateTask(
-        values.type === 'goal'
-          ? {
-              id: taskId,
-              title: values.title,
-              targetDate: toIsoTargetDate(values.targetDate),
-              location: values.location ?? null,
-              description: values.description ?? null,
-            }
-          : {
-              id: taskId,
-              title: values.title,
-              recurrence: values.recurrence ?? null,
-              startAt: values.startAt ?? null,
-              endAt: values.endAt ?? null,
-              color: values.color ?? null,
-              location: values.location ?? null,
-              description: values.description ?? null,
-              allDay: values.allDay,
-            },
-      )
+      // Series-shaped vs row-shaped routing. When a task already part of a
+      // recurrence group changes its frequency or repeat count, regenerate the
+      // group's future pending rows via updateTaskSeries. Everything else
+      // (goals, one-off tasks, row-shaped-only task edits) keeps updateTask.
+      //
+      // Mixed edit (a pattern change AND a row-shaped change like title/time in
+      // the same save): the series change owns the save — updateTaskSeries
+      // regenerates from the anchor row's persisted fields, and the co-changed
+      // row-shaped fields are NOT separately written here (interim until S9).
+      const wasRecurring = recurrence != null
+      const recurrenceChanged = (values.recurrence ?? null) !== (recurrence ?? null)
+      const countChanged = (values.recurrenceCount ?? null) !== (recurrenceCount ?? null)
+      const routeToSeries =
+        values.type !== 'goal' &&
+        wasRecurring &&
+        isSeriesFrequency(values.recurrence) &&
+        (recurrenceChanged || countChanged)
+
+      const result = routeToSeries
+        ? await updateTaskSeries({
+            taskId,
+            recurrence: values.recurrence,
+            recurrenceCount: values.recurrenceCount,
+          })
+        : await updateTask(
+            values.type === 'goal'
+              ? {
+                  id: taskId,
+                  title: values.title,
+                  targetDate: toIsoTargetDate(values.targetDate),
+                  location: values.location ?? null,
+                  description: values.description ?? null,
+                }
+              : {
+                  id: taskId,
+                  title: values.title,
+                  recurrence: values.recurrence ?? null,
+                  startAt: values.startAt ?? null,
+                  endAt: values.endAt ?? null,
+                  color: values.color ?? null,
+                  location: values.location ?? null,
+                  description: values.description ?? null,
+                  allDay: values.allDay,
+                },
+          )
       if ('error' in result) {
         toast.error('Could not save activity')
         return
@@ -155,6 +192,7 @@ export function useActivityActions({
           startAt: startAt ?? undefined,
           endAt: endAt ?? undefined,
           recurrence: recurrence ?? undefined,
+          recurrenceCount: recurrenceCount ?? undefined,
           targetDate: targetDate ?? undefined,
           color: color ?? undefined,
           location: location ?? undefined,
