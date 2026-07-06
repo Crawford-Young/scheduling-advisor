@@ -22,7 +22,10 @@ vi.mock('@/db', () => ({
   },
 }))
 vi.mock('@/db/schema', () => ({ users: {}, messages: {} }))
-vi.mock('@/lib/ai', () => ({ defaultModel: 'fake-model' }))
+vi.mock('@/lib/ai', () => ({ advisorModel: 'fake-model', quickModel: 'fake-quick' }))
+vi.mock('@/server/actions/conversations', () => ({
+  bumpConversationExpiry: vi.fn().mockResolvedValue(undefined),
+}))
 vi.mock('@/lib/redis', () => ({
   ratelimit: { limit: vi.fn().mockResolvedValue({ success: true }) },
 }))
@@ -75,6 +78,7 @@ import { streamText } from 'ai'
 import { POST } from '@/app/api/chat/route'
 
 const VALID_UUID = '123e4567-e89b-12d3-a456-426614174000'
+const CONVO_ID = VALID_UUID
 
 function makeRequest(body: object) {
   return new NextRequest('http://localhost/api/chat', {
@@ -82,6 +86,12 @@ function makeRequest(body: object) {
     body: JSON.stringify(body),
     headers: { 'content-type': 'application/json' },
   })
+}
+
+function mockAuthed(): void {
+  vi.mocked(auth).mockResolvedValue({ user: { id: 'u1', plan: 'pro' } } as never)
+  vi.mocked(ratelimit.limit).mockResolvedValue({ success: true } as never)
+  mockFindFirst.mockResolvedValue({ timezone: 'UTC' })
 }
 
 describe('POST /api/chat', () => {
@@ -141,14 +151,58 @@ describe('POST /api/chat', () => {
     expect(await res.json()).toMatchObject({ error: 'Unauthorized' })
   })
 
-  it('calls streamText with correct system prompt and maxSteps', async () => {
-    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1', plan: 'pro' } } as never)
-    mockFindFirst.mockResolvedValueOnce({ timezone: 'UTC' })
-    await POST(
-      makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: VALID_UUID }),
+  it('quick-schedule: streams without touching conversations/messages tables', async () => {
+    mockAuthed()
+    const res = await POST(
+      makeRequest({
+        messages: [{ role: 'user', content: 'date 6pm a month from now' }],
+        mode: 'quick-schedule',
+      }),
     )
-    expect(vi.mocked(streamText)).toHaveBeenCalledWith(
-      expect.objectContaining({ system: 'test-system-prompttest-context-block', maxSteps: 5 }),
+    expect(res.status).toBe(200)
+    expect(mockInsert).not.toHaveBeenCalled()
+    expect(mockSelect).not.toHaveBeenCalled()
+    const args = vi.mocked(streamText).mock.calls[0]![0]
+    expect(args.model as unknown as string).toBe('fake-quick')
+    expect(Object.keys(args.tools!)).toHaveLength(3)
+    expect(args.maxSteps).toBe(2)
+  })
+
+  it('persisted: unchanged advisor behavior with split system messages', async () => {
+    mockAuthed()
+    const res = await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: CONVO_ID }),
+    )
+    expect(res.status).toBe(200)
+    const args = vi.mocked(streamText).mock.calls[0]![0]
+    const sys = (args.messages as Array<{ role: string; providerOptions?: unknown }>).filter(
+      (m) => m.role === 'system',
+    )
+    expect(sys).toHaveLength(2)
+    expect(sys[0]!.providerOptions).toEqual({
+      anthropic: { cacheControl: { type: 'ephemeral' } },
+    })
+    expect(sys[1]!.providerOptions).toBeUndefined()
+    expect(Object.keys(args.tools!)).toHaveLength(19)
+  })
+
+  it('persisted: concatenated system content stays byte-equivalent to the prior single message', async () => {
+    mockAuthed()
+    await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: CONVO_ID }),
+    )
+    const args = vi.mocked(streamText).mock.calls[0]![0]
+    const sys = (args.messages as Array<{ role: string; content: string }>).filter(
+      (m) => m.role === 'system',
+    )
+    expect(sys[0]!.content + sys[1]!.content).toBe('test-system-prompttest-context-block')
+    expect(args.maxSteps).toBe(5)
+  })
+
+  it('400 on body with neither conversationId nor quick mode', async () => {
+    mockAuthed()
+    expect((await POST(makeRequest({ messages: [{ role: 'user', content: 'hi' }] }))).status).toBe(
+      400,
     )
   })
 

@@ -4,17 +4,20 @@ import { db } from '@/db'
 import { users, messages } from '@/db/schema'
 import { eq, desc } from 'drizzle-orm'
 import { ratelimit } from '@/lib/redis'
-import { defaultModel } from '@/lib/ai'
 import { streamText } from 'ai'
-import { buildSystemPrompt } from '@/lib/chat/system-prompt'
-import { buildContextBlock } from '@/lib/chat/context-builder'
-import { buildChatTools } from '@/lib/chat/tools'
+import { getMode } from '@/lib/chat/modes'
+import { buildChatTools, pickTools } from '@/lib/chat/tools'
 import { chatRequestSchema } from '@/lib/schemas/chat'
 import { logger } from '@/lib/logger'
 import { getTokenBalance, deductTokens } from '@/server/queries/tokens'
 import { bumpConversationExpiry } from '@/server/actions/conversations'
 
 const MIN_CREDITS = 1
+
+interface Turn {
+  readonly role: 'user' | 'assistant'
+  readonly content: string
+}
 
 export async function POST(req: NextRequest): Promise<Response> {
   const session = await auth()
@@ -36,59 +39,76 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!parseResult.success) {
     return Response.json({ error: 'Invalid request' }, { status: 400 })
   }
-  const { messages: incomingMessages, conversationId } = parseResult.data
+  const { messages: incomingMessages, conversationId, mode: requestedMode } = parseResult.data
 
   const user = await db.query.users.findFirst({ where: eq(users.id, session.user.id) })
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const contextBlock = await buildContextBlock(user.timezone)
-  const systemPrompt = `${buildSystemPrompt()}${contextBlock}`
+  const userId = session.user.id
+  const mode = getMode(requestedMode === 'quick-schedule' ? 'quick-schedule' : 'advisor')
 
-  const lastMessage = incomingMessages[incomingMessages.length - 1]
-  if (!lastMessage) {
-    return Response.json({ error: 'Invalid request' }, { status: 400 })
+  let turns: Turn[]
+  if (mode.persisted) {
+    // conversationId is guaranteed defined for persisted mode by the schema refine.
+    const persistedConversationId = conversationId as string
+    // messages is guaranteed non-empty (schema `.min(1)`), so the last element is defined.
+    const lastMessage = incomingMessages[incomingMessages.length - 1]!
+    await db.insert(messages).values({
+      conversationId: persistedConversationId,
+      role: lastMessage.role,
+      content: lastMessage.content,
+    })
+
+    const history = await db
+      .select()
+      .from(messages)
+      .where(eq(messages.conversationId, persistedConversationId))
+      .orderBy(desc(messages.createdAt))
+      .limit(mode.historyLimit)
+
+    turns = history.reverse().map((m) => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content as string,
+    }))
+  } else {
+    turns = incomingMessages.map((m) => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    }))
   }
 
-  await db.insert(messages).values({
-    conversationId,
-    role: lastMessage.role,
-    content: lastMessage.content,
-  })
-
-  const history = await db
-    .select()
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(desc(messages.createdAt))
-    .limit(50)
-
-  const contextMessages = history.reverse().map((m) => ({
-    role: m.role as 'user' | 'assistant',
-    content: m.content as string,
-  }))
-
-  const userId = session.user.id
+  const [stableSystem, contextBlock] = [mode.buildSystem(), await mode.buildContext(user.timezone)]
 
   const result = streamText({
-    model: defaultModel,
-    system: systemPrompt,
-    messages: contextMessages,
-    maxSteps: 5,
-    tools: buildChatTools(userId),
+    model: mode.model,
+    maxSteps: mode.maxSteps,
+    tools: pickTools(buildChatTools(userId), mode.toolNames),
+    messages: [
+      {
+        role: 'system',
+        content: stableSystem,
+        providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } },
+      },
+      { role: 'system', content: contextBlock },
+      ...turns,
+    ],
     onError: ({ error }) => {
       logger.error({ error }, 'streamText error')
     },
     onFinish: async ({ response, usage }) => {
-      const assistantMsg = response.messages[response.messages.length - 1]
-      if (assistantMsg) {
-        try {
-          await db.insert(messages).values({
-            conversationId,
-            role: 'assistant',
-            content: assistantMsg.content as unknown as Record<string, unknown>,
-          })
-        } catch (err) {
-          logger.error({ err, conversationId }, 'Failed to persist assistant message')
+      if (mode.persisted) {
+        const persistedConversationId = conversationId as string
+        const assistantMsg = response.messages[response.messages.length - 1]
+        if (assistantMsg) {
+          try {
+            await db.insert(messages).values({
+              conversationId: persistedConversationId,
+              role: 'assistant',
+              content: assistantMsg.content as unknown as Record<string, unknown>,
+            })
+          } catch (err) {
+            logger.error({ err, conversationId }, 'Failed to persist assistant message')
+          }
         }
       }
 
@@ -100,10 +120,12 @@ export async function POST(req: NextRequest): Promise<Response> {
         }
       }
 
-      try {
-        await bumpConversationExpiry(conversationId)
-      } catch (err) {
-        logger.error({ err, conversationId }, 'Failed to bump conversation expiry')
+      if (mode.persisted) {
+        try {
+          await bumpConversationExpiry(conversationId as string)
+        } catch (err) {
+          logger.error({ err, conversationId }, 'Failed to bump conversation expiry')
+        }
       }
     },
   })
