@@ -191,25 +191,6 @@ export const messages = pgTable('messages', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
-export const streaks = pgTable(
-  'streaks',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: text('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    taskId: uuid('task_id')
-      .notNull()
-      .references(() => tasks.id, { onDelete: 'cascade' }),
-    currentStreak: integer('current_streak').notNull().default(0),
-    bestStreak: integer('best_streak').notNull().default(0),
-    lastCompletedAt: timestamp('last_completed_at', { withTimezone: true, mode: 'date' }),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
-    updatedAt: timestamp('updated_at').notNull().defaultNow(),
-  },
-  (t) => [unique().on(t.userId, t.taskId)],
-)
-
 export const tokenLedger = pgTable(
   'token_ledger',
   {
