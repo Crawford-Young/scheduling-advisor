@@ -12,6 +12,7 @@ const deleteTaskMock = vi.fn()
 const rescheduleTaskMock = vi.fn()
 const recordCompletionMock = vi.fn()
 const updateTaskMock = vi.fn()
+const updateTaskSeriesMock = vi.fn()
 const toastErrorMock = vi.fn()
 
 // AlertDialog stores a wrapper around its onOpenChange here so the Cancel and
@@ -34,6 +35,7 @@ vi.mock('@/server/actions/tasks', () => ({
   createTask: (input: unknown) => createTaskMock(input),
   deleteTask: (input: unknown) => deleteTaskMock(input),
   updateTask: (input: unknown) => updateTaskMock(input),
+  updateTaskSeries: (input: unknown) => updateTaskSeriesMock(input),
 }))
 
 vi.mock('@/server/actions/consistency', () => ({
@@ -124,6 +126,18 @@ const STUB_COMPLETED_LIB_EVENT: MockLibEvent = {
   end: '2026-01-06T10:00:00.000Z',
 }
 
+// Series-shaped chip edit: the user picked a weekday set in the chip popover, so
+// recurrenceDays reaches onEventEdit. evt-1 is already a weekly series → this
+// must route to updateTaskSeries (regenerate the group), NOT updateTask.
+const STUB_SERIES_EDIT_PAYLOAD: MockLibEvent = {
+  id: 'evt-1',
+  title: 'Test event',
+  start: '2026-01-06T09:00:00.000Z',
+  end: '2026-01-06T10:00:00.000Z',
+  recurrenceFrequency: 'weekly',
+  recurrenceDays: ['Mon', 'Wed'],
+}
+
 // Multi-day weekly drag-create payload: recurrenceDays must reach createTask.
 const STUB_CREATE_PAYLOAD: MockCreatePayload = {
   title: 'test',
@@ -212,6 +226,23 @@ vi.mock('@/lib/ui', () => ({
       </button>
       <button type="button" onClick={() => props.onEventEdit?.(STUB_COMPLETED_LIB_EVENT)}>
         trigger-edit-completed
+      </button>
+      <button type="button" onClick={() => props.onEventEdit?.(STUB_SERIES_EDIT_PAYLOAD)}>
+        trigger-edit-series-days
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventEdit?.({
+            id: 'evt-1',
+            title: 'Test event',
+            start: '2026-01-06T09:00:00.000Z',
+            end: '2026-01-06T10:00:00.000Z',
+            recurrenceFrequency: 'daily',
+          })
+        }
+      >
+        trigger-edit-freq-change
       </button>
       {/* Recurring event (evt-1 has recurrence 'weekly') → recordCompletion.
           Library hands off the TOGGLED event (completed: true = user wants
@@ -638,6 +669,123 @@ describe('CalendarClient — event edit persistence', () => {
     expect(view.dataset.evt0Recurrence).toBe('weekly')
     // Fanned rows are standalone — recurrenceDays must stay undefined.
     expect(view.dataset.evt0HasRecurrenceDays).toBe('false')
+  })
+})
+
+// ── series-shaped edit routing (S8) ─────────────────────────────────────────
+//
+// The chip popover can change the recurrence PATTERN (a weekday set or a changed
+// frequency on an existing series) as well as row-shaped fields (time/title).
+// A series-shaped change routes to updateTaskSeries, which regenerates the
+// group's future pending rows; a plain time/field change keeps updateTask.
+
+describe('CalendarClient — series-shaped edit routing (S8)', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    updateTaskMock.mockClear()
+    updateTaskMock.mockResolvedValue({})
+    updateTaskSeriesMock.mockClear()
+    updateTaskSeriesMock.mockResolvedValue({})
+    toastErrorMock.mockClear()
+  })
+
+  it('routes a chip edit with a changed weekday set to updateTaskSeries with the token array', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-edit-series-days' }))
+
+    await waitFor(() =>
+      expect(updateTaskSeriesMock).toHaveBeenCalledWith({
+        taskId: 'evt-1',
+        recurrence: 'weekly',
+        recurrenceDays: ['Mon', 'Wed'],
+      }),
+    )
+    // Series-shaped change owns the save — updateTask must NOT also fire.
+    expect(updateTaskMock).not.toHaveBeenCalled()
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('routes a chip edit that changes only the frequency (no weekday set) to updateTaskSeries', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    // evt-1 is stored as 'weekly'; the popover switches it to 'daily' with no
+    // weekday picker → a series-shaped frequency change, recurrenceDays undefined.
+    await user.click(screen.getByRole('button', { name: 'trigger-edit-freq-change' }))
+
+    await waitFor(() =>
+      expect(updateTaskSeriesMock).toHaveBeenCalledWith({
+        taskId: 'evt-1',
+        recurrence: 'daily',
+        recurrenceDays: undefined,
+      }),
+    )
+    expect(updateTaskMock).not.toHaveBeenCalled()
+  })
+
+  it('routes a chip edit with only a time change to updateTask (not updateTaskSeries)', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    // STUB_EDIT_PAYLOAD keeps recurrenceFrequency 'weekly' (evt-1's stored value)
+    // and carries no recurrenceDays → row-shaped edit.
+    await user.click(screen.getByRole('button', { name: 'trigger-edit' }))
+
+    await waitFor(() => expect(updateTaskMock).toHaveBeenCalled())
+    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a toast and remounts when a series edit fails to persist', async () => {
+    updateTaskSeriesMock.mockResolvedValueOnce({ error: 'Not found' })
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    const beforeNode = screen.getByTestId('week-calendar-view')
+    await user.click(screen.getByRole('button', { name: 'trigger-edit-series-days' }))
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith('Could not save event — calendar restored'),
+    )
+    expect(screen.getByTestId('week-calendar-view')).not.toBe(beforeNode)
+    expect(refreshMock).toHaveBeenCalled()
   })
 })
 

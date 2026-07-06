@@ -18,7 +18,7 @@ import {
   type DayWindow,
 } from '@/lib/ui'
 import { rescheduleTask, recordCompletion } from '@/server/actions/consistency'
-import { createTask, deleteTask, updateTask } from '@/server/actions/tasks'
+import { createTask, deleteTask, updateTask, updateTaskSeries } from '@/server/actions/tasks'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -58,6 +58,15 @@ function toLibraryRecurrenceFrequency(
     : undefined
 }
 
+// The subset of frequencies updateTaskSeries can regenerate (its schema is a
+// daily|weekly|monthly enum — 'yearly' never fans out, so it is not a series).
+const SERIES_FREQUENCIES = ['daily', 'weekly', 'monthly'] as const
+type SeriesFrequency = (typeof SERIES_FREQUENCIES)[number]
+
+function isSeriesFrequency(value: string | null | undefined): value is SeriesFrequency {
+  return value != null && (SERIES_FREQUENCIES as readonly string[]).includes(value)
+}
+
 // ─── Color mapping ────────────────────────────────────────────────────────────
 // Prefer the event's persisted color (user-chosen). A falsy persisted color
 // means the popover's default (pre-selected) swatch was used, which the
@@ -87,7 +96,12 @@ function toLibraryEvent(e: AppCalendarEvent): LibraryCalendarEvent {
     recurrenceFrequency: toLibraryRecurrenceFrequency(e.recurrence),
     // recurrenceDays is intentionally omitted: each stored row is a standalone
     // fanned occurrence (see createTask weekday fan-out), so it has no per-week
-    // day set of its own — leaving it undefined keeps the chip on its own day.
+    // day set of its own — leaving it undefined keeps the chip on its own day
+    // (the library fans a seeded day set across days → a double-render trap).
+    // Consequence (S8 interim): the chip edit popover's weekday picker opens
+    // EMPTY. A user selecting days still routes correctly to updateTaskSeries in
+    // handleEventEdit, but the current selection is not pre-filled until S9 adds
+    // the library's `seriesDays` edit-seed prop (group-aware, no double render).
   }
 }
 
@@ -163,17 +177,48 @@ export function CalendarClient({
       return
     }
     startTransition(async () => {
-      const result = await updateTask({
-        id: libEvent.id,
-        title: libEvent.title,
-        startAt: new Date(libEvent.start).toISOString(),
-        endAt: new Date(libEvent.end).toISOString(),
-        color: libEvent.color ?? null,
-        location: libEvent.location ?? null,
-        description: libEvent.description ?? null,
-        recurrence: libEvent.recurrenceFrequency ?? null,
-        allDay: libEvent.allDay ?? false,
-      })
+      // Series-shaped vs row-shaped routing. The chip popover emits both the
+      // recurrence PATTERN (frequency + a weekday set) and row-shaped fields
+      // (time/title/color) in one save. A change to the pattern of an existing
+      // series regenerates the group's future pending rows via updateTaskSeries;
+      // a plain time/field change keeps the single-row updateTask path.
+      //
+      // Detection: the picker opens empty (toLibraryEvent omits recurrenceDays —
+      // rows are already materialized), so any recurrenceDays present means the
+      // user actively selected them; a differing frequency also counts. Both are
+      // only meaningful on a row that is already recurring (else there is no
+      // group for updateTaskSeries to anchor).
+      //
+      // Mixed edit (a pattern change AND a row-shaped change in the same save):
+      // the series change owns the save — updateTaskSeries regenerates from the
+      // anchor row's persisted time/title, and the co-changed row-shaped fields
+      // are NOT separately written here. This is the interim state until S9 lands
+      // the library's seriesDays edit-seed and a unified series-edit form.
+      const original = events.find((e) => e.id === libEvent.id)
+      const freq = libEvent.recurrenceFrequency
+      const days = libEvent.recurrenceDays
+      const daysSelected = days !== undefined && days.length > 0
+      const recurrenceChanged = (freq ?? null) !== (original?.recurrence ?? null)
+      const wasRecurring = original?.recurrence != null
+
+      const result =
+        wasRecurring && isSeriesFrequency(freq) && (daysSelected || recurrenceChanged)
+          ? await updateTaskSeries({
+              taskId: libEvent.id,
+              recurrence: freq,
+              recurrenceDays: daysSelected ? days : undefined,
+            })
+          : await updateTask({
+              id: libEvent.id,
+              title: libEvent.title,
+              startAt: new Date(libEvent.start).toISOString(),
+              endAt: new Date(libEvent.end).toISOString(),
+              color: libEvent.color ?? null,
+              location: libEvent.location ?? null,
+              description: libEvent.description ?? null,
+              recurrence: libEvent.recurrenceFrequency ?? null,
+              allDay: libEvent.allDay ?? false,
+            })
       if ('error' in result) {
         toast.error('Could not save event — calendar restored')
         setResetKey((k) => k + 1)

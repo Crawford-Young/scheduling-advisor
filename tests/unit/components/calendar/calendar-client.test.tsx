@@ -9,6 +9,7 @@ const mockRescheduleTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { 
 const mockRecordCompletion = vi.hoisted(() => vi.fn().mockResolvedValue({ data: {} }))
 const mockDeleteTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { success: true } }))
 const mockUpdateTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e1' } }))
+const mockUpdateTaskSeries = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e5' } }))
 const mockToastError = vi.hoisted(() => vi.fn())
 const mockRefresh = vi.hoisted(() => vi.fn())
 const mountCount = vi.hoisted(() => ({ value: 0 }))
@@ -23,6 +24,7 @@ vi.mock('@/server/actions/consistency', () => ({
 vi.mock('@/server/actions/tasks', () => ({
   createTask: vi.fn(),
   updateTask: mockUpdateTask,
+  updateTaskSeries: mockUpdateTaskSeries,
   deleteTask: mockDeleteTask,
 }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mockRefresh }) }))
@@ -490,6 +492,62 @@ describe('CalendarClient', () => {
       )
       expect(mockRefresh).toHaveBeenCalled()
       expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
+    })
+
+    // S8: a chip edit that changes the recurrence PATTERN (a new weekday set or
+    // a changed frequency on an existing series) routes to updateTaskSeries so
+    // the group's future pending rows regenerate; a plain time change keeps
+    // updateTask. e5 is a daily series (recurrence 'daily').
+    it('routes a changed weekday set to updateTaskSeries with the token array', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({
+        id: 'e5',
+        title: 'Daily standup',
+        start: '2026-05-29T15:00:00.000Z',
+        end: '2026-05-29T15:30:00.000Z',
+        recurrenceFrequency: 'weekly',
+        recurrenceDays: ['Mon', 'Wed'],
+      })
+      await vi.waitFor(() =>
+        expect(mockUpdateTaskSeries).toHaveBeenCalledWith({
+          taskId: 'e5',
+          recurrence: 'weekly',
+          recurrenceDays: ['Mon', 'Wed'],
+        }),
+      )
+      expect(mockUpdateTask).not.toHaveBeenCalled()
+      expect(mockRefresh).toHaveBeenCalled()
+    })
+
+    it('routes a plain time change on a series to updateTask (not updateTaskSeries)', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({
+        id: 'e5',
+        title: 'Daily standup',
+        start: '2026-05-29T16:00:00.000Z',
+        end: '2026-05-29T16:30:00.000Z',
+        recurrenceFrequency: 'daily',
+      })
+      await vi.waitFor(() => expect(mockUpdateTask).toHaveBeenCalled())
+      expect(mockUpdateTaskSeries).not.toHaveBeenCalled()
     })
 
     it('ignores edit of a completed event (no updateTask) but remounts to restore', async () => {

@@ -6,6 +6,7 @@ import { useActivityActions, type ActivityCardActionsProps } from './use-activit
 
 const refreshMock = vi.fn()
 const updateTaskMock = vi.fn().mockResolvedValue({ data: {} })
+const updateTaskSeriesMock = vi.fn().mockResolvedValue({ data: {} })
 const deleteTaskMock = vi.fn().mockResolvedValue({ data: { success: true } })
 const recordCompletionMock = vi.fn().mockResolvedValue({ data: {} })
 const toastErrorMock = vi.fn()
@@ -16,6 +17,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/server/actions/tasks', () => ({
   updateTask: (input: unknown) => updateTaskMock(input),
+  updateTaskSeries: (input: unknown) => updateTaskSeriesMock(input),
   deleteTask: (input: unknown) => deleteTaskMock(input),
 }))
 
@@ -58,6 +60,7 @@ vi.mock('@/lib/ui', () => ({
       startAt?: string
       endAt?: string
       recurrence?: string
+      recurrenceCount?: number
       color?: string | null
       location?: string | null
       description?: string | null
@@ -72,10 +75,37 @@ vi.mock('@/lib/ui', () => ({
         <span data-testid="dialog-target-date">{initialValues?.targetDate ?? ''}</span>
         <span data-testid="dialog-start-at">{initialValues?.startAt ?? ''}</span>
         <span data-testid="dialog-end-at">{initialValues?.endAt ?? ''}</span>
+        <span data-testid="dialog-recurrence">{initialValues?.recurrence ?? ''}</span>
+        <span data-testid="dialog-recurrence-count">
+          {initialValues?.recurrenceCount !== undefined
+            ? String(initialValues.recurrenceCount)
+            : ''}
+        </span>
         <span data-testid="dialog-color">{initialValues?.color ?? ''}</span>
         <span data-testid="dialog-location">{initialValues?.location ?? ''}</span>
         <span data-testid="dialog-description">{initialValues?.description ?? ''}</span>
         <span data-testid="dialog-all-day">{String(initialValues?.allDay ?? '')}</span>
+        {/* Series-shaped submit: keeps the frequency, changes recurrenceCount 4 → 8. */}
+        <button
+          type="button"
+          onClick={() =>
+            onSubmit({
+              type: 'task',
+              title: 'Series edited task',
+              startAt: '2026-07-01T09:00:00.000Z',
+              endAt: '2026-07-01T10:00:00.000Z',
+              recurrence: 'weekly',
+              recurrenceCount: 8,
+              color: null,
+              location: null,
+              description: null,
+              allDay: false,
+              social: { activityType: 'solo', visibility: 'only_me' },
+            })
+          }
+        >
+          submit-series-edit
+        </button>
         <button
           type="button"
           onClick={() =>
@@ -163,6 +193,7 @@ describe('useActivityActions', () => {
   beforeEach(() => {
     refreshMock.mockClear()
     updateTaskMock.mockClear()
+    updateTaskSeriesMock.mockClear()
     deleteTaskMock.mockClear()
     recordCompletionMock.mockClear()
     toastErrorMock.mockClear()
@@ -370,6 +401,73 @@ describe('useActivityActions', () => {
     render(<ActivityActionsHarness {...goalProps} />)
     await user.click(screen.getByRole('button', { name: /edit goal/i }))
     await user.click(screen.getByRole('button', { name: 'submit-edit' }))
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not save activity'))
+    expect(refreshMock).not.toHaveBeenCalled()
+  })
+
+  // S8: a task already part of a recurrence group whose recurrence/recurrenceCount
+  // changes routes to updateTaskSeries (regenerate the group's future pending
+  // rows); row-shaped-only edits keep updateTask.
+  const seriesTaskProps = {
+    taskId: 'task-series-1',
+    type: 'task' as const,
+    title: 'Weekly review',
+    status: 'pending' as const,
+    startAt: '2026-07-01T09:00:00.000Z',
+    endAt: '2026-07-01T10:00:00.000Z',
+    recurrence: 'weekly',
+    recurrenceCount: 4,
+    social: { activityType: 'solo' as const, visibility: 'only_me' as const },
+  }
+
+  it('seeds recurrenceCount into the edit dialog initialValues from the row', async () => {
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...seriesTaskProps} />)
+    await user.click(screen.getByRole('button', { name: /edit task/i }))
+    expect(screen.getByTestId('dialog-recurrence-count')).toHaveTextContent('4')
+    expect(screen.getByTestId('dialog-recurrence')).toHaveTextContent('weekly')
+  })
+
+  it('routes a changed recurrenceCount to updateTaskSeries (not updateTask)', async () => {
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...seriesTaskProps} />)
+    await user.click(screen.getByRole('button', { name: /edit task/i }))
+    await user.click(screen.getByRole('button', { name: 'submit-series-edit' }))
+    await waitFor(() =>
+      expect(updateTaskSeriesMock).toHaveBeenCalledWith({
+        taskId: 'task-series-1',
+        recurrence: 'weekly',
+        recurrenceCount: 8,
+      }),
+    )
+    expect(updateTaskMock).not.toHaveBeenCalled()
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('keeps a row-shaped-only task edit on updateTask (not updateTaskSeries)', async () => {
+    const user = userEvent.setup()
+    render(
+      <ActivityActionsHarness
+        taskId="task-plain"
+        type="task"
+        title="One-off"
+        status="pending"
+        startAt="2026-07-01T09:00:00.000Z"
+        social={{ activityType: 'solo', visibility: 'only_me' }}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /edit task/i }))
+    await user.click(screen.getByRole('button', { name: 'submit-edit' }))
+    await waitFor(() => expect(updateTaskMock).toHaveBeenCalled())
+    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+  })
+
+  it('shows toast.error when a series edit fails to persist', async () => {
+    updateTaskSeriesMock.mockResolvedValueOnce({ error: 'Not a series' })
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...seriesTaskProps} />)
+    await user.click(screen.getByRole('button', { name: /edit task/i }))
+    await user.click(screen.getByRole('button', { name: 'submit-series-edit' }))
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not save activity'))
     expect(refreshMock).not.toHaveBeenCalled()
   })
