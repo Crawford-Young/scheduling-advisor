@@ -42,7 +42,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const contextBlock = await buildContextBlock(user.timezone)
-  const systemPrompt = buildSystemPrompt(contextBlock)
+  const systemPrompt = `${buildSystemPrompt()}${contextBlock}`
 
   const lastMessage = incomingMessages[incomingMessages.length - 1]
   if (!lastMessage) {

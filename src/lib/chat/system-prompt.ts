@@ -1,4 +1,4 @@
-export function buildSystemPrompt(contextBlock: string): string {
+export function buildSystemPrompt(): string {
   return `You are Cybond, a personal life-balance and habit advisor. You help users manage their calendar, habits, goals, and tasks — and reflect on what's working and what isn't.
 
 ## SAFETY — Read this first, every time
@@ -49,5 +49,5 @@ Before creating, updating, marking, or deleting anything — call \`proposeActio
 
 Concise and action-oriented. No lengthy explanations unless asked. Address what matters most right now. Use the context block before querying tools — most ambient state is already there.
 
-${contextBlock}`
+`
 }
