@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { AppShell, Avatar, AvatarFallback, AvatarImage, Sidebar, Toaster } from '@/lib/ui'
 import { ActiveSidebarItem } from '@/components/layout/active-sidebar-item'
 import { TokenChipLive } from '@/components/layout/token-chip-live'
+import { QuickScheduleInput } from '@/components/chat/quick-schedule-input'
 import { ChatFab } from '@/components/chat/chat-fab'
 import { getTokenBalance } from '@/server/queries/tokens'
 import { Calendar, Coins, ListChecks, LogOut, MessageSquare, Rss, Settings } from 'lucide-react'
@@ -99,7 +100,8 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
           </Sidebar>
         }
         topbar={
-          <div className="border-border flex h-12 items-center justify-end border-b px-4">
+          <div className="border-border flex h-12 items-center justify-end gap-4 border-b px-4">
+            <QuickScheduleInput />
             <TokenChipLive initialBalance={tokenBalance} />
           </div>
         }
