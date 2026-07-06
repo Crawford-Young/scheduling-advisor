@@ -13,6 +13,7 @@ import {
   boolean,
 } from 'drizzle-orm/pg-core'
 import type { CalendarDayOverrides } from '@/lib/schemas/calendar-prefs'
+import type { DayOfWeek } from '@/lib/schemas/task'
 
 // ── Auth.js v5 required tables ────────────────────────────────────────────────
 
@@ -80,6 +81,11 @@ export const tasks = pgTable('tasks', {
   title: text('title').notNull(),
   type: text('type', { enum: ['task', 'goal'] }).notNull(),
   recurrence: text('recurrence'),
+  // Shared identity for every row produced by a single fan-out/create call —
+  // null for a non-recurring single insert. See src/server/actions/tasks.ts.
+  recurrenceGroupId: uuid('recurrence_group_id'),
+  recurrenceDays: jsonb('recurrence_days').$type<readonly DayOfWeek[]>(),
+  recurrenceCount: integer('recurrence_count'),
   status: text('status', { enum: ['pending', 'in_progress', 'completed'] })
     .notNull()
     .default('pending'),

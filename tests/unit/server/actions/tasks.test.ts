@@ -422,6 +422,176 @@ describe('createTask fan-out', () => {
     const insertArg = mockValuesInsert.mock.calls[0]![0]
     expect(Array.isArray(insertArg)).toBe(false)
   })
+
+  it('weekday fan-out: all rows share one recurrenceGroupId and persist recurrenceDays + recurrenceCount', async () => {
+    mockReturningInsert.mockResolvedValueOnce([
+      { id: 'task-1', title: 'test', type: 'task' },
+      { id: 'task-2', title: 'test', type: 'task' },
+      { id: 'task-3', title: 'test', type: 'task' },
+      { id: 'task-4', title: 'test', type: 'task' },
+    ])
+    await createTask({
+      title: 'test',
+      type: 'task',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Tue'],
+      recurrenceCount: 2,
+      startAt: '2026-05-18T09:00:00.000Z',
+      endAt: '2026-05-18T10:00:00.000Z',
+    })
+    const insertedRows = mockValuesInsert.mock.calls[0]![0] as Array<{
+      recurrenceGroupId: string | null
+      recurrenceDays: readonly string[] | null
+      recurrenceCount: number | null
+    }>
+    expect(insertedRows).toHaveLength(4)
+    const groupIds = new Set(insertedRows.map((r) => r.recurrenceGroupId))
+    expect(groupIds.size).toBe(1)
+    expect(insertedRows[0]!.recurrenceGroupId).toBeTruthy()
+    for (const row of insertedRows) {
+      expect(row.recurrenceDays).toEqual(['Mon', 'Tue'])
+      expect(row.recurrenceCount).toBe(2)
+    }
+  })
+
+  it('weekday fan-out: recurrenceCount persisted as null when not provided', async () => {
+    mockReturningInsert.mockResolvedValueOnce([
+      { id: 'task-1', title: 'test', type: 'task' },
+      { id: 'task-2', title: 'test', type: 'task' },
+    ])
+    await createTask({
+      title: 'test',
+      type: 'task',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Tue'],
+      startAt: '2026-05-18T09:00:00.000Z',
+    })
+    const insertedRows = mockValuesInsert.mock.calls[0]![0] as Array<{
+      recurrenceCount: number | null
+    }>
+    expect(insertedRows[0]!.recurrenceCount).toBeNull()
+    expect(insertedRows[1]!.recurrenceCount).toBeNull()
+  })
+
+  it('two separate createTask calls produce different recurrenceGroupIds', async () => {
+    mockReturningInsert.mockResolvedValueOnce([
+      { id: 'task-1', title: 'test', type: 'task' },
+      { id: 'task-2', title: 'test', type: 'task' },
+    ])
+    await createTask({
+      title: 'test',
+      type: 'task',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Tue'],
+      startAt: '2026-05-18T09:00:00.000Z',
+    })
+    const firstRows = mockValuesInsert.mock.calls[0]![0] as Array<{ recurrenceGroupId: string }>
+
+    mockReturningInsert.mockResolvedValueOnce([
+      { id: 'task-3', title: 'test2', type: 'task' },
+      { id: 'task-4', title: 'test2', type: 'task' },
+    ])
+    await createTask({
+      title: 'test2',
+      type: 'task',
+      recurrence: 'weekly',
+      recurrenceDays: ['Wed', 'Thu'],
+      startAt: '2026-05-18T09:00:00.000Z',
+    })
+    const secondRows = mockValuesInsert.mock.calls[1]![0] as Array<{ recurrenceGroupId: string }>
+
+    expect(firstRows[0]!.recurrenceGroupId).not.toBe(secondRows[0]!.recurrenceGroupId)
+  })
+
+  it('count fan-out: all rows share one recurrenceGroupId, recurrenceDays null, recurrenceCount persisted', async () => {
+    const rows = [
+      {
+        id: 'task-1',
+        title: 'Meditate',
+        type: 'task',
+        startAt: new Date('2026-05-19T09:00:00.000Z'),
+      },
+      {
+        id: 'task-2',
+        title: 'Meditate',
+        type: 'task',
+        startAt: new Date('2026-05-20T09:00:00.000Z'),
+      },
+      {
+        id: 'task-3',
+        title: 'Meditate',
+        type: 'task',
+        startAt: new Date('2026-05-21T09:00:00.000Z'),
+      },
+    ]
+    mockReturningInsert.mockResolvedValueOnce(rows)
+
+    await createTask({
+      title: 'Meditate',
+      type: 'task',
+      recurrence: 'daily',
+      startAt: '2026-05-19T09:00:00.000Z',
+      endAt: '2026-05-19T10:00:00.000Z',
+      recurrenceCount: 3,
+    })
+
+    const insertedRows = mockValuesInsert.mock.calls[0]![0] as Array<{
+      recurrenceGroupId: string | null
+      recurrenceDays: readonly string[] | null
+      recurrenceCount: number | null
+    }>
+    const groupIds = new Set(insertedRows.map((r) => r.recurrenceGroupId))
+    expect(groupIds.size).toBe(1)
+    expect(insertedRows[0]!.recurrenceGroupId).toBeTruthy()
+    for (const row of insertedRows) {
+      expect(row.recurrenceDays).toBeNull()
+      expect(row.recurrenceCount).toBe(3)
+    }
+  })
+})
+
+describe('createTask single insert recurrence group identity', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('stamps a fresh non-null recurrenceGroupId when recurrence is set (single insert)', async () => {
+    mockReturningInsert.mockResolvedValueOnce([{ id: 'task-1', title: 'Meditate', type: 'task' }])
+    await createTask({
+      title: 'Meditate',
+      type: 'task',
+      recurrence: 'RRULE:FREQ=DAILY',
+    })
+    const insertArg = mockValuesInsert.mock.calls[0]![0] as {
+      recurrenceGroupId: string | null
+      recurrenceCount: number | null
+      recurrenceDays: readonly string[] | null
+    }
+    expect(insertArg.recurrenceGroupId).toBeTruthy()
+    expect(insertArg.recurrenceCount).toBeNull()
+    expect(insertArg.recurrenceDays).toBeNull()
+  })
+
+  it('persists recurrenceDays when a single weekly insert carried days (no startAt to fan out from)', async () => {
+    mockReturningInsert.mockResolvedValueOnce([{ id: 'task-1', title: 'test', type: 'task' }])
+    await createTask({
+      title: 'test',
+      type: 'task',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Tue'],
+    })
+    const insertArg = mockValuesInsert.mock.calls[0]![0] as {
+      recurrenceDays: readonly string[] | null
+      recurrenceGroupId: string | null
+    }
+    expect(insertArg.recurrenceDays).toEqual(['Mon', 'Tue'])
+    expect(insertArg.recurrenceGroupId).toBeTruthy()
+  })
+
+  it('leaves recurrenceGroupId null for a non-recurring single insert', async () => {
+    mockReturningInsert.mockResolvedValueOnce([{ id: 'task-1', title: 'Run 5k', type: 'goal' }])
+    await createTask({ title: 'Run 5k', type: 'goal' })
+    const insertArg = mockValuesInsert.mock.calls[0]![0] as { recurrenceGroupId: string | null }
+    expect(insertArg.recurrenceGroupId).toBeNull()
+  })
 })
 
 describe('updateTask', () => {

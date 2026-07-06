@@ -40,7 +40,9 @@ export async function createTask(input: unknown): Promise<TaskActionResult> {
     startAt !== undefined
 
   if (weekdayFanOut) {
-    const weeks = recurrenceCount !== undefined && recurrenceCount > 1 ? recurrenceCount : 1
+    const hasWeekCount = recurrenceCount !== undefined && recurrenceCount > 1
+    const weeks = hasWeekCount ? recurrenceCount : 1
+    const groupId = crypto.randomUUID()
     const baseStart = new Date(startAt)
     const baseEnd = endAt ? new Date(endAt) : null
     const baseDow = baseStart.getUTCDay()
@@ -64,6 +66,9 @@ export async function createTask(input: unknown): Promise<TaskActionResult> {
           title: rest.title,
           type: rest.type,
           recurrence: rest.recurrence ?? null,
+          recurrenceGroupId: groupId,
+          recurrenceDays: recurrenceDays,
+          recurrenceCount: hasWeekCount ? weeks : null,
           targetDate: rest.targetDate ? new Date(rest.targetDate) : null,
           startAt: start,
           endAt: end,
@@ -92,6 +97,7 @@ export async function createTask(input: unknown): Promise<TaskActionResult> {
     startAt !== undefined
 
   if (shouldFanOut) {
+    const groupId = crypto.randomUUID()
     const rows = Array.from({ length: recurrenceCount! }, (_, i) => {
       const start = new Date(startAt!)
       const end = endAt ? new Date(endAt) : null
@@ -112,6 +118,9 @@ export async function createTask(input: unknown): Promise<TaskActionResult> {
         title: rest.title,
         type: rest.type,
         recurrence: rest.recurrence ?? null,
+        recurrenceGroupId: groupId,
+        recurrenceDays: null,
+        recurrenceCount: recurrenceCount!,
         targetDate: rest.targetDate ? new Date(rest.targetDate) : null,
         startAt: start,
         endAt: end,
@@ -129,6 +138,8 @@ export async function createTask(input: unknown): Promise<TaskActionResult> {
     return { data: first }
   }
 
+  const isRecurring = rest.recurrence !== null && rest.recurrence !== undefined
+
   const [task] = await db
     .insert(tasks)
     .values({
@@ -136,6 +147,9 @@ export async function createTask(input: unknown): Promise<TaskActionResult> {
       title: rest.title,
       type: rest.type,
       recurrence: rest.recurrence ?? null,
+      recurrenceGroupId: isRecurring ? crypto.randomUUID() : null,
+      recurrenceDays: recurrenceDays ?? null,
+      recurrenceCount: null,
       targetDate: rest.targetDate ? new Date(rest.targetDate) : null,
       startAt: startAt ? new Date(startAt) : null,
       endAt: endAt ? new Date(endAt) : null,

@@ -59,6 +59,29 @@ describe('createTask', () => {
       allDay: true,
     })
   })
+
+  it('stamps a fresh non-null recurrenceGroupId for a recurring single insert', async () => {
+    const { createTask } = await import('./tasks')
+    await createTask({ type: 'task', title: 'x', recurrence: 'daily' })
+    expect(insertValues).toMatchObject({ recurrenceGroupId: expect.any(String) })
+  })
+
+  it('leaves recurrenceGroupId null for a non-recurring single insert', async () => {
+    const { createTask } = await import('./tasks')
+    await createTask({ type: 'task', title: 'x' })
+    expect(insertValues).toMatchObject({ recurrenceGroupId: null })
+  })
+
+  it('produces different recurrenceGroupIds across separate calls', async () => {
+    const { createTask } = await import('./tasks')
+    await createTask({ type: 'task', title: 'x', recurrence: 'daily' })
+    const first = (insertValues as { recurrenceGroupId: string }).recurrenceGroupId
+
+    await createTask({ type: 'task', title: 'y', recurrence: 'daily' })
+    const second = (insertValues as { recurrenceGroupId: string }).recurrenceGroupId
+
+    expect(first).not.toBe(second)
+  })
 })
 
 describe('updateTask', () => {
