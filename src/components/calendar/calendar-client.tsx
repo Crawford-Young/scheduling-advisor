@@ -194,6 +194,15 @@ export function CalendarClient({
       // anchor row's persisted time/title, and the co-changed row-shaped fields
       // are NOT separately written here. This is the interim state until S9 lands
       // the library's seriesDays edit-seed and a unified series-edit form.
+      //
+      // S10: setting a series frequency on a NON-recurring event ALSO routes to
+      // updateTaskSeries, which materializes the series (updates the anchor in
+      // place and fans out future occurrences). Clearing recurrence on an
+      // already-recurring event (freq drops to a non-series value) stays on
+      // updateTask — that direction is unchanged. Goals are never a series:
+      // pre-S10 the wasRecurring gate implicitly excluded them (goals are never
+      // recurring), so the added !wasRecurring materialize arm needs its own
+      // explicit exclusion here (mirrors use-activity-actions' `type !== 'goal'`).
       const original = events.find((e) => e.id === libEvent.id)
       const freq = libEvent.recurrenceFrequency
       const days = libEvent.recurrenceDays
@@ -202,7 +211,9 @@ export function CalendarClient({
       const wasRecurring = original?.recurrence != null
 
       const result =
-        wasRecurring && isSeriesFrequency(freq) && (daysSelected || recurrenceChanged)
+        original?.type !== 'goal' &&
+        isSeriesFrequency(freq) &&
+        (!wasRecurring || daysSelected || recurrenceChanged)
           ? await updateTaskSeries({
               taskId: libEvent.id,
               recurrence: freq,
