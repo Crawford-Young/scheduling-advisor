@@ -46,7 +46,9 @@ test.describe('Home page', () => {
 
   test('login page shows app name and Google sign-in', async ({ page }) => {
     await page.goto('/login')
-    await expect(page.getByText('Cybond')).toBeVisible()
+    // Heading role, not getByText: the brand splash also renders "Cybond" while
+    // the page compiles/loads, and two matches strict-violate.
+    await expect(page.getByRole('heading', { name: 'Cybond' })).toBeVisible()
     await expect(page.getByRole('button', { name: /Continue with Google/i })).toBeVisible()
   })
 
