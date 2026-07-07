@@ -6,6 +6,9 @@ import { Send } from 'lucide-react'
 import { ToolResultRenderer } from '@/components/chat/tool-result-renderer'
 import type { AppEvent } from '@/components/chat/tool-result-renderer'
 
+const CHAT_ERROR_MESSAGE = "Cy couldn't respond. Try again."
+const RETRY_LABEL = 'Retry'
+
 export interface ChatMessagesPanelProps {
   readonly messages: readonly Message[]
   readonly input: string
@@ -21,6 +24,8 @@ export interface ChatMessagesPanelProps {
     time?: string,
   ) => void
   readonly inputReplacement?: React.ReactNode
+  readonly error?: Error
+  readonly onRetry?: () => void
 }
 
 export function ChatMessagesPanel({
@@ -33,6 +38,8 @@ export function ChatMessagesPanel({
   onScheduleUpdate,
   onItemConfirmed,
   inputReplacement,
+  error,
+  onRetry,
 }: ChatMessagesPanelProps): React.JSX.Element {
   const bottomRef = React.useRef<HTMLDivElement>(null)
 
@@ -89,20 +96,31 @@ export function ChatMessagesPanel({
             </div>
           ),
         )}
-        {isLoading && (
+        {error ? (
           <div className="flex justify-start">
-            <div className="bg-surface-raised rounded-lg px-3 py-2" data-testid="loading-dots">
-              <div className="flex gap-1">
-                <span className="text-muted-foreground animate-bounce">•</span>
-                <span className="text-muted-foreground animate-bounce [animation-delay:0.1s]">
-                  •
-                </span>
-                <span className="text-muted-foreground animate-bounce [animation-delay:0.2s]">
-                  •
-                </span>
-              </div>
+            <div className="bg-surface-raised flex items-center gap-2 rounded-lg px-3 py-2">
+              <p className="text-destructive text-sm">{CHAT_ERROR_MESSAGE}</p>
+              <Button type="button" variant="ghost" size="sm" onClick={onRetry}>
+                {RETRY_LABEL}
+              </Button>
             </div>
           </div>
+        ) : (
+          isLoading && (
+            <div className="flex justify-start">
+              <div className="bg-surface-raised rounded-lg px-3 py-2" data-testid="loading-dots">
+                <div className="flex gap-1">
+                  <span className="text-muted-foreground animate-bounce">•</span>
+                  <span className="text-muted-foreground animate-bounce [animation-delay:0.1s]">
+                    •
+                  </span>
+                  <span className="text-muted-foreground animate-bounce [animation-delay:0.2s]">
+                    •
+                  </span>
+                </div>
+              </div>
+            </div>
+          )
         )}
         <div ref={bottomRef} />
       </div>

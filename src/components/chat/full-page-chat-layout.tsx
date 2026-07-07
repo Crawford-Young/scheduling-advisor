@@ -49,7 +49,7 @@ export function FullPageChatLayout({
     events: [],
   })
 
-  const { messages, input, setInput, handleSubmit, isLoading, append } = useChat({
+  const { messages, input, setInput, handleSubmit, isLoading, append, error, reload } = useChat({
     api: '/api/chat',
     initialMessages: initialMessages.map((m) => ({ id: m.id, role: m.role, content: m.content })),
     body: { conversationId: conversation.id },
@@ -144,6 +144,8 @@ export function FullPageChatLayout({
               onScheduleUpdate={handleScheduleUpdate}
               onItemConfirmed={handleItemConfirmed}
               inputReplacement={tokenBalance < 1 ? zeroBalanceCta : undefined}
+              error={error}
+              onRetry={reload}
             />
           </div>
         </Panel>

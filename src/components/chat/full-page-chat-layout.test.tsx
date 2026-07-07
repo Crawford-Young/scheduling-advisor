@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { render, screen, fireEvent, act } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { FullPageChatLayout } from './full-page-chat-layout'
 import type { ConversationRow } from '@/server/queries/conversations'
 import type { ConversationMessage } from '@/server/queries/conversations'
@@ -10,6 +10,8 @@ const pushMock = vi.fn()
 
 let capturedOnFinish: (() => Promise<void>) | undefined
 let useChatMessages: unknown[] = []
+let useChatError: Error | undefined
+const reloadMock = vi.fn()
 
 vi.mock('ai/react', () => ({
   useChat: ({ onFinish }: { onFinish?: () => Promise<void> }) => {
@@ -21,6 +23,8 @@ vi.mock('ai/react', () => ({
       handleSubmit: vi.fn(),
       isLoading: false,
       append: vi.fn(),
+      error: useChatError,
+      reload: reloadMock,
     }
   },
 }))
@@ -56,6 +60,8 @@ vi.mock('@/components/chat/chat-messages-panel', () => ({
     onScheduleUpdate,
     onItemConfirmed,
     inputReplacement,
+    error,
+    onRetry,
   }: {
     onScheduleUpdate?: (weekStart: string, events: readonly AppEvent[]) => void
     onItemConfirmed?: (
@@ -65,11 +71,19 @@ vi.mock('@/components/chat/chat-messages-panel', () => ({
       time?: string,
     ) => void
     inputReplacement?: React.ReactNode
+    error?: Error
+    onRetry?: () => void
   }) => {
     capturedOnScheduleUpdate = onScheduleUpdate
     capturedOnItemConfirmed = onItemConfirmed
     return (
       <div data-testid="messages-panel">
+        {error && (
+          <div data-testid="panel-error">
+            <span data-testid="panel-error-message">{error.message}</span>
+            <button onClick={onRetry}>panel-retry</button>
+          </div>
+        )}
         {inputReplacement ?? <textarea aria-label="chat input" />}
       </div>
     )
@@ -112,6 +126,11 @@ const conversation: ConversationRow = {
 const initialMessages: ConversationMessage[] = []
 
 describe('FullPageChatLayout', () => {
+  beforeEach(() => {
+    useChatError = undefined
+    reloadMock.mockClear()
+  })
+
   it('renders chat header with title', () => {
     render(
       <FullPageChatLayout
@@ -243,6 +262,44 @@ describe('FullPageChatLayout', () => {
       capturedOnItemConfirmed?.('Team standup', 'event')
     })
     expect(screen.getByTestId('schedule-panel')).toHaveAttribute('data-event-count', '1')
+  })
+
+  describe('error state', () => {
+    it('passes the useChat error through to the messages panel', () => {
+      useChatError = new Error('boom')
+      render(
+        <FullPageChatLayout
+          conversation={conversation}
+          initialMessages={initialMessages}
+          tokenBalance={42}
+        />,
+      )
+      expect(screen.getByTestId('panel-error-message')).toHaveTextContent('boom')
+    })
+
+    it('calls reload once when the panel retry is triggered', () => {
+      useChatError = new Error('boom')
+      render(
+        <FullPageChatLayout
+          conversation={conversation}
+          initialMessages={initialMessages}
+          tokenBalance={42}
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'panel-retry' }))
+      expect(reloadMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not pass an error to the panel when useChat has none', () => {
+      render(
+        <FullPageChatLayout
+          conversation={conversation}
+          initialMessages={initialMessages}
+          tokenBalance={42}
+        />,
+      )
+      expect(screen.queryByTestId('panel-error')).not.toBeInTheDocument()
+    })
   })
 
   describe('zero token balance', () => {

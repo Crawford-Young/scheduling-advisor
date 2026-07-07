@@ -12,6 +12,8 @@ const CHAT_ROUTE = '/chat'
 const QUICK_SCHEDULE_MODE = 'quick-schedule'
 const SUCCESS_TOOL_NAMES: ReadonlySet<string> = new Set(['createCalendarEvent', 'createTask'])
 const QUICK_ADD_PLACEHOLDER = 'Quick add — "dinner Fri 7pm"'
+const CHAT_ERROR_MESSAGE = "Cy couldn't respond. Try again."
+const RETRY_LABEL = 'Retry'
 
 type ResultToolInvocation = ToolInvocation & { state: 'result' }
 
@@ -35,7 +37,7 @@ export function QuickScheduleInput(): React.JSX.Element | null {
   const sessionId = React.useId()
   const [value, setValue] = React.useState('')
 
-  const { messages, append, setMessages } = useChat({
+  const { messages, append, setMessages, error, reload } = useChat({
     id: sessionId,
     api: '/api/chat',
     body: { mode: QUICK_SCHEDULE_MODE },
@@ -44,7 +46,7 @@ export function QuickScheduleInput(): React.JSX.Element | null {
     },
   })
 
-  if (pathname === CHAT_ROUTE) return null
+  if (pathname.startsWith(CHAT_ROUTE)) return null
 
   const successResult = findResultInvocation(messages, (invocation) =>
     SUCCESS_TOOL_NAMES.has(invocation.toolName),
@@ -64,7 +66,7 @@ export function QuickScheduleInput(): React.JSX.Element | null {
     setValue('')
   }
 
-  if (successResult) {
+  if (successResult && !error) {
     return (
       <div className="flex items-center gap-2 text-sm">
         <span className="text-foreground">Added to your schedule.</span>
@@ -74,6 +76,22 @@ export function QuickScheduleInput(): React.JSX.Element | null {
       </div>
     )
   }
+
+  const resultSlot = error ? (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="text-destructive">{CHAT_ERROR_MESSAGE}</span>
+      <Button type="button" variant="ghost" size="sm" onClick={() => reload()}>
+        {RETRY_LABEL}
+      </Button>
+    </div>
+  ) : atCapacity ? (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="text-muted-foreground">Quick add is full.</span>
+      <Button type="button" variant="ghost" size="sm" onClick={handleReset}>
+        Reset
+      </Button>
+    </div>
+  ) : null
 
   return (
     <div className="flex flex-col gap-2">
@@ -91,14 +109,7 @@ export function QuickScheduleInput(): React.JSX.Element | null {
           <span className="sr-only">Add</span>
         </Button>
       </form>
-      {atCapacity && (
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-muted-foreground">Quick add is full.</span>
-          <Button type="button" variant="ghost" size="sm" onClick={handleReset}>
-            Reset
-          </Button>
-        </div>
-      )}
+      {resultSlot}
       {messages.map((message) =>
         message.toolInvocations
           ?.filter(isResultInvocation)
