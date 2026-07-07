@@ -18,6 +18,8 @@ let capturedUseChatOptions:
   | undefined
 
 let messagesState: Message[] = []
+let errorState: Error | undefined
+const reloadMock = vi.fn()
 
 vi.mock('ai/react', () => ({
   useChat: (
@@ -33,6 +35,8 @@ vi.mock('ai/react', () => ({
       messages: messagesState,
       append: appendMock,
       setMessages: setMessagesMock,
+      error: errorState,
+      reload: reloadMock,
     }
   },
 }))
@@ -82,6 +86,7 @@ describe('QuickScheduleInput', () => {
     vi.clearAllMocks()
     pathnameMock.mockReturnValue('/calendar')
     messagesState = []
+    errorState = undefined
     capturedUseChatOptions = undefined
   })
 
@@ -262,9 +267,61 @@ describe('QuickScheduleInput', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
+  it('renders nothing on a /chat/<conversationId> route', () => {
+    pathnameMock.mockReturnValue('/chat/9f1c2b3a-1111-2222-3333-444455556666')
+    const { container } = render(<QuickScheduleInput />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
   it('renders normally on other routes', () => {
     pathnameMock.mockReturnValue('/activities')
     render(<QuickScheduleInput />)
     expect(screen.getByPlaceholderText('Quick add — "dinner Fri 7pm"')).toBeInTheDocument()
+  })
+
+  describe('error state', () => {
+    it('renders the error message and a Retry button when useChat reports an error', () => {
+      errorState = new Error('boom')
+      render(<QuickScheduleInput />)
+      expect(screen.getByText("Cy couldn't respond. Try again.")).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+    })
+
+    it('calls reload once when Retry is clicked', () => {
+      errorState = new Error('boom')
+      render(<QuickScheduleInput />)
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      expect(reloadMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not render error UI when there is no error', () => {
+      render(<QuickScheduleInput />)
+      expect(screen.queryByText("Cy couldn't respond. Try again.")).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
+    })
+
+    it('error takes precedence over the success state', () => {
+      errorState = new Error('boom')
+      messagesState = [
+        {
+          id: '1',
+          role: 'assistant',
+          content: '',
+          toolInvocations: [resultInvocation('createTask', { id: 'task-1' })],
+        },
+      ]
+      render(<QuickScheduleInput />)
+      expect(screen.getByText("Cy couldn't respond. Try again.")).toBeInTheDocument()
+      expect(screen.queryByText(/added/i)).not.toBeInTheDocument()
+    })
+
+    it('still allows typing and submitting again after an error is shown', () => {
+      errorState = new Error('boom')
+      render(<QuickScheduleInput />)
+      const input = screen.getByPlaceholderText('Quick add — "dinner Fri 7pm"') as HTMLInputElement
+      fireEvent.change(input, { target: { value: 'dinner Fri 7pm' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+      expect(appendMock).toHaveBeenCalledWith({ role: 'user', content: 'dinner Fri 7pm' })
+    })
   })
 })

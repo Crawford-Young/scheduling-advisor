@@ -29,6 +29,7 @@ const noopFns = {
   append: vi.fn(),
   onScheduleUpdate: vi.fn(),
   onItemConfirmed: vi.fn(),
+  onRetry: vi.fn(),
 }
 
 describe('ChatMessagesPanel', () => {
@@ -116,6 +117,39 @@ describe('ChatMessagesPanel', () => {
     ]
     render(<ChatMessagesPanel messages={messages} {...noopFns} />)
     expect(screen.queryByTestId('tool-result')).not.toBeInTheDocument()
+  })
+
+  describe('error state', () => {
+    it('renders the error message and a Retry button when an error is present', () => {
+      render(<ChatMessagesPanel messages={[]} {...noopFns} error={new Error('boom')} />)
+      expect(screen.getByText("Cy couldn't respond. Try again.")).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+    })
+
+    it('calls onRetry once when Retry is clicked', () => {
+      const onRetry = vi.fn()
+      render(
+        <ChatMessagesPanel
+          messages={[]}
+          {...noopFns}
+          error={new Error('boom')}
+          onRetry={onRetry}
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      expect(onRetry).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not render error UI when there is no error', () => {
+      render(<ChatMessagesPanel messages={[]} {...noopFns} />)
+      expect(screen.queryByText("Cy couldn't respond. Try again.")).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
+    })
+
+    it('does not render loading dots when an error is present', () => {
+      render(<ChatMessagesPanel messages={[]} {...noopFns} isLoading error={new Error('boom')} />)
+      expect(screen.queryByTestId('loading-dots')).not.toBeInTheDocument()
+    })
   })
 
   describe('inputReplacement', () => {
