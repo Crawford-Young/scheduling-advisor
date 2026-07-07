@@ -15,6 +15,7 @@ import {
   toast,
   type ActivityFormValues,
   type ActivitySocial,
+  type DayOfWeek,
 } from '@/lib/ui'
 import { updateTask, updateTaskSeries, deleteTask } from '@/server/actions/tasks'
 import { recordCompletion } from '@/server/actions/consistency'
@@ -22,13 +23,24 @@ import { recordCompletion } from '@/server/actions/consistency'
 const TARGET_DATE_TIME_SUFFIX = 'T12:00:00.000Z'
 
 // The subset of frequencies updateTaskSeries can regenerate (its schema is a
-// daily|weekly|monthly enum). The dialog has no weekday picker (ActivityFormValues
-// lacks recurrenceDays), so a series edit here changes frequency and/or count.
+// daily|weekly|monthly enum). Since 0.18.0 the dialog has a weekday picker
+// (ActivityFormValues.recurrenceDays), so a series edit can change frequency,
+// repeat count, and/or the weekday set.
 const SERIES_FREQUENCIES = ['daily', 'weekly', 'monthly'] as const
 type SeriesFrequency = (typeof SERIES_FREQUENCIES)[number]
 
 function isSeriesFrequency(value: string | null | undefined): value is SeriesFrequency {
   return value != null && (SERIES_FREQUENCIES as readonly string[]).includes(value)
+}
+
+// Order-insensitive equality for two weekday-token sets. The dialog seeds the
+// picker from the row's recurrenceDays and re-emits the selection on EVERY save,
+// so routing must compare by membership (not presence) — a reordered but
+// unchanged set is NOT an edit and must keep the row-shaped updateTask path.
+function sameDaySet(a: readonly DayOfWeek[], b: readonly DayOfWeek[]): boolean {
+  if (a.length !== b.length) return false
+  const setB = new Set(b)
+  return a.every((day) => setB.has(day))
 }
 
 export type ActivityKind = 'task' | 'goal'
@@ -43,6 +55,8 @@ export interface ActivityCardActionsProps {
   readonly recurrence?: string | null
   /** Repeat count of the recurrence group (persisted since S3); seeds the dialog. */
   readonly recurrenceCount?: number | null
+  /** Persisted weekday set of the recurrence group; seeds the dialog's Days picker. */
+  readonly recurrenceDays?: readonly DayOfWeek[] | null
   /** Date-only `YYYY-MM-DD` for goals. */
   readonly targetDate?: string | null
   readonly color?: string | null
@@ -79,6 +93,7 @@ export function useActivityActions({
   endAt,
   recurrence,
   recurrenceCount,
+  recurrenceDays,
   targetDate,
   color,
   location,
@@ -126,19 +141,27 @@ export function useActivityActions({
       // place and fans out future occurrences). Clearing recurrence on an
       // already-recurring task (frequency drops to a non-series value) stays on
       // updateTask — that direction is unchanged.
+      // S9: the seeded weekday picker re-emits recurrenceDays on every save, so
+      // days presence is unconditional — route on order-insensitive SET EQUALITY
+      // against the row's persisted set (mirrors calendar-client's predicate).
       const wasRecurring = recurrence != null
       const recurrenceChanged = (values.recurrence ?? null) !== (recurrence ?? null)
       const countChanged = (values.recurrenceCount ?? null) !== (recurrenceCount ?? null)
+      const daysChanged = !sameDaySet(values.recurrenceDays ?? [], recurrenceDays ?? [])
       const routeToSeries =
         values.type !== 'goal' &&
         isSeriesFrequency(values.recurrence) &&
-        (!wasRecurring || recurrenceChanged || countChanged)
+        (!wasRecurring || recurrenceChanged || countChanged || daysChanged)
 
       const result = routeToSeries
         ? await updateTaskSeries({
             taskId,
             recurrence: values.recurrence,
             recurrenceCount: values.recurrenceCount,
+            recurrenceDays:
+              values.recurrenceDays && values.recurrenceDays.length > 0
+                ? values.recurrenceDays
+                : undefined,
           })
         : await updateTask(
             values.type === 'goal'
@@ -198,6 +221,7 @@ export function useActivityActions({
           endAt: endAt ?? undefined,
           recurrence: recurrence ?? undefined,
           recurrenceCount: recurrenceCount ?? undefined,
+          recurrenceDays: recurrenceDays ?? undefined,
           targetDate: targetDate ?? undefined,
           color: color ?? undefined,
           location: location ?? undefined,

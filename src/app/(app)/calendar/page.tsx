@@ -76,6 +76,8 @@ export default async function CalendarPage(): Promise<React.JSX.Element> {
         location: t.location ?? null,
         description: t.description ?? null,
         recurrence: t.recurrence ?? null,
+        // Persisted weekday set seeds the chip edit popover's Days picker.
+        recurrenceDays: t.recurrenceDays ?? null,
       }
     })
 

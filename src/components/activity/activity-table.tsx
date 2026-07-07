@@ -8,6 +8,7 @@ import {
   type ActivitySocial,
   type BadgeProps,
   type ColumnDef,
+  type DayOfWeek,
 } from '@/lib/ui'
 import { useActivityActions, type ActivityKind } from '@/components/activity/use-activity-actions'
 
@@ -47,6 +48,10 @@ export interface ActivityRow {
   /** Display label for the When column. */
   readonly dateLabel: string
   readonly recurrence: string | null
+  /** Repeat count of the recurrence group (weeks); seeds the edit dialog. */
+  readonly recurrenceCount: number | null
+  /** Persisted weekday set of the recurrence group; seeds the dialog's Days picker. */
+  readonly recurrenceDays: readonly DayOfWeek[] | null
   readonly location: string | null
   readonly description: string | null
   readonly color: string | null
@@ -77,6 +82,8 @@ function ActivityRowActions({ row, use24h }: ActivityRowActionsProps): React.JSX
       startAt: row.startAt,
       endAt: row.endAt,
       recurrence: row.recurrence,
+      recurrenceCount: row.recurrenceCount,
+      recurrenceDays: row.recurrenceDays,
       targetDate: row.targetDate,
       color: row.color,
       location: row.location,
