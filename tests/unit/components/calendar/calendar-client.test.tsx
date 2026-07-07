@@ -118,6 +118,20 @@ const events = [
     // Recurring: the complete-toggle logs an occurrence via recordCompletion.
     recurrence: 'daily',
   },
+  {
+    id: 'e6',
+    title: 'Weekly review',
+    start: '2026-05-29T18:00:00.000Z',
+    end: '2026-05-29T19:00:00.000Z',
+    type: 'task' as const,
+    status: 'pending' as const,
+    streak: 2,
+    activityType: 'solo',
+    visibility: 'only_me',
+    // A weekly series carrying a persisted weekday set (S9 seeding fixture).
+    recurrence: 'weekly',
+    recurrenceDays: ['Mon', 'Wed'] as const,
+  },
 ]
 
 describe('CalendarClient', () => {
@@ -651,6 +665,94 @@ describe('CalendarClient', () => {
       })
       await vi.waitFor(() => expect(mockToastError).toHaveBeenCalled())
       await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+    })
+  })
+
+  // S9 / 0.18.0: seed the chip edit popover's Days picker from the row's
+  // persisted recurrenceDays via `seriesDays` (decoupled from the display
+  // fan-out field), then route by order-insensitive set equality so a re-emitted
+  // unchanged set keeps updateTask and a changed set routes to updateTaskSeries.
+  describe('seriesDays seeding + set-equality routing (S9)', () => {
+    it('seeds persisted recurrenceDays onto seriesDays, leaving the library recurrenceDays undefined', () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const libEvents = capturedProps.events as ReadonlyArray<{
+        id: string
+        seriesDays?: readonly string[]
+        recurrenceDays?: readonly string[]
+      }>
+      const series = libEvents.find((e) => e.id === 'e6')!
+      expect(series.seriesDays).toEqual(['Mon', 'Wed'])
+      expect(series.recurrenceDays).toBeUndefined()
+    })
+
+    it('keeps a time-only edit re-emitting the seeded set (reordered) on updateTask', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({
+        id: 'e6',
+        title: 'Weekly review',
+        start: '2026-05-29T20:00:00.000Z',
+        end: '2026-05-29T21:00:00.000Z',
+        recurrenceFrequency: 'weekly',
+        // Same set as persisted (['Mon','Wed']) but reordered.
+        recurrenceDays: ['Wed', 'Mon'],
+      })
+      await vi.waitFor(() =>
+        expect(mockUpdateTask).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: 'e6',
+            startAt: '2026-05-29T20:00:00.000Z',
+            endAt: '2026-05-29T21:00:00.000Z',
+          }),
+        ),
+      )
+      expect(mockUpdateTaskSeries).not.toHaveBeenCalled()
+    })
+
+    it('routes a genuinely changed weekday set to updateTaskSeries with the new tokens', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({
+        id: 'e6',
+        title: 'Weekly review',
+        start: '2026-05-29T18:00:00.000Z',
+        end: '2026-05-29T19:00:00.000Z',
+        recurrenceFrequency: 'weekly',
+        recurrenceDays: ['Mon', 'Fri'],
+      })
+      await vi.waitFor(() =>
+        expect(mockUpdateTaskSeries).toHaveBeenCalledWith({
+          taskId: 'e6',
+          recurrence: 'weekly',
+          recurrenceDays: ['Mon', 'Fri'],
+        }),
+      )
+      expect(mockUpdateTask).not.toHaveBeenCalled()
     })
   })
 

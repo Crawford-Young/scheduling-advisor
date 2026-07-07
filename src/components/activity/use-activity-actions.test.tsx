@@ -61,6 +61,7 @@ vi.mock('@/lib/ui', () => ({
       endAt?: string
       recurrence?: string
       recurrenceCount?: number
+      recurrenceDays?: readonly string[]
       color?: string | null
       location?: string | null
       description?: string | null
@@ -80,6 +81,9 @@ vi.mock('@/lib/ui', () => ({
           {initialValues?.recurrenceCount !== undefined
             ? String(initialValues.recurrenceCount)
             : ''}
+        </span>
+        <span data-testid="dialog-recurrence-days">
+          {(initialValues?.recurrenceDays ?? []).join(',')}
         </span>
         <span data-testid="dialog-color">{initialValues?.color ?? ''}</span>
         <span data-testid="dialog-location">{initialValues?.location ?? ''}</span>
@@ -105,6 +109,77 @@ vi.mock('@/lib/ui', () => ({
           }
         >
           submit-series-edit
+        </button>
+        {/* S9: re-emits the seeded weekday set (reordered) with a time change but
+            the SAME frequency/count → order-insensitive set equality must keep
+            this on updateTask so the time change is not dropped. */}
+        <button
+          type="button"
+          onClick={() =>
+            onSubmit({
+              type: 'task',
+              title: 'Series time edit',
+              startAt: '2026-07-01T11:00:00.000Z',
+              endAt: '2026-07-01T12:00:00.000Z',
+              recurrence: 'weekly',
+              recurrenceCount: 4,
+              recurrenceDays: ['Wed', 'Mon'],
+              color: null,
+              location: null,
+              description: null,
+              allDay: false,
+              social: { activityType: 'solo', visibility: 'only_me' },
+            })
+          }
+        >
+          submit-series-same-days
+        </button>
+        {/* S9: changes the seeded set (['Mon','Wed'] → ['Mon','Fri']) → a real
+            pattern change routes to updateTaskSeries with the new tokens. */}
+        <button
+          type="button"
+          onClick={() =>
+            onSubmit({
+              type: 'task',
+              title: 'Series days edit',
+              startAt: '2026-07-01T09:00:00.000Z',
+              endAt: '2026-07-01T10:00:00.000Z',
+              recurrence: 'weekly',
+              recurrenceCount: 4,
+              recurrenceDays: ['Mon', 'Fri'],
+              color: null,
+              location: null,
+              description: null,
+              allDay: false,
+              social: { activityType: 'solo', visibility: 'only_me' },
+            })
+          }
+        >
+          submit-series-changed-days
+        </button>
+        {/* S9: shrinks the seeded set (['Mon','Wed'] → ['Mon']) — a DIFFERENT
+            LENGTH set, exercising sameDaySet's length-mismatch short-circuit
+            (as opposed to the same-length/different-membership case above). */}
+        <button
+          type="button"
+          onClick={() =>
+            onSubmit({
+              type: 'task',
+              title: 'Series days removed',
+              startAt: '2026-07-01T09:00:00.000Z',
+              endAt: '2026-07-01T10:00:00.000Z',
+              recurrence: 'weekly',
+              recurrenceCount: 4,
+              recurrenceDays: ['Mon'],
+              color: null,
+              location: null,
+              description: null,
+              allDay: false,
+              social: { activityType: 'solo', visibility: 'only_me' },
+            })
+          }
+        >
+          submit-series-shrunk-days
         </button>
         <button
           type="button"
@@ -508,6 +583,79 @@ describe('useActivityActions', () => {
     await user.click(screen.getByRole('button', { name: 'submit-edit' }))
     await waitFor(() => expect(updateTaskMock).toHaveBeenCalled())
     expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+  })
+
+  // S9 / 0.18.0: the dialog now has a weekday picker (ActivityFormValues gains
+  // recurrenceDays). Seed it from the row and route by order-insensitive set
+  // equality: a re-emitted unchanged set keeps updateTask (time change kept), a
+  // changed set routes to updateTaskSeries with the new tokens.
+  const seriesDaysTaskProps = {
+    taskId: 'task-days-1',
+    type: 'task' as const,
+    title: 'Weekly review',
+    status: 'pending' as const,
+    startAt: '2026-07-01T09:00:00.000Z',
+    endAt: '2026-07-01T10:00:00.000Z',
+    recurrence: 'weekly',
+    recurrenceCount: 4,
+    recurrenceDays: ['Mon', 'Wed'] as const,
+    social: { activityType: 'solo' as const, visibility: 'only_me' as const },
+  }
+
+  it('seeds recurrenceDays into the edit dialog initialValues from the row', async () => {
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...seriesDaysTaskProps} />)
+    await user.click(screen.getByRole('button', { name: /edit task/i }))
+    expect(screen.getByTestId('dialog-recurrence-days')).toHaveTextContent('Mon,Wed')
+  })
+
+  it('keeps a time-only edit re-emitting the seeded set (reordered) on updateTask', async () => {
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...seriesDaysTaskProps} />)
+    await user.click(screen.getByRole('button', { name: /edit task/i }))
+    await user.click(screen.getByRole('button', { name: 'submit-series-same-days' }))
+    await waitFor(() =>
+      expect(updateTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'task-days-1',
+          startAt: '2026-07-01T11:00:00.000Z',
+          endAt: '2026-07-01T12:00:00.000Z',
+        }),
+      ),
+    )
+    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+  })
+
+  it('routes a genuinely changed weekday set to updateTaskSeries with the new tokens', async () => {
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...seriesDaysTaskProps} />)
+    await user.click(screen.getByRole('button', { name: /edit task/i }))
+    await user.click(screen.getByRole('button', { name: 'submit-series-changed-days' }))
+    await waitFor(() =>
+      expect(updateTaskSeriesMock).toHaveBeenCalledWith({
+        taskId: 'task-days-1',
+        recurrence: 'weekly',
+        recurrenceCount: 4,
+        recurrenceDays: ['Mon', 'Fri'],
+      }),
+    )
+    expect(updateTaskMock).not.toHaveBeenCalled()
+  })
+
+  it('routes a shrunk weekday set (different length) to updateTaskSeries with the new tokens', async () => {
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...seriesDaysTaskProps} />)
+    await user.click(screen.getByRole('button', { name: /edit task/i }))
+    await user.click(screen.getByRole('button', { name: 'submit-series-shrunk-days' }))
+    await waitFor(() =>
+      expect(updateTaskSeriesMock).toHaveBeenCalledWith({
+        taskId: 'task-days-1',
+        recurrence: 'weekly',
+        recurrenceCount: 4,
+        recurrenceDays: ['Mon'],
+      }),
+    )
+    expect(updateTaskMock).not.toHaveBeenCalled()
   })
 
   it('shows toast.error when a series edit fails to persist', async () => {

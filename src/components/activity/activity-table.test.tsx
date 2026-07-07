@@ -27,6 +27,8 @@ function makeRow(over: Partial<ActivityRow> = {}): ActivityRow {
     dateIso: '2026-06-20T09:00:00.000Z',
     dateLabel: 'Jun 20, 5:00 AM',
     recurrence: null,
+    recurrenceCount: null,
+    recurrenceDays: null,
     location: null,
     description: null,
     color: null,
@@ -46,6 +48,37 @@ function makeRow(over: Partial<ActivityRow> = {}): ActivityRow {
 describe('ActivityTable', () => {
   beforeEach(() => {
     refreshMock.mockClear()
+  })
+
+  // S9 / 0.18.0: the row query carries recurrenceCount + recurrenceDays; the
+  // table must thread both into the edit dialog so the seeded recurrence UI
+  // (repeat count + weekday picker) opens pre-filled from the persisted series.
+  it('threads a weekly series row recurrenceCount and recurrenceDays into the edit dialog', async () => {
+    const user = userEvent.setup()
+    render(
+      <ActivityTable
+        items={[
+          makeRow({
+            id: 'sd',
+            type: 'task',
+            recurrence: 'weekly',
+            recurrenceCount: 4,
+            recurrenceDays: ['Mon', 'Wed'],
+          }),
+        ]}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Edit task' }))
+    // Repeat count seeded from the row (the dialog defaults to 2 when unseeded).
+    expect((screen.getByLabelText('Repeat count') as HTMLInputElement).value).toBe('4')
+    // The persisted weekday set seeds the picker: Mon and Wed pressed, an
+    // unselected day (Fri) stays unpressed.
+    expect(screen.getByRole('button', { name: 'Day: Mon' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Day: Wed' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Day: Fri' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
   })
 
   it('renders one data row per item with visible field data', () => {

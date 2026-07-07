@@ -56,6 +56,8 @@ interface MockLibEvent {
   readonly allDay?: boolean
   readonly recurrenceFrequency?: string
   readonly recurrenceDays?: readonly string[]
+  readonly seriesDays?: readonly string[]
+  readonly recurrenceCount?: number
   readonly completed?: boolean
   readonly completable?: boolean
   readonly streak?: number
@@ -76,6 +78,7 @@ interface MockCreatePayload {
   readonly description?: string
   readonly recurrenceFrequency?: string
   readonly recurrenceDays?: readonly string[]
+  readonly recurrenceCount?: number
 }
 
 interface WeekCalendarViewProps {
@@ -164,6 +167,15 @@ vi.mock('@/lib/ui', () => ({
       // Round-tripped recurrenceFrequency for the first event (mapping assertion).
       data-evt0-recurrence={props.events?.[0]?.recurrenceFrequency ?? ''}
       data-evt0-has-recurrence-days={String(props.events?.[0]?.recurrenceDays !== undefined)}
+      // S9: seriesDays seeds the chip edit popover's Days picker from the row's
+      // persisted recurrenceDays WITHOUT triggering WeekCalendarView display
+      // fan-out (the library's own recurrenceDays field must stay undefined).
+      data-evt-series-series-days={(
+        props.events?.find((e) => e.id === 'evt-series')?.seriesDays ?? []
+      ).join(',')}
+      data-evt-series-has-recurrence-days={String(
+        props.events?.find((e) => e.id === 'evt-series')?.recurrenceDays !== undefined,
+      )}
       // A8.11: persisted null color must map to the library's 'default'
       // variant, and allDay/location/description must be forwarded.
       data-evt0-color={props.events?.[0]?.color ?? ''}
@@ -207,6 +219,23 @@ vi.mock('@/lib/ui', () => ({
       >
         trigger-create-min
       </button>
+      {/* S9: the create popover's repeat count must reach createTask so a weekly
+          drag-create fans the pattern over N weeks. */}
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventCreate?.({
+            title: 'counted',
+            start: '2026-01-05T09:00:00.000Z',
+            end: '2026-01-05T10:00:00.000Z',
+            recurrenceFrequency: 'weekly',
+            recurrenceDays: ['Mon', 'Tue'],
+            recurrenceCount: 3,
+          })
+        }
+      >
+        trigger-create-count
+      </button>
       <button type="button" onClick={() => props.onEventEdit?.(STUB_EDIT_PAYLOAD)}>
         trigger-edit
       </button>
@@ -229,6 +258,42 @@ vi.mock('@/lib/ui', () => ({
       </button>
       <button type="button" onClick={() => props.onEventEdit?.(STUB_SERIES_EDIT_PAYLOAD)}>
         trigger-edit-series-days
+      </button>
+      {/* S9: evt-series persists recurrenceDays ['Mon','Wed']. The seeded picker
+          re-emits the SAME set (reordered) alongside a time change → order-
+          insensitive set equality must keep this on updateTask (preserve the
+          time change), NOT misroute to updateTaskSeries. */}
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventEdit?.({
+            id: 'evt-series',
+            title: 'Series',
+            start: '2026-01-06T15:30:00.000Z',
+            end: '2026-01-06T16:30:00.000Z',
+            recurrenceFrequency: 'weekly',
+            recurrenceDays: ['Wed', 'Mon'],
+          })
+        }
+      >
+        trigger-edit-series-same-days
+      </button>
+      {/* S9: the user changes the seeded set (['Mon','Wed'] → ['Mon','Fri']) →
+          a real pattern change routes to updateTaskSeries with the new tokens. */}
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventEdit?.({
+            id: 'evt-series',
+            title: 'Series',
+            start: '2026-01-06T15:00:00.000Z',
+            end: '2026-01-06T16:00:00.000Z',
+            recurrenceFrequency: 'weekly',
+            recurrenceDays: ['Mon', 'Fri'],
+          })
+        }
+      >
+        trigger-edit-series-changed-days
       </button>
       <button
         type="button"
@@ -441,6 +506,21 @@ const EVENTS = [
     activityType: 'solo',
     visibility: 'only_me',
     recurrence: null,
+  },
+  // S9: a weekly series row carrying a persisted weekday set — seeds the chip
+  // popover's Days picker (via seriesDays) and drives set-equality routing.
+  {
+    id: 'evt-series',
+    title: 'Series',
+    start: '2026-01-06T15:00:00.000Z',
+    end: '2026-01-06T16:00:00.000Z',
+    type: 'task' as const,
+    status: 'pending' as const,
+    streak: 0,
+    activityType: 'solo',
+    visibility: 'only_me',
+    recurrence: 'weekly',
+    recurrenceDays: ['Mon', 'Wed'] as const,
   },
 ]
 
@@ -937,6 +1017,99 @@ describe('CalendarClient — make-recurring routing (S10)', () => {
   })
 })
 
+// ── seriesDays seeding + set-equality routing (S9 / 0.18.0) ─────────────────
+//
+// 0.18.0 seeds the chip edit popover's Days picker from `seriesDays` (decoupled
+// from the display-fan-out `recurrenceDays`), so handleSave re-emits days on
+// EVERY save. The routing predicate therefore switches from presence-based to
+// order-insensitive SET EQUALITY against the row's persisted recurrenceDays:
+// unchanged (even reordered) days keep updateTask (time change preserved); a
+// changed set routes to updateTaskSeries.
+
+describe('CalendarClient — seriesDays seeding + set-equality routing (S9)', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    updateTaskMock.mockClear()
+    updateTaskMock.mockResolvedValue({})
+    updateTaskSeriesMock.mockClear()
+    updateTaskSeriesMock.mockResolvedValue({})
+    toastErrorMock.mockClear()
+  })
+
+  it('seeds the persisted recurrenceDays onto the library seriesDays field (NOT recurrenceDays)', () => {
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+    const view = screen.getByTestId('week-calendar-view')
+    // seriesDays carries the persisted set (seeds the picker)...
+    expect(view.dataset.evtSeriesSeriesDays).toBe('Mon,Wed')
+    // ...but the display-fan-out recurrenceDays field stays undefined so the
+    // already-materialized row does not double-render across the week.
+    expect(view.dataset.evtSeriesHasRecurrenceDays).toBe('false')
+  })
+
+  it('keeps a time-only edit with the seeded days (reordered, same set) on updateTask', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-edit-series-same-days' }))
+
+    // The re-emitted seeded set equals the persisted set (order-insensitive) →
+    // the time change must be written via updateTask, not dropped by a series edit.
+    await waitFor(() =>
+      expect(updateTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'evt-series',
+          startAt: '2026-01-06T15:30:00.000Z',
+          endAt: '2026-01-06T16:30:00.000Z',
+        }),
+      ),
+    )
+    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+  })
+
+  it('routes a genuinely changed weekday set to updateTaskSeries with the new tokens', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-edit-series-changed-days' }))
+
+    await waitFor(() =>
+      expect(updateTaskSeriesMock).toHaveBeenCalledWith({
+        taskId: 'evt-series',
+        recurrence: 'weekly',
+        recurrenceDays: ['Mon', 'Fri'],
+      }),
+    )
+    expect(updateTaskMock).not.toHaveBeenCalled()
+  })
+})
+
 // ── color and detail field mapping (A8.11) ──────────────────────────────────
 //
 // A8.11: an event created via the calendar popover's default (pre-selected)
@@ -1038,6 +1211,33 @@ describe('CalendarClient — event create wiring', () => {
           // The multi-day drag's selected weekdays must reach createTask so the
           // server fan-out expands Monday AND Tuesday (bug #2 fix).
           recurrenceDays: ['Mon', 'Tue'],
+        }),
+      ),
+    )
+  })
+
+  it('threads the create popover recurrenceCount through to createTask (weekly fan over N weeks)', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-create-count' }))
+
+    await waitFor(() =>
+      expect(createTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'task',
+          recurrence: 'weekly',
+          recurrenceDays: ['Mon', 'Tue'],
+          recurrenceCount: 3,
         }),
       ),
     )

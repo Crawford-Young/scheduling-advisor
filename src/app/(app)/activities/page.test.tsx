@@ -52,6 +52,8 @@ interface MockActivityRow {
   dateIso: string | null
   dateLabel: string
   recurrence: string | null
+  recurrenceCount: number | null
+  recurrenceDays: readonly string[] | null
   location: string | null
   description: string | null
   color: string | null
@@ -78,6 +80,8 @@ vi.mock('@/components/activity/activity-table', () => ({
           data-task-id={row.id}
           data-date-iso={row.dateIso ?? ''}
           data-target-date={row.targetDate ?? ''}
+          data-recurrence-count={row.recurrenceCount !== null ? String(row.recurrenceCount) : ''}
+          data-recurrence-days={(row.recurrenceDays ?? []).join(',')}
           data-streak={String(row.streak)}
           data-color={row.color ?? ''}
           data-location={row.location ?? ''}
@@ -110,6 +114,8 @@ interface TaskOverrides {
   startAt?: Date | null
   targetDate?: Date | null
   recurrence?: string | null
+  recurrenceCount?: number | null
+  recurrenceDays?: readonly string[] | null
   color?: string | null
   location?: string | null
   description?: string | null
@@ -125,6 +131,8 @@ function makeTask(over: TaskOverrides = {}) {
     startAt: new Date('2026-06-20T09:00:00.000Z'),
     endAt: new Date('2026-06-20T10:00:00.000Z'),
     recurrence: null,
+    recurrenceCount: null,
+    recurrenceDays: null,
     targetDate: null,
     color: null,
     location: null,
@@ -310,6 +318,25 @@ describe('ActivitiesPage', () => {
     expect(row).toHaveAttribute('data-all-day', 'true')
     expect(row).toHaveAttribute('data-activity-type', 'solo')
     expect(row).toHaveAttribute('data-visibility', 'only_me')
+  })
+
+  // S9: the row query already returns recurrenceCount + recurrenceDays; the page
+  // must surface them on each ActivityRow so the table can seed the edit dialog.
+  it('surfaces recurrenceCount and recurrenceDays from the row onto each activity row', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([
+      makeTask({
+        id: 't-series',
+        type: 'task',
+        recurrence: 'weekly',
+        recurrenceCount: 6,
+        recurrenceDays: ['Mon', 'Wed'],
+      }),
+    ])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
+    const row = screen.getByTestId('activity-row')
+    expect(row).toHaveAttribute('data-recurrence-count', '6')
+    expect(row).toHaveAttribute('data-recurrence-days', 'Mon,Wed')
   })
 
   it('threads use24h=true from calendar prefs into the create button and table', async () => {

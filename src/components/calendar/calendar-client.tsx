@@ -16,6 +16,7 @@ import {
   AlertDialogCancel,
   type CalendarEvent as LibraryCalendarEvent,
   type DayWindow,
+  type DayOfWeek,
 } from '@/lib/ui'
 import { rescheduleTask, recordCompletion } from '@/server/actions/consistency'
 import { createTask, deleteTask, updateTask, updateTaskSeries } from '@/server/actions/tasks'
@@ -37,6 +38,12 @@ interface AppCalendarEvent {
   readonly location?: string | null
   readonly description?: string | null
   readonly recurrence?: string | null
+  /**
+   * Persisted weekday set for a weekly series row (jsonb `recurrence_days`).
+   * Seeds the chip edit popover's Days picker via the library `seriesDays` field
+   * and drives set-equality routing in handleEventEdit.
+   */
+  readonly recurrenceDays?: readonly DayOfWeek[] | null
 }
 
 // ─── Recurrence mapping (app ↔ library) ───────────────────────────────────────
@@ -67,6 +74,16 @@ function isSeriesFrequency(value: string | null | undefined): value is SeriesFre
   return value != null && (SERIES_FREQUENCIES as readonly string[]).includes(value)
 }
 
+// Order-insensitive equality for two weekday-token sets. The library seeds the
+// chip picker from `seriesDays` and re-emits the selection under `recurrenceDays`
+// on EVERY save, so routing must compare the emitted set against the persisted
+// set by membership (not presence) — a reordered but unchanged set is NOT an edit.
+function sameDaySet(a: readonly DayOfWeek[], b: readonly DayOfWeek[]): boolean {
+  if (a.length !== b.length) return false
+  const setB = new Set(b)
+  return a.every((day) => setB.has(day))
+}
+
 // ─── Color mapping ────────────────────────────────────────────────────────────
 // Prefer the event's persisted color (user-chosen). A falsy persisted color
 // means the popover's default (pre-selected) swatch was used, which the
@@ -94,14 +111,15 @@ function toLibraryEvent(e: AppCalendarEvent): LibraryCalendarEvent {
     streak: e.streak,
     // Round-trip the frequency so the chip's edit form seeds the Repeat select.
     recurrenceFrequency: toLibraryRecurrenceFrequency(e.recurrence),
-    // recurrenceDays is intentionally omitted: each stored row is a standalone
-    // fanned occurrence (see createTask weekday fan-out), so it has no per-week
-    // day set of its own — leaving it undefined keeps the chip on its own day
-    // (the library fans a seeded day set across days → a double-render trap).
-    // Consequence (S8 interim): the chip edit popover's weekday picker opens
-    // EMPTY. A user selecting days still routes correctly to updateTaskSeries in
-    // handleEventEdit, but the current selection is not pre-filled until S9 adds
-    // the library's `seriesDays` edit-seed prop (group-aware, no double render).
+    // Seed the chip edit popover's Days picker from the row's persisted weekday
+    // set via `seriesDays` (0.18.0), NOT the library's own `recurrenceDays`
+    // field. `recurrenceDays` drives WeekCalendarView's DISPLAY fan-out (one
+    // chip per day), but each stored row is already a single fanned occurrence,
+    // so seeding recurrenceDays would double-render the chip across the week.
+    // `seriesDays` is decoupled: it pre-fills the picker only. handleEventEdit
+    // then re-emits the selection under recurrenceDays and routes by set
+    // equality against this same persisted set (see the trap note there).
+    seriesDays: e.recurrenceDays ?? undefined,
   }
 }
 
@@ -183,11 +201,13 @@ export function CalendarClient({
       // series regenerates the group's future pending rows via updateTaskSeries;
       // a plain time/field change keeps the single-row updateTask path.
       //
-      // Detection: the picker opens empty (toLibraryEvent omits recurrenceDays —
-      // rows are already materialized), so any recurrenceDays present means the
-      // user actively selected them; a differing frequency also counts. Both are
-      // only meaningful on a row that is already recurring (else there is no
-      // group for updateTaskSeries to anchor).
+      // Detection (S9): the picker is now SEEDED (toLibraryEvent seeds seriesDays
+      // from the persisted set), so handleSave re-emits recurrenceDays on every
+      // save. Presence is therefore no signal — route on order-insensitive SET
+      // EQUALITY against the row's persisted recurrenceDays: only a genuinely
+      // changed set counts as a pattern edit. A differing frequency also counts.
+      // Both are only meaningful on a row that is already recurring (else there
+      // is no group for updateTaskSeries to anchor).
       //
       // Mixed edit (a pattern change AND a row-shaped change in the same save):
       // the series change owns the save — updateTaskSeries regenerates from the
@@ -205,19 +225,20 @@ export function CalendarClient({
       // explicit exclusion here (mirrors use-activity-actions' `type !== 'goal'`).
       const original = events.find((e) => e.id === libEvent.id)
       const freq = libEvent.recurrenceFrequency
-      const days = libEvent.recurrenceDays
-      const daysSelected = days !== undefined && days.length > 0
+      const emittedDays = libEvent.recurrenceDays ?? []
+      const persistedDays = original?.recurrenceDays ?? []
+      const daysChanged = !sameDaySet(emittedDays, persistedDays)
       const recurrenceChanged = (freq ?? null) !== (original?.recurrence ?? null)
       const wasRecurring = original?.recurrence != null
 
       const result =
         original?.type !== 'goal' &&
         isSeriesFrequency(freq) &&
-        (!wasRecurring || daysSelected || recurrenceChanged)
+        (!wasRecurring || daysChanged || recurrenceChanged)
           ? await updateTaskSeries({
               taskId: libEvent.id,
               recurrence: freq,
-              recurrenceDays: daysSelected ? days : undefined,
+              recurrenceDays: emittedDays.length > 0 ? emittedDays : undefined,
             })
           : await updateTask({
               id: libEvent.id,
@@ -328,6 +349,9 @@ export function CalendarClient({
         // Selected weekdays from a multi-day drag: createTask fans out one row
         // per weekday when recurrence === 'weekly'.
         recurrenceDays: payload.recurrenceDays,
+        // Repeat count from the create popover (0.18.0): fans the weekly pattern
+        // over N weeks (weeks × selected weekdays).
+        recurrenceCount: payload.recurrenceCount,
       })
       if ('error' in result) toast.error('Could not create event — calendar restored')
       router.refresh()
