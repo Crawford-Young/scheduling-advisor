@@ -77,6 +77,27 @@ vi.mock('@/lib/ui', () => ({
         >
           submit-new-task
         </button>
+        <button
+          type="button"
+          onClick={() =>
+            onSubmit({
+              type: 'task',
+              title: 'Weekly workout',
+              startAt: '2026-09-01T09:00:00.000Z',
+              endAt: '2026-09-01T10:00:00.000Z',
+              recurrence: 'weekly',
+              recurrenceCount: 3,
+              recurrenceDays: ['Tue', 'Thu', 'Sat'],
+              color: 'blue',
+              location: 'Gym',
+              description: 'Leg day',
+              allDay: false,
+              social: { activityType: 'solo', visibility: 'only_me' },
+            })
+          }
+        >
+          submit-weekly-task
+        </button>
       </div>
     ) : null,
 }))
@@ -151,6 +172,30 @@ describe('ActivityCreateButton', () => {
           title: 'New task',
           startAt: '2026-09-01T09:00:00.000Z',
           targetDate: null,
+        }),
+      ),
+    )
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('threads recurrenceDays, color, location, description, and allDay to createTask', async () => {
+    const user = userEvent.setup()
+    render(<ActivityCreateButton />)
+    await user.click(screen.getByRole('button', { name: /new/i }))
+    await user.click(screen.getByRole('button', { name: 'submit-weekly-task' }))
+
+    await waitFor(() =>
+      expect(createTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'task',
+          title: 'Weekly workout',
+          recurrence: 'weekly',
+          recurrenceCount: 3,
+          recurrenceDays: ['Tue', 'Thu', 'Sat'],
+          color: 'blue',
+          location: 'Gym',
+          description: 'Leg day',
+          allDay: false,
         }),
       ),
     )

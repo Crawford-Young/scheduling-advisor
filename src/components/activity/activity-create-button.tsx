@@ -34,9 +34,14 @@ export function ActivityCreateButton({ use24h }: ActivityCreateButtonProps): Rea
         title: values.title,
         recurrence: values.recurrence ?? null,
         recurrenceCount: values.recurrenceCount,
+        recurrenceDays: values.recurrenceDays,
         startAt: values.startAt ?? null,
         endAt: values.endAt ?? null,
         targetDate: values.type === 'goal' ? toIsoTargetDate(values.targetDate) : null,
+        color: values.color ?? null,
+        location: values.location ?? null,
+        description: values.description ?? null,
+        allDay: values.allDay,
       })
       if ('error' in result) {
         toast.error('Could not create activity')
