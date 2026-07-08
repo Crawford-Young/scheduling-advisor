@@ -341,7 +341,8 @@ export function CalendarClient({
     })
   }
 
-  // The chip's lock affordance fires onToggleLock. Flip the row's PERSISTED
+  // The chip's lock affordance bubbles up as onEventToggleLock on WeekCalendarView
+  // (view-level; distinct from the chip-level onToggleLock). Flip the row's PERSISTED
   // locked state (server truth — not the library's optimistic event, whose lock
   // handling is not relied on here) and persist it via updateTask with only
   // { id, locked }. Lock stays out of the complete-toggle and series-edit
@@ -400,7 +401,7 @@ export function CalendarClient({
           onEventEdit={handleEventEdit}
           onEventCreate={handleEventCreate}
           onEventToggleComplete={handleEventToggleComplete}
-          onToggleLock={handleToggleLock}
+          onEventToggleLock={handleToggleLock}
           hourStart={hourStart}
           hourCount={hourCount}
           sleepEnabled={sleepEnabled}
