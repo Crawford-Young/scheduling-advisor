@@ -78,6 +78,8 @@ export default async function CalendarPage(): Promise<React.JSX.Element> {
         recurrence: t.recurrence ?? null,
         // Persisted weekday set seeds the chip edit popover's Days picker.
         recurrenceDays: t.recurrenceDays ?? null,
+        // Persisted lock flag seeds the chip's lock state (A2.4).
+        locked: t.locked,
       }
     })
 

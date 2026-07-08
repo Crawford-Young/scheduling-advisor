@@ -60,6 +60,22 @@ describe('updateTaskSchema', () => {
     const result = updateTaskSchema.safeParse({ id: 'not-a-uuid', status: 'completed' })
     expect(result.success).toBe(false)
   })
+
+  it('accepts a boolean locked flag', () => {
+    const result = updateTaskSchema.safeParse({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      locked: true,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a non-boolean locked flag', () => {
+    const result = updateTaskSchema.safeParse({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      locked: 'yes',
+    })
+    expect(result.success).toBe(false)
+  })
 })
 
 describe('deleteTaskSchema', () => {
