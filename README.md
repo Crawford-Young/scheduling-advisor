@@ -8,6 +8,7 @@ Consistency-first scheduling app. The week calendar is home: plan tasks and goal
   - Drag-create: drag an empty slot to open the library's inline create popover (title, color, times, all-day, location, description, repeat with weekday picker + repeat count) — saves straight to a task
   - Edit / + New: the library's `ActivityFormDialog` dialog (morphs task ↔ goal)
   - Reschedule: drag or resize events; completed events are locked and snap back
+  - Lock: click the padlock icon on a chip to pin it in place — locked events can't be dragged or resized (resize handles disappear), but stay fully editable otherwise (complete, delete, edit all still work)
   - Delete: confirm dialog, optimistic UI with automatic restore on error or cancel
   - Repeat: setting Repeat on any event — at create or later via edit — materializes a series of distinct occurrence rows sharing the event's info; weekly series take a weekday picker (seeded from the row on edit) and a repeat count in weeks; series edits apply to this-and-following occurrences and never touch the past
   - Wake→sleep window by default (hours from Settings, default 9–17); the Sleep mode toggle switches to a full 24h grid with shaded sleep zones where drag-create is blocked
@@ -41,7 +42,8 @@ Copy `.env.example` to `.env.local` and fill in all values — `t3-env` validate
 - Mutations are Server Actions with Zod validation at every boundary; API routes exist only for externally-consumed endpoints (chat, webhooks, health).
 - `WeekCalendarView` (library) applies moves/resizes/deletes optimistically and never resyncs from props. `CalendarClient` owns the workaround: a `resetKey` remount restores server truth on cancel/error paths, and a dedicated transition delays the remount after create until `router.refresh()` has delivered fresh data.
 - `ActivityFormDialog` (library, `@crawfordyoung/ui` ≥0.18.0) is the single create/edit dialog for both Activities and the calendar (app wires data only; edit passes `lockType` and seeds the weekday picker + repeat count from the row). Goal target dates are emitted date-only and converted to noon-UTC ISO (`T12:00:00.000Z`) before `createTaskSchema` — the `.datetime()` schema rejects date-only, and this avoids the goal-date-wipe trap. The app-owned per-type dialogs were deleted in Wave 2.1.
-- `TaskTimeFields`, `buildIso`, and `toTimeSlot` are bundled in `@crawfordyoung/ui` (≥0.17.0) and used by the library's `ActivityFormDialog`; the app does not duplicate them. UTC semantics are load-bearing — local `HH:MM` is a timezone bug UTC CI masks.
+- `TaskTimeFields`, `buildIso`, and `toTimeSlot` are bundled in `@crawfordyoung/ui` (≥0.17.0) and used by the library's `ActivityFormDialog`; the app does not duplicate them. As of `@crawfordyoung/ui` ≥0.19.0, typed/displayed times are LOCAL wall-clock throughout the calendar and dialog — the persisted ISO on an event's start/end is always a real UTC instant, only the local reading of that instant changed.
+- Calendar chip locking (`@crawfordyoung/ui` ≥0.19.0, Wave 2.4): the `locked` boolean on `tasks` seeds the chip's lock icon; toggling it flips the persisted flag via `updateTask({ id, locked })`. Lock scope is move/resize only — complete-toggle, edit, and delete all stay available on a locked event, and there is no server-side time-guard (client-side gating only, by design).
 - The chat panel listens for an `open-chat` CustomEvent; dispatchers may pass `detail.prefill` to seed the input (used by Ask Cybond).
 
 ## Testing
