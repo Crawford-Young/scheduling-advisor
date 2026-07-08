@@ -132,6 +132,19 @@ const events = [
     recurrence: 'weekly',
     recurrenceDays: ['Mon', 'Wed'] as const,
   },
+  {
+    id: 'e7',
+    title: 'Locked event',
+    start: '2026-05-29T20:00:00.000Z',
+    end: '2026-05-29T21:00:00.000Z',
+    type: 'task' as const,
+    status: 'pending' as const,
+    streak: 0,
+    activityType: 'solo',
+    visibility: 'only_me',
+    // A2.4: a row pinned in place — the lock toggle should unlock it.
+    locked: true,
+  },
 ]
 
 describe('CalendarClient', () => {
@@ -963,6 +976,90 @@ describe('CalendarClient', () => {
       })
       await vi.waitFor(() =>
         expect(mockToastError).toHaveBeenCalledWith('Could not mark incomplete'),
+      )
+      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+    })
+  })
+
+  // ── lock toggle (A2.4) ──────────────────────────────────────────────────
+  //
+  // The chip's lock affordance fires onToggleLock. The app flips the row's
+  // PERSISTED locked state (server truth, not the optimistic library event) and
+  // persists it via updateTask({ id, locked }) — the only field it sends. Lock
+  // never touches complete-toggle or series-edit routing.
+  describe('lock toggle (A2.4)', () => {
+    it('seeds the persisted locked flag onto the library event', () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const libEvents = capturedProps.events as ReadonlyArray<{ id: string; locked?: boolean }>
+      expect(libEvents.find((e) => e.id === 'e7')!.locked).toBe(true)
+      // An unlocked row seeds no truthy locked flag.
+      expect(libEvents.find((e) => e.id === 'e1')!.locked ?? false).toBe(false)
+    })
+
+    it('locks an unlocked event via updateTask with exactly { id, locked: true }', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      ;(capturedProps.onToggleLock as (e: unknown) => void)({ id: 'e1' })
+      await vi.waitFor(() =>
+        expect(mockUpdateTask).toHaveBeenCalledWith({ id: 'e1', locked: true }),
+      )
+      // Lock is not a series-shaped or completion change.
+      expect(mockUpdateTaskSeries).not.toHaveBeenCalled()
+      expect(mockRecordCompletion).not.toHaveBeenCalled()
+      expect(mockRefresh).toHaveBeenCalled()
+    })
+
+    it('unlocks a locked event via updateTask with exactly { id, locked: false }', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      ;(capturedProps.onToggleLock as (e: unknown) => void)({ id: 'e7' })
+      await vi.waitFor(() =>
+        expect(mockUpdateTask).toHaveBeenCalledWith({ id: 'e7', locked: false }),
+      )
+      expect(mockUpdateTaskSeries).not.toHaveBeenCalled()
+    })
+
+    it('toasts and remounts when the lock update fails to persist', async () => {
+      mockUpdateTask.mockResolvedValueOnce({ error: 'Not found' })
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const initialMountCount = mountCount.value
+      ;(capturedProps.onToggleLock as (e: unknown) => void)({ id: 'e1' })
+      await vi.waitFor(() =>
+        expect(mockToastError).toHaveBeenCalledWith('Could not update lock — calendar restored'),
       )
       await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
     })

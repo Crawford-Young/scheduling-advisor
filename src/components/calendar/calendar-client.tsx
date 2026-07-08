@@ -44,6 +44,11 @@ interface AppCalendarEvent {
    * and drives set-equality routing in handleEventEdit.
    */
   readonly recurrenceDays?: readonly DayOfWeek[] | null
+  /**
+   * Pins the row in place (jsonb `locked` column). Seeds the library chip's lock
+   * state; the lock toggle flips this and persists it via updateTask.
+   */
+  readonly locked?: boolean
 }
 
 // ─── Recurrence mapping (app ↔ library) ───────────────────────────────────────
@@ -120,6 +125,9 @@ function toLibraryEvent(e: AppCalendarEvent): LibraryCalendarEvent {
     // then re-emits the selection under recurrenceDays and routes by set
     // equality against this same persisted set (see the trap note there).
     seriesDays: e.recurrenceDays ?? undefined,
+    // Lock state (0.19.0): drives the chip's lock affordance; the library gates
+    // start/end edits on locked rows client-side.
+    locked: e.locked ?? undefined,
   }
 }
 
@@ -333,6 +341,23 @@ export function CalendarClient({
     })
   }
 
+  // The chip's lock affordance fires onToggleLock. Flip the row's PERSISTED
+  // locked state (server truth — not the library's optimistic event, whose lock
+  // handling is not relied on here) and persist it via updateTask with only
+  // { id, locked }. Lock stays out of the complete-toggle and series-edit
+  // routing predicates. On failure, remount to restore (calendar pattern).
+  function handleToggleLock(libEvent: LibraryCalendarEvent): void {
+    const currentlyLocked = events.find((e) => e.id === libEvent.id)?.locked ?? false
+    startTransition(async () => {
+      const result = await updateTask({ id: libEvent.id, locked: !currentlyLocked })
+      if ('error' in result) {
+        toast.error('Could not update lock — calendar restored')
+        setResetKey((k) => k + 1)
+      }
+      router.refresh()
+    })
+  }
+
   function handleEventCreate(payload: Omit<LibraryCalendarEvent, 'id'>): void {
     resyncQueuedRef.current = true
     startResyncTransition(async () => {
@@ -375,6 +400,7 @@ export function CalendarClient({
           onEventEdit={handleEventEdit}
           onEventCreate={handleEventCreate}
           onEventToggleComplete={handleEventToggleComplete}
+          onToggleLock={handleToggleLock}
           hourStart={hourStart}
           hourCount={hourCount}
           sleepEnabled={sleepEnabled}

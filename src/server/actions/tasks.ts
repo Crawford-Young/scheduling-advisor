@@ -271,6 +271,7 @@ export async function updateTask(input: unknown): Promise<TaskActionResult> {
       ...(fields.description !== undefined && { description: fields.description }),
       ...(fields.color !== undefined && { color: fields.color }),
       ...(fields.allDay !== undefined && { allDay: fields.allDay }),
+      ...(fields.locked !== undefined && { locked: fields.locked }),
       updatedAt: new Date(),
     })
     .where(and(eq(tasks.id, id), eq(tasks.userId, session.user.id)))

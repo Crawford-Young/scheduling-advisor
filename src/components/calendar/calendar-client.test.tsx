@@ -61,6 +61,7 @@ interface MockLibEvent {
   readonly completed?: boolean
   readonly completable?: boolean
   readonly streak?: number
+  readonly locked?: boolean
 }
 
 interface MockDayWindow {
@@ -90,6 +91,7 @@ interface WeekCalendarViewProps {
   readonly onEventEdit?: (e: MockLibEvent) => void
   readonly onEventCreate?: (e: MockCreatePayload) => void
   readonly onEventToggleComplete?: (e: MockLibEvent) => void
+  readonly onToggleLock?: (e: MockLibEvent) => void
   readonly hourStart?: number
   readonly hourCount?: number
   readonly sleepEnabled?: boolean
@@ -193,6 +195,10 @@ vi.mock('@/lib/ui', () => ({
       data-evt0-completable={String(props.events?.[0]?.completable ?? '')}
       data-evt0-streak={String(props.events?.[0]?.streak ?? '')}
       data-evt1-completed={String(props.events?.[1]?.completed ?? '')}
+      // A2.4: the persisted locked flag seeds the library event. An unlocked row
+      // seeds undefined; the locked fixture seeds true.
+      data-evt0-locked={String(props.events?.[0]?.locked ?? '')}
+      data-evt-locked={String(props.events?.find((e) => e.id === 'evt-locked')?.locked ?? '')}
     >
       <button type="button" onClick={() => props.onEventDelete?.(STUB_LIB_EVENT)}>
         trigger-delete
@@ -375,6 +381,18 @@ vi.mock('@/lib/ui', () => ({
       >
         trigger-toggle-nonrecurring-uncomplete
       </button>
+      {/* A2.4: lock an unlocked row (evt-1). The app flips server truth, so the
+          payload the passed event carries is irrelevant. */}
+      <button type="button" onClick={() => props.onToggleLock?.({ ...STUB_LIB_EVENT })}>
+        trigger-toggle-lock
+      </button>
+      {/* A2.4: unlock the already-locked fixture (evt-locked). */}
+      <button
+        type="button"
+        onClick={() => props.onToggleLock?.({ ...STUB_LIB_EVENT, id: 'evt-locked' })}
+      >
+        trigger-toggle-unlock
+      </button>
     </div>
   ),
   SleepToggle: ({
@@ -521,6 +539,20 @@ const EVENTS = [
     visibility: 'only_me',
     recurrence: 'weekly',
     recurrenceDays: ['Mon', 'Wed'] as const,
+  },
+  // A2.4: a row pinned in place — seeds locked:true onto the library event and
+  // the lock toggle should flip it to unlocked.
+  {
+    id: 'evt-locked',
+    title: 'Locked event',
+    start: '2026-01-06T20:00:00.000Z',
+    end: '2026-01-06T21:00:00.000Z',
+    type: 'task' as const,
+    status: 'pending' as const,
+    streak: 0,
+    activityType: 'solo',
+    visibility: 'only_me',
+    locked: true,
   },
 ]
 
@@ -1639,6 +1671,109 @@ describe('CalendarClient — complete-toggle persistence (0.17.0)', () => {
     await user.click(screen.getByRole('button', { name: 'trigger-toggle-recurring-uncomplete' }))
 
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not mark incomplete'))
+    expect(screen.getByTestId('week-calendar-view')).not.toBe(beforeNode)
+    expect(refreshMock).toHaveBeenCalled()
+  })
+})
+
+// ── lock toggle (A2.4) ──────────────────────────────────────────────────────
+//
+// The chip's lock affordance fires onToggleLock. The app flips the row's
+// PERSISTED locked state (server truth) and persists it via updateTask with
+// EXACTLY { id, locked } — no other fields. Lock never enters the complete-
+// toggle or series-edit routing predicates.
+
+describe('CalendarClient — lock toggle (A2.4)', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    updateTaskMock.mockClear()
+    updateTaskMock.mockResolvedValue({})
+    updateTaskSeriesMock.mockClear()
+    updateTaskSeriesMock.mockResolvedValue({})
+    recordCompletionMock.mockClear()
+    toastErrorMock.mockClear()
+  })
+
+  it('seeds the persisted locked flag onto the library event', () => {
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+    const view = screen.getByTestId('week-calendar-view')
+    // The locked fixture seeds locked:true; the unlocked evt-1 seeds no flag.
+    expect(view.dataset.evtLocked).toBe('true')
+    expect(view.dataset.evt0Locked).toBe('')
+  })
+
+  it('locks an unlocked event via updateTask with exactly { id, locked: true }', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-toggle-lock' }))
+
+    await waitFor(() => expect(updateTaskMock).toHaveBeenCalledWith({ id: 'evt-1', locked: true }))
+    // Lock is neither a series-shaped edit nor a completion change.
+    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+    expect(recordCompletionMock).not.toHaveBeenCalled()
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('unlocks a locked event via updateTask with exactly { id, locked: false }', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-toggle-unlock' }))
+
+    await waitFor(() =>
+      expect(updateTaskMock).toHaveBeenCalledWith({ id: 'evt-locked', locked: false }),
+    )
+    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+  })
+
+  it('toasts and remounts when the lock update fails to persist', async () => {
+    updateTaskMock.mockResolvedValueOnce({ error: 'Not found' })
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    const beforeNode = screen.getByTestId('week-calendar-view')
+    await user.click(screen.getByRole('button', { name: 'trigger-toggle-lock' }))
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith('Could not update lock — calendar restored'),
+    )
     expect(screen.getByTestId('week-calendar-view')).not.toBe(beforeNode)
     expect(refreshMock).toHaveBeenCalled()
   })

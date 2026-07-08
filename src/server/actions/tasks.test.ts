@@ -96,4 +96,10 @@ describe('updateTask', () => {
     await updateTask({ id, allDay: true })
     expect(updateSet).toMatchObject({ allDay: true })
   })
+
+  it('passes locked through to the update set', async () => {
+    const { updateTask } = await import('./tasks')
+    await updateTask({ id, locked: true })
+    expect(updateSet).toMatchObject({ locked: true })
+  })
 })

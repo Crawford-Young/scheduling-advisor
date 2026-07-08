@@ -40,6 +40,9 @@ export const updateTaskSchema = z.object({
   location: z.string().max(200).nullable().optional(),
   description: z.string().max(2000).nullable().optional(),
   allDay: z.boolean().optional(),
+  // Pins a row in place: the library gates start/end edits client-side; the
+  // server only persists the flag (no start/end rejection on locked rows).
+  locked: z.boolean().optional(),
 })
 
 export const deleteTaskSchema = z.object({

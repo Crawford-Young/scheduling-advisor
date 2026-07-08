@@ -705,6 +705,12 @@ describe('updateTask', () => {
     })
     expect(result).toMatchObject({ data: { targetDate: null } })
   })
+
+  it('passes the locked flag through to the update set', async () => {
+    await updateTask({ id: '550e8400-e29b-41d4-a716-446655440000', locked: true })
+    const setArg = mockSetUpdate.mock.calls[0]![0] as { locked?: boolean }
+    expect(setArg.locked).toBe(true)
+  })
 })
 
 describe('deleteTask', () => {

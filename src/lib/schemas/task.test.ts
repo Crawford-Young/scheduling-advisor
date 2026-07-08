@@ -28,4 +28,14 @@ describe('updateTaskSchema', () => {
     })
     expect(r.success).toBe(true)
   })
+
+  it('accepts a boolean locked flag', () => {
+    const r = updateTaskSchema.safeParse({ id: crypto.randomUUID(), locked: true })
+    expect(r.success).toBe(true)
+  })
+
+  it('rejects a non-boolean locked flag', () => {
+    const r = updateTaskSchema.safeParse({ id: crypto.randomUUID(), locked: 'yes' })
+    expect(r.success).toBe(false)
+  })
 })
