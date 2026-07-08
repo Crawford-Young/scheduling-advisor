@@ -983,8 +983,8 @@ describe('CalendarClient', () => {
 
   // ── lock toggle (A2.4) ──────────────────────────────────────────────────
   //
-  // The chip's lock affordance fires onToggleLock. The app flips the row's
-  // PERSISTED locked state (server truth, not the optimistic library event) and
+  // The chip's lock affordance bubbles up as onEventToggleLock. The app flips the
+  // row's PERSISTED locked state (server truth, not the optimistic library event) and
   // persists it via updateTask({ id, locked }) — the only field it sends. Lock
   // never touches complete-toggle or series-edit routing.
   describe('lock toggle (A2.4)', () => {
@@ -1016,7 +1016,7 @@ describe('CalendarClient', () => {
           use24h={false}
         />,
       )
-      ;(capturedProps.onToggleLock as (e: unknown) => void)({ id: 'e1' })
+      ;(capturedProps.onEventToggleLock as (e: unknown) => void)({ id: 'e1' })
       await vi.waitFor(() =>
         expect(mockUpdateTask).toHaveBeenCalledWith({ id: 'e1', locked: true }),
       )
@@ -1037,7 +1037,7 @@ describe('CalendarClient', () => {
           use24h={false}
         />,
       )
-      ;(capturedProps.onToggleLock as (e: unknown) => void)({ id: 'e7' })
+      ;(capturedProps.onEventToggleLock as (e: unknown) => void)({ id: 'e7' })
       await vi.waitFor(() =>
         expect(mockUpdateTask).toHaveBeenCalledWith({ id: 'e7', locked: false }),
       )
@@ -1057,7 +1057,7 @@ describe('CalendarClient', () => {
         />,
       )
       const initialMountCount = mountCount.value
-      ;(capturedProps.onToggleLock as (e: unknown) => void)({ id: 'e1' })
+      ;(capturedProps.onEventToggleLock as (e: unknown) => void)({ id: 'e1' })
       await vi.waitFor(() =>
         expect(mockToastError).toHaveBeenCalledWith('Could not update lock — calendar restored'),
       )

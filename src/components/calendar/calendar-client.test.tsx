@@ -91,7 +91,7 @@ interface WeekCalendarViewProps {
   readonly onEventEdit?: (e: MockLibEvent) => void
   readonly onEventCreate?: (e: MockCreatePayload) => void
   readonly onEventToggleComplete?: (e: MockLibEvent) => void
-  readonly onToggleLock?: (e: MockLibEvent) => void
+  readonly onEventToggleLock?: (e: MockLibEvent) => void
   readonly hourStart?: number
   readonly hourCount?: number
   readonly sleepEnabled?: boolean
@@ -383,13 +383,13 @@ vi.mock('@/lib/ui', () => ({
       </button>
       {/* A2.4: lock an unlocked row (evt-1). The app flips server truth, so the
           payload the passed event carries is irrelevant. */}
-      <button type="button" onClick={() => props.onToggleLock?.({ ...STUB_LIB_EVENT })}>
+      <button type="button" onClick={() => props.onEventToggleLock?.({ ...STUB_LIB_EVENT })}>
         trigger-toggle-lock
       </button>
       {/* A2.4: unlock the already-locked fixture (evt-locked). */}
       <button
         type="button"
-        onClick={() => props.onToggleLock?.({ ...STUB_LIB_EVENT, id: 'evt-locked' })}
+        onClick={() => props.onEventToggleLock?.({ ...STUB_LIB_EVENT, id: 'evt-locked' })}
       >
         trigger-toggle-unlock
       </button>
@@ -1678,8 +1678,8 @@ describe('CalendarClient — complete-toggle persistence (0.17.0)', () => {
 
 // ── lock toggle (A2.4) ──────────────────────────────────────────────────────
 //
-// The chip's lock affordance fires onToggleLock. The app flips the row's
-// PERSISTED locked state (server truth) and persists it via updateTask with
+// The chip's lock affordance bubbles up as onEventToggleLock. The app flips the
+// row's PERSISTED locked state (server truth) and persists it via updateTask with
 // EXACTLY { id, locked } — no other fields. Lock never enters the complete-
 // toggle or series-edit routing predicates.
 
