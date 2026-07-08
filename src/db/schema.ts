@@ -106,6 +106,7 @@ export const tasks = pgTable('tasks', {
     .default('only_me'),
   joinability: text('joinability', { enum: ['open', 'request', 'closed'] }),
   maxParticipants: integer('max_participants'),
+  locked: boolean('locked').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })

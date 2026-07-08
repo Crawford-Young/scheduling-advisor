@@ -1,0 +1,1 @@
+ALTER TABLE "tasks" ADD COLUMN "locked" boolean DEFAULT false NOT NULL;

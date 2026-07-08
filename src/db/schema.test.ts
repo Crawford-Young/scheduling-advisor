@@ -4,4 +4,5 @@ it('tasks has rich columns', () => {
   expect(tasks.description).toBeDefined()
   expect(tasks.color).toBeDefined()
   expect(tasks.allDay).toBeDefined()
+  expect(tasks.locked).toBeDefined()
 })
