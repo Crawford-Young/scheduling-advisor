@@ -6,7 +6,7 @@ import { useActivityActions, type ActivityCardActionsProps } from './use-activit
 
 const refreshMock = vi.fn()
 const updateTaskMock = vi.fn().mockResolvedValue({ data: {} })
-const updateTaskSeriesMock = vi.fn().mockResolvedValue({ data: {} })
+const updateSeriesMock = vi.fn().mockResolvedValue({ data: {} })
 const deleteTaskMock = vi.fn().mockResolvedValue({ data: { success: true } })
 const recordCompletionMock = vi.fn().mockResolvedValue({ data: {} })
 const toastErrorMock = vi.fn()
@@ -17,8 +17,11 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/server/actions/tasks', () => ({
   updateTask: (input: unknown) => updateTaskMock(input),
-  updateTaskSeries: (input: unknown) => updateTaskSeriesMock(input),
   deleteTask: (input: unknown) => deleteTaskMock(input),
+}))
+
+vi.mock('@/server/actions/series-mutations', () => ({
+  updateSeries: (input: unknown) => updateSeriesMock(input),
 }))
 
 vi.mock('@/server/actions/consistency', () => ({
@@ -89,7 +92,9 @@ vi.mock('@/lib/ui', () => ({
         <span data-testid="dialog-location">{initialValues?.location ?? ''}</span>
         <span data-testid="dialog-description">{initialValues?.description ?? ''}</span>
         <span data-testid="dialog-all-day">{String(initialValues?.allDay ?? '')}</span>
-        {/* Series-shaped submit: keeps the frequency, changes recurrenceCount 4 → 8. */}
+        {/* Series-shaped submit: full payload, non-empty recurrenceDays included so
+            both sides of the recurrenceDays?.length ternary get exercised. Used by
+            both the grouped (full-payload) test and the becomingSeries tests. */}
         <button
           type="button"
           onClick={() =>
@@ -100,6 +105,7 @@ vi.mock('@/lib/ui', () => ({
               endAt: '2026-07-01T10:00:00.000Z',
               recurrence: 'weekly',
               recurrenceCount: 8,
+              recurrenceDays: ['Mon', 'Wed'],
               color: null,
               location: null,
               description: null,
@@ -110,43 +116,18 @@ vi.mock('@/lib/ui', () => ({
         >
           submit-series-edit
         </button>
-        {/* S9: re-emits the seeded weekday set (reordered) with a time change but
-            the SAME frequency/count → order-insensitive set equality must keep
-            this on updateTask so the time change is not dropped. */}
+        {/* Grouped-row edit to a NON-series frequency with no count/days emitted —
+            exercises isSeriesFrequency's false branch and the recurrenceCount ?? null
+            fallback on a grouped row (the server decides field-vs-pattern). */}
         <button
           type="button"
           onClick={() =>
             onSubmit({
               type: 'task',
-              title: 'Series time edit',
-              startAt: '2026-07-01T11:00:00.000Z',
-              endAt: '2026-07-01T12:00:00.000Z',
-              recurrence: 'weekly',
-              recurrenceCount: 4,
-              recurrenceDays: ['Wed', 'Mon'],
-              color: null,
-              location: null,
-              description: null,
-              allDay: false,
-              social: { activityType: 'solo', visibility: 'only_me' },
-            })
-          }
-        >
-          submit-series-same-days
-        </button>
-        {/* S9: changes the seeded set (['Mon','Wed'] → ['Mon','Fri']) → a real
-            pattern change routes to updateTaskSeries with the new tokens. */}
-        <button
-          type="button"
-          onClick={() =>
-            onSubmit({
-              type: 'task',
-              title: 'Series days edit',
+              title: 'Series cleared freq',
               startAt: '2026-07-01T09:00:00.000Z',
               endAt: '2026-07-01T10:00:00.000Z',
-              recurrence: 'weekly',
-              recurrenceCount: 4,
-              recurrenceDays: ['Mon', 'Fri'],
+              recurrence: 'yearly',
               color: null,
               location: null,
               description: null,
@@ -155,31 +136,30 @@ vi.mock('@/lib/ui', () => ({
             })
           }
         >
-          submit-series-changed-days
+          submit-series-nonseries-freq
         </button>
-        {/* S9: shrinks the seeded set (['Mon','Wed'] → ['Mon']) — a DIFFERENT
-            LENGTH set, exercising sameDaySet's length-mismatch short-circuit
-            (as opposed to the same-length/different-membership case above). */}
+        {/* Grouped-row all-day edit — startAt/endAt null exercises the
+            `values.startAt ?? undefined` / `values.endAt ?? null` fallback sides
+            of the updateSeries payload. */}
         <button
           type="button"
           onClick={() =>
             onSubmit({
               type: 'task',
-              title: 'Series days removed',
-              startAt: '2026-07-01T09:00:00.000Z',
-              endAt: '2026-07-01T10:00:00.000Z',
+              title: 'Series all-day',
+              startAt: null,
+              endAt: null,
               recurrence: 'weekly',
               recurrenceCount: 4,
-              recurrenceDays: ['Mon'],
               color: null,
               location: null,
               description: null,
-              allDay: false,
+              allDay: true,
               social: { activityType: 'solo', visibility: 'only_me' },
             })
           }
         >
-          submit-series-shrunk-days
+          submit-series-allday
         </button>
         <button
           type="button"
@@ -268,7 +248,7 @@ describe('useActivityActions', () => {
   beforeEach(() => {
     refreshMock.mockClear()
     updateTaskMock.mockClear()
-    updateTaskSeriesMock.mockClear()
+    updateSeriesMock.mockClear()
     deleteTaskMock.mockClear()
     recordCompletionMock.mockClear()
     toastErrorMock.mockClear()
@@ -333,7 +313,7 @@ describe('useActivityActions', () => {
     expect(dateText).not.toMatch(/T\d{2}:\d{2}:\d{2}/)
   })
 
-  it('converts date-only targetDate to noon-UTC ISO on goal edit save', async () => {
+  it('converts date-only targetDate to noon-UTC ISO on goal edit save (goals never route to updateSeries)', async () => {
     const user = userEvent.setup()
     render(<ActivityActionsHarness {...goalProps} />)
     await user.click(screen.getByRole('button', { name: /edit goal/i }))
@@ -347,6 +327,7 @@ describe('useActivityActions', () => {
         }),
       ),
     )
+    expect(updateSeriesMock).not.toHaveBeenCalled()
   })
 
   it('task edit sends startAt/endAt without a targetDate field', async () => {
@@ -480,9 +461,10 @@ describe('useActivityActions', () => {
     expect(refreshMock).not.toHaveBeenCalled()
   })
 
-  // S8: a task already part of a recurrence group whose recurrence/recurrenceCount
-  // changes routes to updateTaskSeries (regenerate the group's future pending
-  // rows); row-shaped-only edits keep updateTask.
+  // Series semantics v2 (wave 2.6 S5): a GROUPED row (recurrenceGroupId set) always
+  // routes through updateSeries — the SERVER decides field-vs-pattern. An UNGROUPED
+  // row edited to a series frequency (becomingSeries) also routes through
+  // updateSeries (materializes a fresh group). Goals never route to updateSeries.
   const seriesTaskProps = {
     taskId: 'task-series-1',
     type: 'task' as const,
@@ -495,6 +477,13 @@ describe('useActivityActions', () => {
     social: { activityType: 'solo' as const, visibility: 'only_me' as const },
   }
 
+  const groupedSeriesProps = {
+    ...seriesTaskProps,
+    taskId: 'task-grouped-1',
+    recurrenceGroupId: 'group-1',
+    recurrenceDays: ['Mon', 'Wed'] as const,
+  }
+
   it('seeds recurrenceCount into the edit dialog initialValues from the row', async () => {
     const user = userEvent.setup()
     render(<ActivityActionsHarness {...seriesTaskProps} />)
@@ -503,15 +492,30 @@ describe('useActivityActions', () => {
     expect(screen.getByTestId('dialog-recurrence')).toHaveTextContent('weekly')
   })
 
-  it('routes a changed recurrenceCount to updateTaskSeries (not updateTask)', async () => {
+  it('seeds recurrenceDays into the edit dialog initialValues from the row', async () => {
     const user = userEvent.setup()
-    render(<ActivityActionsHarness {...seriesTaskProps} />)
+    render(<ActivityActionsHarness {...groupedSeriesProps} />)
+    await user.click(screen.getByRole('button', { name: /edit task/i }))
+    expect(screen.getByTestId('dialog-recurrence-days')).toHaveTextContent('Mon,Wed')
+  })
+
+  it('routes a grouped activity edit through updateSeries with the full payload (never updateTask)', async () => {
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...groupedSeriesProps} />)
     await user.click(screen.getByRole('button', { name: /edit task/i }))
     await user.click(screen.getByRole('button', { name: 'submit-series-edit' }))
     await waitFor(() =>
-      expect(updateTaskSeriesMock).toHaveBeenCalledWith({
-        taskId: 'task-series-1',
+      expect(updateSeriesMock).toHaveBeenCalledWith({
+        taskId: 'task-grouped-1',
+        title: 'Series edited task',
+        startAt: '2026-07-01T09:00:00.000Z',
+        endAt: '2026-07-01T10:00:00.000Z',
+        color: null,
+        location: null,
+        description: null,
+        allDay: false,
         recurrence: 'weekly',
+        recurrenceDays: ['Mon', 'Wed'],
         recurrenceCount: 8,
       }),
     )
@@ -519,10 +523,61 @@ describe('useActivityActions', () => {
     expect(refreshMock).toHaveBeenCalled()
   })
 
-  // S10: setting a frequency (± count) on a NON-recurring task routes to
-  // updateTaskSeries, which materializes the series. Clearing recurrence on an
-  // already-recurring task stays on updateTask (series → one-off, unchanged).
-  it('routes making a non-recurring task recurring to updateTaskSeries (materialize)', async () => {
+  it('routes a grouped row edited to a non-series frequency with recurrence/count nulled', async () => {
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...groupedSeriesProps} />)
+    await user.click(screen.getByRole('button', { name: /edit task/i }))
+    await user.click(screen.getByRole('button', { name: 'submit-series-nonseries-freq' }))
+    await waitFor(() =>
+      expect(updateSeriesMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskId: 'task-grouped-1',
+          recurrence: null,
+          recurrenceCount: null,
+        }),
+      ),
+    )
+    expect(updateTaskMock).not.toHaveBeenCalled()
+  })
+
+  it('threads null startAt/endAt through updateSeries for an all-day grouped edit', async () => {
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...groupedSeriesProps} />)
+    await user.click(screen.getByRole('button', { name: /edit task/i }))
+    await user.click(screen.getByRole('button', { name: 'submit-series-allday' }))
+    await waitFor(() =>
+      expect(updateSeriesMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskId: 'task-grouped-1',
+          startAt: undefined,
+          endAt: null,
+          allDay: true,
+        }),
+      ),
+    )
+    expect(updateTaskMock).not.toHaveBeenCalled()
+  })
+
+  it('routes an already-recurring but ungrouped task edit through updateSeries (becomingSeries)', async () => {
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...seriesTaskProps} />)
+    await user.click(screen.getByRole('button', { name: /edit task/i }))
+    await user.click(screen.getByRole('button', { name: 'submit-series-edit' }))
+    await waitFor(() =>
+      expect(updateSeriesMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskId: 'task-series-1',
+          recurrence: 'weekly',
+          recurrenceCount: 8,
+          recurrenceDays: ['Mon', 'Wed'],
+        }),
+      ),
+    )
+    expect(updateTaskMock).not.toHaveBeenCalled()
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('routes making a non-recurring, ungrouped task recurring through updateSeries (materialize)', async () => {
     const user = userEvent.setup()
     render(
       <ActivityActionsHarness
@@ -537,17 +592,15 @@ describe('useActivityActions', () => {
     await user.click(screen.getByRole('button', { name: /edit task/i }))
     await user.click(screen.getByRole('button', { name: 'submit-series-edit' }))
     await waitFor(() =>
-      expect(updateTaskSeriesMock).toHaveBeenCalledWith({
-        taskId: 'task-oneoff',
-        recurrence: 'weekly',
-        recurrenceCount: 8,
-      }),
+      expect(updateSeriesMock).toHaveBeenCalledWith(
+        expect.objectContaining({ taskId: 'task-oneoff', recurrence: 'weekly' }),
+      ),
     )
     expect(updateTaskMock).not.toHaveBeenCalled()
     expect(refreshMock).toHaveBeenCalled()
   })
 
-  it('keeps clearing recurrence on a recurring task on updateTask (series → one-off)', async () => {
+  it('keeps clearing recurrence on a recurring, ungrouped task on updateTask (series → one-off)', async () => {
     const user = userEvent.setup()
     render(
       <ActivityActionsHarness
@@ -564,10 +617,10 @@ describe('useActivityActions', () => {
     // submit-edit emits recurrence: null for a task → recurrence cleared.
     await user.click(screen.getByRole('button', { name: 'submit-edit' }))
     await waitFor(() => expect(updateTaskMock).toHaveBeenCalled())
-    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+    expect(updateSeriesMock).not.toHaveBeenCalled()
   })
 
-  it('keeps a row-shaped-only task edit on updateTask (not updateTaskSeries)', async () => {
+  it('keeps a row-shaped-only, ungrouped task edit on updateTask (not updateSeries)', async () => {
     const user = userEvent.setup()
     render(
       <ActivityActionsHarness
@@ -582,86 +635,34 @@ describe('useActivityActions', () => {
     await user.click(screen.getByRole('button', { name: /edit task/i }))
     await user.click(screen.getByRole('button', { name: 'submit-edit' }))
     await waitFor(() => expect(updateTaskMock).toHaveBeenCalled())
-    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+    expect(updateSeriesMock).not.toHaveBeenCalled()
   })
 
-  // S9 / 0.18.0: the dialog now has a weekday picker (ActivityFormValues gains
-  // recurrenceDays). Seed it from the row and route by order-insensitive set
-  // equality: a re-emitted unchanged set keeps updateTask (time change kept), a
-  // changed set routes to updateTaskSeries with the new tokens.
-  const seriesDaysTaskProps = {
-    taskId: 'task-days-1',
-    type: 'task' as const,
-    title: 'Weekly review',
-    status: 'pending' as const,
-    startAt: '2026-07-01T09:00:00.000Z',
-    endAt: '2026-07-01T10:00:00.000Z',
-    recurrence: 'weekly',
-    recurrenceCount: 4,
-    recurrenceDays: ['Mon', 'Wed'] as const,
-    social: { activityType: 'solo' as const, visibility: 'only_me' as const },
-  }
-
-  it('seeds recurrenceDays into the edit dialog initialValues from the row', async () => {
+  it('completes a grouped recurring task via recordCompletion — never routes through updateSeries', async () => {
     const user = userEvent.setup()
-    render(<ActivityActionsHarness {...seriesDaysTaskProps} />)
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    expect(screen.getByTestId('dialog-recurrence-days')).toHaveTextContent('Mon,Wed')
-  })
-
-  it('keeps a time-only edit re-emitting the seeded set (reordered) on updateTask', async () => {
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...seriesDaysTaskProps} />)
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-series-same-days' }))
-    await waitFor(() =>
-      expect(updateTaskMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'task-days-1',
-          startAt: '2026-07-01T11:00:00.000Z',
-          endAt: '2026-07-01T12:00:00.000Z',
-        }),
-      ),
+    render(
+      <ActivityActionsHarness
+        taskId="task-grouped-complete"
+        type="task"
+        title="Meditate"
+        status="pending"
+        recurrence="daily"
+        recurrenceGroupId="group-9"
+        social={{ activityType: 'solo', visibility: 'only_me' }}
+      />,
     )
-    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
-  })
-
-  it('routes a genuinely changed weekday set to updateTaskSeries with the new tokens', async () => {
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...seriesDaysTaskProps} />)
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-series-changed-days' }))
+    await user.click(screen.getByRole('button', { name: /log today/i }))
     await waitFor(() =>
-      expect(updateTaskSeriesMock).toHaveBeenCalledWith({
-        taskId: 'task-days-1',
-        recurrence: 'weekly',
-        recurrenceCount: 4,
-        recurrenceDays: ['Mon', 'Fri'],
-      }),
+      expect(recordCompletionMock).toHaveBeenCalledWith({ taskId: 'task-grouped-complete' }),
     )
+    expect(updateSeriesMock).not.toHaveBeenCalled()
     expect(updateTaskMock).not.toHaveBeenCalled()
   })
 
-  it('routes a shrunk weekday set (different length) to updateTaskSeries with the new tokens', async () => {
+  it('shows toast.error when a grouped series edit fails to persist', async () => {
+    updateSeriesMock.mockResolvedValueOnce({ error: 'Not a series' })
     const user = userEvent.setup()
-    render(<ActivityActionsHarness {...seriesDaysTaskProps} />)
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-series-shrunk-days' }))
-    await waitFor(() =>
-      expect(updateTaskSeriesMock).toHaveBeenCalledWith({
-        taskId: 'task-days-1',
-        recurrence: 'weekly',
-        recurrenceCount: 4,
-        recurrenceDays: ['Mon'],
-      }),
-    )
-    expect(updateTaskMock).not.toHaveBeenCalled()
-  })
-
-  it('shows toast.error when a series edit fails to persist', async () => {
-    updateTaskSeriesMock.mockResolvedValueOnce({ error: 'Not a series' })
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...seriesTaskProps} />)
+    render(<ActivityActionsHarness {...groupedSeriesProps} />)
     await user.click(screen.getByRole('button', { name: /edit task/i }))
     await user.click(screen.getByRole('button', { name: 'submit-series-edit' }))
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not save activity'))

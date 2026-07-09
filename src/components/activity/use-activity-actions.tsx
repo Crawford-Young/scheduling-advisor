@@ -17,30 +17,19 @@ import {
   type ActivitySocial,
   type DayOfWeek,
 } from '@/lib/ui'
-import { updateTask, updateTaskSeries, deleteTask } from '@/server/actions/tasks'
+import { updateTask, deleteTask } from '@/server/actions/tasks'
+import { updateSeries } from '@/server/actions/series-mutations'
 import { recordCompletion } from '@/server/actions/consistency'
 
 const TARGET_DATE_TIME_SUFFIX = 'T12:00:00.000Z'
 
-// The subset of frequencies updateTaskSeries can regenerate (its schema is a
-// daily|weekly|monthly enum). Since 0.18.0 the dialog has a weekday picker
-// (ActivityFormValues.recurrenceDays), so a series edit can change frequency,
-// repeat count, and/or the weekday set.
+// The subset of frequencies updateSeries can regenerate (its schema is a
+// daily|weekly|monthly enum — 'yearly' never fans out, so it is not a series).
 const SERIES_FREQUENCIES = ['daily', 'weekly', 'monthly'] as const
 type SeriesFrequency = (typeof SERIES_FREQUENCIES)[number]
 
 function isSeriesFrequency(value: string | null | undefined): value is SeriesFrequency {
   return value != null && (SERIES_FREQUENCIES as readonly string[]).includes(value)
-}
-
-// Order-insensitive equality for two weekday-token sets. The dialog seeds the
-// picker from the row's recurrenceDays and re-emits the selection on EVERY save,
-// so routing must compare by membership (not presence) — a reordered but
-// unchanged set is NOT an edit and must keep the row-shaped updateTask path.
-function sameDaySet(a: readonly DayOfWeek[], b: readonly DayOfWeek[]): boolean {
-  if (a.length !== b.length) return false
-  const setB = new Set(b)
-  return a.every((day) => setB.has(day))
 }
 
 export type ActivityKind = 'task' | 'goal'
@@ -57,6 +46,13 @@ export interface ActivityCardActionsProps {
   readonly recurrenceCount?: number | null
   /** Persisted weekday set of the recurrence group; seeds the dialog's Days picker. */
   readonly recurrenceDays?: readonly DayOfWeek[] | null
+  /**
+   * Recurrence-group id (wave 2.6 S4/S5). Non-null means the row belongs to a
+   * fanned recurrence group — grouped edits route through `updateSeries` (the
+   * single writer for every row of the group), which decides field-vs-pattern
+   * server-side. Goals never carry a group id.
+   */
+  readonly recurrenceGroupId?: string | null
   /** Date-only `YYYY-MM-DD` for goals. */
   readonly targetDate?: string | null
   readonly color?: string | null
@@ -94,6 +90,7 @@ export function useActivityActions({
   recurrence,
   recurrenceCount,
   recurrenceDays,
+  recurrenceGroupId,
   targetDate,
   color,
   location,
@@ -124,66 +121,57 @@ export function useActivityActions({
     })
   }
 
+  // Series semantics v2 (wave 2.6 S5): a GROUPED row (recurrenceGroupId set)
+  // always routes through updateSeries — the SERVER decides field-vs-pattern
+  // (see series-mutations.ts), not the client. There is no more client-side
+  // sameDaySet/daysChanged/recurrenceChanged/wasRecurring predicate. An
+  // UNGROUPED row edited with a series frequency (becomingSeries) also routes
+  // through updateSeries, which materializes a fresh group (or re-joins one).
+  // Goals never materialize (the becomingSeries guard excludes type 'goal';
+  // a grouped goal is not a real state). A non-series frequency (e.g.
+  // 'yearly') maps recurrence to null in the updateSeries payload.
   function handleEditSubmit(values: ActivityFormValues): void {
     startTransition(async () => {
-      // Series-shaped vs row-shaped routing. When a task already part of a
-      // recurrence group changes its frequency or repeat count, regenerate the
-      // group's future pending rows via updateTaskSeries. Everything else
-      // (goals, row-shaped-only task edits) keeps updateTask.
-      //
-      // Mixed edit (a pattern change AND a row-shaped change like title/time in
-      // the same save): the series change owns the save — updateTaskSeries
-      // regenerates from the anchor row's persisted fields, and the co-changed
-      // row-shaped fields are NOT separately written here (interim until S9).
-      //
-      // S10: setting a series frequency on a NON-recurring task ALSO routes to
-      // updateTaskSeries, which materializes the series (updates the anchor in
-      // place and fans out future occurrences). Clearing recurrence on an
-      // already-recurring task (frequency drops to a non-series value) stays on
-      // updateTask — that direction is unchanged.
-      // S9: the seeded weekday picker re-emits recurrenceDays on every save, so
-      // days presence is unconditional — route on order-insensitive SET EQUALITY
-      // against the row's persisted set (mirrors calendar-client's predicate).
-      const wasRecurring = recurrence != null
-      const recurrenceChanged = (values.recurrence ?? null) !== (recurrence ?? null)
-      const countChanged = (values.recurrenceCount ?? null) !== (recurrenceCount ?? null)
-      const daysChanged = !sameDaySet(values.recurrenceDays ?? [], recurrenceDays ?? [])
-      const routeToSeries =
-        values.type !== 'goal' &&
-        isSeriesFrequency(values.recurrence) &&
-        (!wasRecurring || recurrenceChanged || countChanged || daysChanged)
+      const grouped = recurrenceGroupId != null
+      const becomingSeries =
+        values.type !== 'goal' && isSeriesFrequency(values.recurrence) && !grouped
 
-      const result = routeToSeries
-        ? await updateTaskSeries({
-            taskId,
-            recurrence: values.recurrence,
-            recurrenceCount: values.recurrenceCount,
-            recurrenceDays:
-              values.recurrenceDays && values.recurrenceDays.length > 0
-                ? values.recurrenceDays
-                : undefined,
-          })
-        : await updateTask(
-            values.type === 'goal'
-              ? {
-                  id: taskId,
-                  title: values.title,
-                  targetDate: toIsoTargetDate(values.targetDate),
-                  location: values.location ?? null,
-                  description: values.description ?? null,
-                }
-              : {
-                  id: taskId,
-                  title: values.title,
-                  recurrence: values.recurrence ?? null,
-                  startAt: values.startAt ?? null,
-                  endAt: values.endAt ?? null,
-                  color: values.color ?? null,
-                  location: values.location ?? null,
-                  description: values.description ?? null,
-                  allDay: values.allDay,
-                },
-          )
+      const result =
+        grouped || becomingSeries
+          ? await updateSeries({
+              taskId,
+              title: values.title,
+              startAt: values.startAt ?? undefined,
+              endAt: values.endAt ?? null,
+              color: values.color ?? null,
+              location: values.location ?? null,
+              description: values.description ?? null,
+              allDay: values.allDay,
+              recurrence: isSeriesFrequency(values.recurrence) ? values.recurrence : null,
+              recurrenceDays: values.recurrenceDays?.length ? values.recurrenceDays : undefined,
+              recurrenceCount: values.recurrenceCount ?? null,
+            })
+          : await updateTask(
+              values.type === 'goal'
+                ? {
+                    id: taskId,
+                    title: values.title,
+                    targetDate: toIsoTargetDate(values.targetDate),
+                    location: values.location ?? null,
+                    description: values.description ?? null,
+                  }
+                : {
+                    id: taskId,
+                    title: values.title,
+                    recurrence: values.recurrence ?? null,
+                    startAt: values.startAt ?? null,
+                    endAt: values.endAt ?? null,
+                    color: values.color ?? null,
+                    location: values.location ?? null,
+                    description: values.description ?? null,
+                    allDay: values.allDay,
+                  },
+            )
       if ('error' in result) {
         toast.error('Could not save activity')
         return

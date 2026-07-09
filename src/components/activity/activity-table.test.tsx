@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { ActivityTable, type ActivityRow } from './activity-table'
@@ -9,9 +9,16 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: refreshMock }),
 }))
 
+const updateTaskMock = vi.fn().mockResolvedValue({ data: {} })
+const updateSeriesMock = vi.fn().mockResolvedValue({ data: {} })
+
 vi.mock('@/server/actions/tasks', () => ({
-  updateTask: vi.fn().mockResolvedValue({ data: {} }),
+  updateTask: (input: unknown) => updateTaskMock(input),
   deleteTask: vi.fn().mockResolvedValue({ data: { success: true } }),
+}))
+
+vi.mock('@/server/actions/series-mutations', () => ({
+  updateSeries: (input: unknown) => updateSeriesMock(input),
 }))
 
 vi.mock('@/server/actions/consistency', () => ({
@@ -29,6 +36,7 @@ function makeRow(over: Partial<ActivityRow> = {}): ActivityRow {
     recurrence: null,
     recurrenceCount: null,
     recurrenceDays: null,
+    recurrenceGroupId: null,
     location: null,
     description: null,
     color: null,
@@ -48,6 +56,57 @@ function makeRow(over: Partial<ActivityRow> = {}): ActivityRow {
 describe('ActivityTable', () => {
   beforeEach(() => {
     refreshMock.mockClear()
+    updateTaskMock.mockClear()
+    updateSeriesMock.mockClear()
+  })
+
+  // Prop chain (wave 2.6 S5): page toActivityRow → ActivityRow → ActivityRowActions
+  // → useActivityActions. A grouped row (recurrenceGroupId set) must route its
+  // edit through updateSeries, proving recurrenceGroupId reached the hook.
+  it('threads recurrenceGroupId through ActivityRowActions so a grouped row edit routes through updateSeries', async () => {
+    const user = userEvent.setup()
+    render(
+      <ActivityTable
+        items={[
+          makeRow({
+            id: 'grouped-row',
+            type: 'task',
+            recurrenceGroupId: 'group-42',
+            startAt: '2026-07-01T09:00:00.000Z',
+          }),
+        ]}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Edit task' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(updateSeriesMock).toHaveBeenCalledWith(
+        expect.objectContaining({ taskId: 'grouped-row' }),
+      ),
+    )
+    expect(updateTaskMock).not.toHaveBeenCalled()
+  })
+
+  it('an ungrouped row (recurrenceGroupId null) edit keeps routing through updateTask', async () => {
+    const user = userEvent.setup()
+    render(
+      <ActivityTable
+        items={[
+          makeRow({
+            id: 'ungrouped-row',
+            type: 'task',
+            recurrenceGroupId: null,
+            startAt: '2026-07-01T09:00:00.000Z',
+          }),
+        ]}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Edit task' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(updateTaskMock).toHaveBeenCalledWith(expect.objectContaining({ id: 'ungrouped-row' })),
+    )
+    expect(updateSeriesMock).not.toHaveBeenCalled()
   })
 
   // S9 / 0.18.0: the row query carries recurrenceCount + recurrenceDays; the

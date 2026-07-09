@@ -63,6 +63,7 @@ function toActivityRow(task: UserTask, streak: number): ActivityRow {
     recurrence: task.recurrence ?? null,
     recurrenceCount: task.recurrenceCount ?? null,
     recurrenceDays: task.recurrenceDays ?? null,
+    recurrenceGroupId: task.recurrenceGroupId ?? null,
     location: task.location,
     description: task.description,
     color: task.color,

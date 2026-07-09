@@ -54,6 +54,7 @@ interface MockActivityRow {
   recurrence: string | null
   recurrenceCount: number | null
   recurrenceDays: readonly string[] | null
+  recurrenceGroupId: string | null
   location: string | null
   description: string | null
   color: string | null
@@ -82,6 +83,7 @@ vi.mock('@/components/activity/activity-table', () => ({
           data-target-date={row.targetDate ?? ''}
           data-recurrence-count={row.recurrenceCount !== null ? String(row.recurrenceCount) : ''}
           data-recurrence-days={(row.recurrenceDays ?? []).join(',')}
+          data-recurrence-group-id={row.recurrenceGroupId ?? ''}
           data-streak={String(row.streak)}
           data-color={row.color ?? ''}
           data-location={row.location ?? ''}
@@ -116,6 +118,7 @@ interface TaskOverrides {
   recurrence?: string | null
   recurrenceCount?: number | null
   recurrenceDays?: readonly string[] | null
+  recurrenceGroupId?: string | null
   color?: string | null
   location?: string | null
   description?: string | null
@@ -133,6 +136,7 @@ function makeTask(over: TaskOverrides = {}) {
     recurrence: null,
     recurrenceCount: null,
     recurrenceDays: null,
+    recurrenceGroupId: null,
     targetDate: null,
     color: null,
     location: null,
@@ -337,6 +341,22 @@ describe('ActivitiesPage', () => {
     const row = screen.getByTestId('activity-row')
     expect(row).toHaveAttribute('data-recurrence-count', '6')
     expect(row).toHaveAttribute('data-recurrence-days', 'Mon,Wed')
+  })
+
+  // S5: recurrenceGroupId threads down the prop chain (page → ActivityRow →
+  // ActivityRowActions → useActivityActions) so grouped edits route through
+  // updateSeries. Null when the task row carries no group id.
+  it('surfaces recurrenceGroupId from the task row onto each activity row', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([
+      makeTask({ id: 't-grouped', type: 'task', recurrenceGroupId: 'group-7' }),
+      makeTask({ id: 't-ungrouped', type: 'task', recurrenceGroupId: null }),
+    ])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
+    const rows = screen.getAllByTestId('activity-row')
+    const byId = (id: string): HTMLElement => rows.find((r) => r.dataset.taskId === id)!
+    expect(byId('t-grouped')).toHaveAttribute('data-recurrence-group-id', 'group-7')
+    expect(byId('t-ungrouped')).toHaveAttribute('data-recurrence-group-id', '')
   })
 
   it('threads use24h=true from calendar prefs into the create button and table', async () => {

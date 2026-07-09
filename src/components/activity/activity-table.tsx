@@ -52,6 +52,12 @@ export interface ActivityRow {
   readonly recurrenceCount: number | null
   /** Persisted weekday set of the recurrence group; seeds the dialog's Days picker. */
   readonly recurrenceDays: readonly DayOfWeek[] | null
+  /**
+   * Recurrence-group id (wave 2.6 S5). Non-null means the row belongs to a
+   * fanned recurrence group — grouped edits route through `updateSeries`
+   * (threaded into `useActivityActions`).
+   */
+  readonly recurrenceGroupId: string | null
   readonly location: string | null
   readonly description: string | null
   readonly color: string | null
@@ -84,6 +90,7 @@ function ActivityRowActions({ row, use24h }: ActivityRowActionsProps): React.JSX
       recurrence: row.recurrence,
       recurrenceCount: row.recurrenceCount,
       recurrenceDays: row.recurrenceDays,
+      recurrenceGroupId: row.recurrenceGroupId,
       targetDate: row.targetDate,
       color: row.color,
       location: row.location,
