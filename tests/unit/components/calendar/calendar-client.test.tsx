@@ -27,7 +27,10 @@ vi.mock('@/server/actions/tasks', () => ({
   updateTaskSeries: mockUpdateTaskSeries,
   deleteTask: mockDeleteTask,
 }))
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mockRefresh }) }))
+const mockReplace = vi.hoisted(() => vi.fn())
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: mockRefresh, replace: mockReplace }),
+}))
 
 let capturedProps: Record<string, unknown> = {}
 vi.mock('@/lib/ui', async (importOriginal) => ({
@@ -253,7 +256,7 @@ describe('CalendarClient', () => {
       await vi.waitFor(() => expect(mockRescheduleTask).toHaveBeenCalled())
     })
 
-    it('ignores move of completed event and refreshes to snap back', async () => {
+    it('ignores move of completed event and resyncs in place to snap back (no refresh)', async () => {
       render(
         <CalendarClient
           weekStart="2026-05-25"
@@ -264,6 +267,7 @@ describe('CalendarClient', () => {
           use24h={false}
         />,
       )
+      const initialToken = capturedProps.resyncToken as number
       const onEventMove = capturedProps.onEventMove as (e: unknown) => void
       onEventMove({
         id: 'e2',
@@ -271,7 +275,9 @@ describe('CalendarClient', () => {
         start: '2026-05-29T11:00:00',
         end: '2026-05-29T12:00:00',
       })
-      await vi.waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+      // Guard path: no server call → immediate token bump, no router.refresh.
+      await vi.waitFor(() => expect(capturedProps.resyncToken).toBe(initialToken + 1))
+      expect(mockRefresh).not.toHaveBeenCalled()
       expect(mockRescheduleTask).not.toHaveBeenCalled()
     })
 
@@ -298,7 +304,7 @@ describe('CalendarClient', () => {
       expect(mockRefresh).toHaveBeenCalled()
     })
 
-    it('remounts calendar on completed-event move (guard path)', async () => {
+    it('bumps the resync token in place on completed-event move (guard path, no remount)', async () => {
       render(
         <CalendarClient
           weekStart="2026-05-25"
@@ -310,6 +316,7 @@ describe('CalendarClient', () => {
         />,
       )
       const initialMountCount = mountCount.value
+      const initialToken = capturedProps.resyncToken as number
       const onEventMove = capturedProps.onEventMove as (e: unknown) => void
       onEventMove({
         id: 'e2',
@@ -317,10 +324,12 @@ describe('CalendarClient', () => {
         start: '2026-05-29T11:00:00',
         end: '2026-05-29T12:00:00',
       })
-      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+      await vi.waitFor(() => expect(capturedProps.resyncToken).toBe(initialToken + 1))
+      // The library re-seeds via the token — never remounted.
+      expect(mountCount.value).toBe(initialMountCount)
     })
 
-    it('remounts calendar on reschedule error', async () => {
+    it('bumps the resync token in place on reschedule error (no remount)', async () => {
       mockRescheduleTask.mockResolvedValueOnce({ error: 'Not found' })
       render(
         <CalendarClient
@@ -333,6 +342,7 @@ describe('CalendarClient', () => {
         />,
       )
       const initialMountCount = mountCount.value
+      const initialToken = capturedProps.resyncToken as number
       const onEventMove = capturedProps.onEventMove as (e: unknown) => void
       onEventMove({
         id: 'e1',
@@ -340,7 +350,9 @@ describe('CalendarClient', () => {
         start: '2026-05-29T09:00:00',
         end: '2026-05-29T10:00:00',
       })
-      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+      await vi.waitFor(() => expect(capturedProps.resyncToken).toBe(initialToken + 1))
+      expect(mockRefresh).toHaveBeenCalled()
+      expect(mountCount.value).toBe(initialMountCount)
     })
 
     it('does NOT remount calendar on successful reschedule', async () => {
@@ -422,7 +434,7 @@ describe('CalendarClient', () => {
       await vi.waitFor(() => expect(mockToastError).toHaveBeenCalled())
     })
 
-    it('remounts calendar on cancel (restores optimistic delete)', async () => {
+    it('bumps the resync token in place on cancel (restores optimistic delete, no refresh)', async () => {
       render(
         <CalendarClient
           weekStart="2026-05-25"
@@ -434,11 +446,14 @@ describe('CalendarClient', () => {
         />,
       )
       const initialMountCount = mountCount.value
+      const initialToken = capturedProps.resyncToken as number
       const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
       onEventDelete({ id: 'e1', title: 'Morning run' })
       await screen.findByText(/delete "Morning run"/i)
       await userEvent.click(screen.getByRole('button', { name: /cancel/i }))
-      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+      await vi.waitFor(() => expect(capturedProps.resyncToken).toBe(initialToken + 1))
+      expect(mockRefresh).not.toHaveBeenCalled()
+      expect(mountCount.value).toBe(initialMountCount)
     })
 
     it('does NOT remount calendar on successful delete', async () => {
@@ -461,7 +476,7 @@ describe('CalendarClient', () => {
       expect(mountCount.value).toBe(initialMountCount)
     })
 
-    it('remounts calendar on delete error', async () => {
+    it('bumps the resync token in place on delete error (no remount)', async () => {
       mockDeleteTask.mockResolvedValueOnce({ error: 'Not found' })
       render(
         <CalendarClient
@@ -474,11 +489,14 @@ describe('CalendarClient', () => {
         />,
       )
       const initialMountCount = mountCount.value
+      const initialToken = capturedProps.resyncToken as number
       const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
       onEventDelete({ id: 'e1', title: 'Morning run' })
       await screen.findByText(/delete "Morning run"/i)
       await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
-      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+      await vi.waitFor(() => expect(capturedProps.resyncToken).toBe(initialToken + 1))
+      expect(mockRefresh).toHaveBeenCalled()
+      expect(mountCount.value).toBe(initialMountCount)
     })
   })
 
@@ -640,7 +658,7 @@ describe('CalendarClient', () => {
       expect(mockUpdateTaskSeries).not.toHaveBeenCalled()
     })
 
-    it('ignores edit of a completed event (no updateTask) but remounts to restore', async () => {
+    it('ignores edit of a completed event (no updateTask) but resyncs in place to restore', async () => {
       render(
         <CalendarClient
           weekStart="2026-05-25"
@@ -652,12 +670,16 @@ describe('CalendarClient', () => {
         />,
       )
       const initialMountCount = mountCount.value
+      const initialToken = capturedProps.resyncToken as number
       ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e2', title: 'Done event' })
-      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+      // Guard path: immediate token bump, no server call, no refresh.
+      await vi.waitFor(() => expect(capturedProps.resyncToken).toBe(initialToken + 1))
+      expect(mockRefresh).not.toHaveBeenCalled()
       expect(mockUpdateTask).not.toHaveBeenCalled()
+      expect(mountCount.value).toBe(initialMountCount)
     })
 
-    it('shows a toast and remounts when the edit fails to persist', async () => {
+    it('shows a toast and resyncs in place when the edit fails to persist', async () => {
       mockUpdateTask.mockResolvedValueOnce({ error: 'Not found' })
       render(
         <CalendarClient
@@ -670,6 +692,7 @@ describe('CalendarClient', () => {
         />,
       )
       const initialMountCount = mountCount.value
+      const initialToken = capturedProps.resyncToken as number
       ;(capturedProps.onEventEdit as (e: unknown) => void)({
         id: 'e4',
         title: 'Ship report',
@@ -677,7 +700,9 @@ describe('CalendarClient', () => {
         end: '2026-05-29T14:00:00.000Z',
       })
       await vi.waitFor(() => expect(mockToastError).toHaveBeenCalled())
-      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+      await vi.waitFor(() => expect(capturedProps.resyncToken).toBe(initialToken + 1))
+      expect(mockRefresh).toHaveBeenCalled()
+      expect(mountCount.value).toBe(initialMountCount)
     })
   })
 
@@ -865,7 +890,7 @@ describe('CalendarClient', () => {
       expect(mockRefresh).toHaveBeenCalled()
     })
 
-    it('toasts and remounts when a recurring completion fails', async () => {
+    it('toasts and resyncs in place when a recurring completion fails', async () => {
       mockRecordCompletion.mockResolvedValueOnce({ error: 'Unauthorized' })
       render(
         <CalendarClient
@@ -878,6 +903,7 @@ describe('CalendarClient', () => {
         />,
       )
       const initialMountCount = mountCount.value
+      const initialToken = capturedProps.resyncToken as number
       ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({
         id: 'e5',
         completed: true,
@@ -885,10 +911,11 @@ describe('CalendarClient', () => {
       await vi.waitFor(() =>
         expect(mockToastError).toHaveBeenCalledWith('Could not log completion'),
       )
-      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+      await vi.waitFor(() => expect(capturedProps.resyncToken).toBe(initialToken + 1))
+      expect(mountCount.value).toBe(initialMountCount)
     })
 
-    it('toasts and remounts when a non-recurring completion fails', async () => {
+    it('toasts and resyncs in place when a non-recurring completion fails', async () => {
       mockUpdateTask.mockResolvedValueOnce({ error: 'Not found' })
       render(
         <CalendarClient
@@ -901,12 +928,14 @@ describe('CalendarClient', () => {
         />,
       )
       const initialMountCount = mountCount.value
+      const initialToken = capturedProps.resyncToken as number
       ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({
         id: 'e1',
         completed: true,
       })
       await vi.waitFor(() => expect(mockToastError).toHaveBeenCalledWith('Could not mark complete'))
-      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+      await vi.waitFor(() => expect(capturedProps.resyncToken).toBe(initialToken + 1))
+      expect(mountCount.value).toBe(initialMountCount)
     })
 
     // Direction bug fix (wave 2.2 Preview Gate): un-completing must set status
@@ -957,7 +986,7 @@ describe('CalendarClient', () => {
       expect(mockRefresh).toHaveBeenCalled()
     })
 
-    it('toasts and remounts when marking incomplete fails to persist', async () => {
+    it('toasts and resyncs in place when marking incomplete fails to persist', async () => {
       mockUpdateTask.mockResolvedValueOnce({ error: 'Not found' })
       render(
         <CalendarClient
@@ -970,6 +999,7 @@ describe('CalendarClient', () => {
         />,
       )
       const initialMountCount = mountCount.value
+      const initialToken = capturedProps.resyncToken as number
       ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({
         id: 'e1',
         completed: false,
@@ -977,7 +1007,8 @@ describe('CalendarClient', () => {
       await vi.waitFor(() =>
         expect(mockToastError).toHaveBeenCalledWith('Could not mark incomplete'),
       )
-      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+      await vi.waitFor(() => expect(capturedProps.resyncToken).toBe(initialToken + 1))
+      expect(mountCount.value).toBe(initialMountCount)
     })
   })
 
@@ -1044,7 +1075,7 @@ describe('CalendarClient', () => {
       expect(mockUpdateTaskSeries).not.toHaveBeenCalled()
     })
 
-    it('toasts and remounts when the lock update fails to persist', async () => {
+    it('toasts and resyncs in place when the lock update fails to persist', async () => {
       mockUpdateTask.mockResolvedValueOnce({ error: 'Not found' })
       render(
         <CalendarClient
@@ -1057,11 +1088,13 @@ describe('CalendarClient', () => {
         />,
       )
       const initialMountCount = mountCount.value
+      const initialToken = capturedProps.resyncToken as number
       ;(capturedProps.onEventToggleLock as (e: unknown) => void)({ id: 'e1' })
       await vi.waitFor(() =>
         expect(mockToastError).toHaveBeenCalledWith('Could not update lock — calendar restored'),
       )
-      await vi.waitFor(() => expect(mountCount.value).toBe(initialMountCount + 1))
+      await vi.waitFor(() => expect(capturedProps.resyncToken).toBe(initialToken + 1))
+      expect(mountCount.value).toBe(initialMountCount)
     })
   })
 })

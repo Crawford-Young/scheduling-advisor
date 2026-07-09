@@ -162,30 +162,47 @@ export function CalendarClient({
   // entirely in the library's chip/drag-create popover (calendar uses library
   // UI exclusively). null = no dialog open.
   const [deleteTarget, setDeleteTarget] = useState<LibraryCalendarEvent | null>(null)
-  // Bumping resetKey remounts WeekCalendarView to resync it from the events prop:
-  // the library applies move/resize/edit/delete to internal state optimistically and
-  // never re-derives from props, so router.refresh() alone cannot restore the view.
-  // Side effect: remount resets in-calendar week navigation — acceptable on the rare
-  // cancel/error/guard paths that bump it. confirmedRef keeps the confirm-success
-  // close of the delete dialog from bumping (no flicker on successful delete).
-  const [resetKey, setResetKey] = useState(0)
+  // resyncToken (0.20.0) re-seeds WeekCalendarView from the events prop WITHOUT
+  // remounting: the library applies move/resize/edit/delete to internal state
+  // optimistically and never re-derives from props on its own, so router.refresh()
+  // alone cannot restore the view. Bumping the token's identity forces the re-seed
+  // while preserving in-calendar week navigation — the reason the old key-remount
+  // machinery was removed. confirmedRef keeps the confirm-success close of the
+  // delete dialog from firing a second (immediate) bump on top of the confirm
+  // path's refresh-then-settle bump.
+  const [resyncToken, setResyncToken] = useState(0)
   const router = useRouter()
   const [, startTransition] = useTransition()
-  // Separate transition for create-drag resync so bumping resetKey after
-  // a create does not interfere with the delete/reschedule transition.
-  const [isResyncing, startResyncTransition] = useTransition()
-  const resyncQueuedRef = React.useRef(false)
+  // Tracks the router.refresh transition so the token bump waits until the fresh
+  // events prop has actually arrived — bumping synchronously would re-seed from
+  // the STALE props (the trap the old create-path machinery solved for).
+  const [isRefreshing, startRefreshTransition] = useTransition()
+  const refreshQueuedRef = React.useRef(false)
   const confirmedRef = React.useRef(false)
 
-  // When the resync transition (router.refresh inside startResyncTransition)
-  // completes, isPending drops to false — bump resetKey so WeekCalendarView
-  // remounts from the freshly-arrived events prop.
+  // When the refresh transition settles, isRefreshing drops to false — bump the
+  // token so WeekCalendarView re-seeds from the freshly-arrived events prop.
   React.useEffect(() => {
-    if (!isResyncing && resyncQueuedRef.current) {
-      resyncQueuedRef.current = false
-      setResetKey((k) => k + 1)
+    if (!isRefreshing && refreshQueuedRef.current) {
+      refreshQueuedRef.current = false
+      setResyncToken((t) => t + 1)
     }
-  }, [isResyncing])
+  }, [isRefreshing])
+
+  // Every server-mutating path (success OR error) ends here: refresh, then bump
+  // the token once the new events prop has arrived.
+  function refreshAndResync(): void {
+    refreshQueuedRef.current = true
+    startRefreshTransition(() => {
+      router.refresh()
+    })
+  }
+
+  // Guard/cancel paths make no server call — props already hold truth, so re-seed
+  // the library immediately with no refresh round-trip.
+  function resyncNow(): void {
+    setResyncToken((t) => t + 1)
+  }
 
   function isCompleted(id: string): boolean {
     return events.find((e) => e.id === id)?.status === 'completed'
@@ -193,13 +210,12 @@ export function CalendarClient({
 
   // The library chip popover owns the edit form; onEventEdit delivers the
   // FINISHED edit to persist (already applied optimistically to the library's
-  // internal state). Mirror handleTimeChange's error handling: toast + resetKey
-  // bump on error, router.refresh always. Completed events cannot be edited —
-  // restore by remounting, like the completed move guard.
+  // internal state). Mirror handleTimeChange's error handling: toast on error,
+  // refreshAndResync on every persist path. Completed events cannot be edited —
+  // restore immediately via resyncNow, like the completed move guard.
   function handleEventEdit(libEvent: LibraryCalendarEvent): void {
     if (isCompleted(libEvent.id)) {
-      setResetKey((k) => k + 1)
-      router.refresh()
+      resyncNow()
       return
     }
     startTransition(async () => {
@@ -261,9 +277,8 @@ export function CalendarClient({
             })
       if ('error' in result) {
         toast.error('Could not save event — calendar restored')
-        setResetKey((k) => k + 1)
       }
-      router.refresh()
+      refreshAndResync()
     })
   }
 
@@ -274,24 +289,22 @@ export function CalendarClient({
       const result = await deleteTask({ id: target.id })
       if ('error' in result) {
         toast.error('Could not delete event')
-        setResetKey((k) => k + 1)
       }
-      router.refresh()
+      refreshAndResync()
     })
   }
 
   function handleDeleteOpenChange(open: boolean): void {
     if (!open) {
       setDeleteTarget(null)
-      if (!confirmedRef.current) setResetKey((k) => k + 1)
+      if (!confirmedRef.current) resyncNow()
       confirmedRef.current = false
     }
   }
 
   function handleTimeChange(libEvent: LibraryCalendarEvent): void {
     if (isCompleted(libEvent.id)) {
-      setResetKey((k) => k + 1)
-      router.refresh()
+      resyncNow()
       return
     }
     startTransition(async () => {
@@ -302,9 +315,8 @@ export function CalendarClient({
       })
       if ('error' in result) {
         toast.error('Could not reschedule — calendar restored')
-        setResetKey((k) => k + 1)
       }
-      router.refresh()
+      refreshAndResync()
     })
   }
 
@@ -317,7 +329,7 @@ export function CalendarClient({
   // updateTask({status:'pending'}) for BOTH kinds — there is no undo-completion
   // primitive (recordCompletion only marks a task done) and streak values are
   // derived on read from row statuses, so un-completing recomputes them. On
-  // failure, remount to restore the chip's optimistic state (calendar pattern).
+  // failure, resync to restore the chip's optimistic state (calendar pattern).
   function handleEventToggleComplete(libEvent: LibraryCalendarEvent): void {
     const isRecurring = events.find((e) => e.id === libEvent.id)?.recurrence != null
     const isCompleting = libEvent.completed === true
@@ -335,9 +347,8 @@ export function CalendarClient({
               : 'Could not mark complete'
             : 'Could not mark incomplete',
         )
-        setResetKey((k) => k + 1)
       }
-      router.refresh()
+      refreshAndResync()
     })
   }
 
@@ -346,22 +357,20 @@ export function CalendarClient({
   // locked state (server truth — not the library's optimistic event, whose lock
   // handling is not relied on here) and persist it via updateTask with only
   // { id, locked }. Lock stays out of the complete-toggle and series-edit
-  // routing predicates. On failure, remount to restore (calendar pattern).
+  // routing predicates. On failure, resync to restore (calendar pattern).
   function handleToggleLock(libEvent: LibraryCalendarEvent): void {
     const currentlyLocked = events.find((e) => e.id === libEvent.id)?.locked ?? false
     startTransition(async () => {
       const result = await updateTask({ id: libEvent.id, locked: !currentlyLocked })
       if ('error' in result) {
         toast.error('Could not update lock — calendar restored')
-        setResetKey((k) => k + 1)
       }
-      router.refresh()
+      refreshAndResync()
     })
   }
 
   function handleEventCreate(payload: Omit<LibraryCalendarEvent, 'id'>): void {
-    resyncQueuedRef.current = true
-    startResyncTransition(async () => {
+    startTransition(async () => {
       const result = await createTask({
         type: 'task',
         title: payload.title,
@@ -380,7 +389,7 @@ export function CalendarClient({
         recurrenceCount: payload.recurrenceCount,
       })
       if ('error' in result) toast.error('Could not create event — calendar restored')
-      router.refresh()
+      refreshAndResync()
     })
   }
 
@@ -392,9 +401,14 @@ export function CalendarClient({
 
       <div data-testid="week-calendar">
         <WeekCalendarView
-          key={`${weekStart}-${resetKey}`}
           defaultWeekStart={weekStart}
+          resyncToken={resyncToken}
           events={events.map(toLibraryEvent)}
+          onWeekChange={(week) => {
+            const params = new URLSearchParams(window.location.search)
+            params.set('week', week)
+            router.replace(`?${params.toString()}`, { scroll: false })
+          }}
           onEventMove={handleTimeChange}
           onEventResize={handleTimeChange}
           onEventDelete={(e) => setDeleteTarget(e)}

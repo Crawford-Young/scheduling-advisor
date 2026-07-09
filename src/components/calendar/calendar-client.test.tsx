@@ -7,6 +7,7 @@ import { CalendarClient } from './calendar-client'
 // ── shared mock functions ──────────────────────────────────────────────────
 
 const refreshMock = vi.fn()
+const replaceMock = vi.fn()
 const createTaskMock = vi.fn()
 const deleteTaskMock = vi.fn()
 const rescheduleTaskMock = vi.fn()
@@ -28,7 +29,7 @@ const onOpenChangeSpy = vi.fn<(open: boolean) => void>()
 // ── module mocks ───────────────────────────────────────────────────────────
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ refresh: refreshMock }),
+  useRouter: () => ({ refresh: refreshMock, replace: replaceMock }),
 }))
 
 vi.mock('@/server/actions/tasks', () => ({
@@ -92,6 +93,8 @@ interface WeekCalendarViewProps {
   readonly onEventCreate?: (e: MockCreatePayload) => void
   readonly onEventToggleComplete?: (e: MockLibEvent) => void
   readonly onEventToggleLock?: (e: MockLibEvent) => void
+  readonly onWeekChange?: (weekStart: string) => void
+  readonly resyncToken?: string | number
   readonly hourStart?: number
   readonly hourCount?: number
   readonly sleepEnabled?: boolean
@@ -199,6 +202,10 @@ vi.mock('@/lib/ui', () => ({
       // seeds undefined; the locked fixture seeds true.
       data-evt0-locked={String(props.events?.[0]?.locked ?? '')}
       data-evt-locked={String(props.events?.find((e) => e.id === 'evt-locked')?.locked ?? '')}
+      // A2 (2.5): resyncToken re-seeds the library from the events prop WITHOUT
+      // remounting. Every server-mutating success path bumps it after the
+      // router.refresh transition settles; guard/cancel paths bump it immediately.
+      data-resync-token={String(props.resyncToken ?? '')}
     >
       <button type="button" onClick={() => props.onEventDelete?.(STUB_LIB_EVENT)}>
         trigger-delete
@@ -393,6 +400,10 @@ vi.mock('@/lib/ui', () => ({
       >
         trigger-toggle-unlock
       </button>
+      {/* A2 (2.5): library week navigation emits the new week's Sunday-ISO. */}
+      <button type="button" onClick={() => props.onWeekChange?.('2026-06-07')}>
+        trigger-week-change
+      </button>
     </div>
   ),
   SleepToggle: ({
@@ -556,20 +567,24 @@ const EVENTS = [
   },
 ]
 
-// ── characterization tests ─────────────────────────────────────────────────
+// ── resync machinery ────────────────────────────────────────────────────────
 //
-// These tests pin the resync behavior of CalendarClient:
-//   • WeekCalendarView never re-derives from props; CalendarClient remounts it
-//     by bumping `resetKey` (key={weekStart-resetKey}).
-//   • Failed delete  → toast.error + resetKey bump (remount).
-//   • Successful delete → confirmedRef guards against an extra resetKey bump.
-//   • Cancel dialog  → handleDeleteOpenChange(false) bumps resetKey because
-//                       confirmedRef.current is still false.
-//   • Move/resize failure → toast.error + resetKey bump (remount).
+// These tests pin the resync behavior of CalendarClient (Wave 2.5):
+//   • WeekCalendarView never remounts — `resyncToken` re-seeds it from the
+//     events prop in place (stable DOM node; NO `key` bump).
+//   • Server-mutating SUCCESS paths (move/resize/edit/complete/lock/delete-
+//     confirm/create) → router.refresh, then a token bump once the refresh
+//     transition settles (the new events prop has arrived).
+//   • Error paths → toast.error + the same refresh-then-settle-bump.
+//   • Guard paths (completed events) + delete-cancel → an IMMEDIATE token bump
+//     and NO router.refresh (props already hold server truth).
+//   • Successful delete → confirmedRef keeps handleDeleteOpenChange from
+//     firing a SECOND (immediate) bump on top of the confirm path's bump.
 
-describe('CalendarClient — resync machinery (characterization)', () => {
+describe('CalendarClient — resync machinery', () => {
   beforeEach(() => {
     refreshMock.mockClear()
+    replaceMock.mockClear()
     deleteTaskMock.mockClear()
     deleteTaskMock.mockResolvedValue({})
     rescheduleTaskMock.mockClear()
@@ -579,7 +594,7 @@ describe('CalendarClient — resync machinery (characterization)', () => {
     capturedOnOpenChange = undefined
   })
 
-  it('failed delete bumps resetKey (WeekCalendarView remounts) and calls toast.error', async () => {
+  it('failed delete bumps the resync token in place (no remount) and calls toast.error', async () => {
     deleteTaskMock.mockResolvedValueOnce({ error: 'Not found' })
     const user = userEvent.setup()
     render(
@@ -594,18 +609,20 @@ describe('CalendarClient — resync machinery (characterization)', () => {
     )
 
     const beforeNode = screen.getByTestId('week-calendar-view')
+    expect(beforeNode.dataset.resyncToken).toBe('0')
 
     await user.click(screen.getByRole('button', { name: 'trigger-delete' }))
     await user.click(screen.getByRole('button', { name: 'Delete' }))
 
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not delete event'))
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
 
-    const afterNode = screen.getByTestId('week-calendar-view')
-    expect(afterNode).not.toBe(beforeNode)
+    // Same DOM node throughout — the library re-seeds via the token, never remounts.
+    expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
     expect(refreshMock).toHaveBeenCalled()
   })
 
-  it('successful delete does NOT bump resetKey (confirmedRef guards against remount)', async () => {
+  it('successful delete bumps the token exactly once (confirmedRef guards a second bump)', async () => {
     const user = userEvent.setup()
     render(
       <CalendarClient
@@ -625,13 +642,16 @@ describe('CalendarClient — resync machinery (characterization)', () => {
 
     await waitFor(() => expect(deleteTaskMock).toHaveBeenCalledWith({ id: 'evt-1' }))
     await waitFor(() => expect(refreshMock).toHaveBeenCalled())
+    // The confirm path refreshes then bumps once; the guarded onOpenChange(false)
+    // must NOT add a second immediate bump, so the token settles at exactly 1.
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
 
     expect(onOpenChangeSpy).toHaveBeenCalledWith(false)
     expect(toastErrorMock).not.toHaveBeenCalled()
     expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
   })
 
-  it('cancelling the delete dialog bumps resetKey (WeekCalendarView remounts)', async () => {
+  it('cancelling the delete dialog bumps the token immediately with NO refresh', async () => {
     const user = userEvent.setup()
     render(
       <CalendarClient
@@ -649,14 +669,15 @@ describe('CalendarClient — resync machinery (characterization)', () => {
     await user.click(screen.getByRole('button', { name: 'trigger-delete' }))
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
-    await waitFor(() => {
-      expect(screen.getByTestId('week-calendar-view')).not.toBe(beforeNode)
-    })
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
+    // No server call → props already hold truth → immediate resync, never a refresh.
+    expect(refreshMock).not.toHaveBeenCalled()
     expect(deleteTaskMock).not.toHaveBeenCalled()
     expect(toastErrorMock).not.toHaveBeenCalled()
+    expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
   })
 
-  it('reschedule failure (move) bumps resetKey (WeekCalendarView remounts) and calls toast.error', async () => {
+  it('reschedule failure (move) bumps the token in place (no remount) and calls toast.error', async () => {
     rescheduleTaskMock.mockResolvedValueOnce({ error: 'Unauthorized' })
     const user = userEvent.setup()
     render(
@@ -677,10 +698,33 @@ describe('CalendarClient — resync machinery (characterization)', () => {
     await waitFor(() =>
       expect(toastErrorMock).toHaveBeenCalledWith('Could not reschedule — calendar restored'),
     )
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
 
-    const afterNode = screen.getByTestId('week-calendar-view')
-    expect(afterNode).not.toBe(beforeNode)
+    expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
     expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('a successful move refreshes then bumps the token in place (no remount)', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    const beforeNode = screen.getByTestId('week-calendar-view')
+
+    await user.click(screen.getByRole('button', { name: 'trigger-move' }))
+
+    await waitFor(() => expect(refreshMock).toHaveBeenCalled())
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
+    expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
+    expect(toastErrorMock).not.toHaveBeenCalled()
   })
 
   it('resize wires to the same reschedule path', async () => {
@@ -697,6 +741,80 @@ describe('CalendarClient — resync machinery (characterization)', () => {
     )
     await user.click(screen.getByRole('button', { name: 'trigger-resize' }))
     await waitFor(() => expect(rescheduleTaskMock).toHaveBeenCalled())
+  })
+})
+
+// ── week URL sync (A2, Wave 2.5) ─────────────────────────────────────────────
+//
+// Library week navigation emits the new week's Sunday-ISO via onWeekChange. The
+// app mirrors it into `?week=` with router.replace({scroll:false}), PRESERVING
+// every other query param, so a reload re-seeds the same week. This is a plain
+// URL write — no server call, no refresh, no token bump.
+
+describe('CalendarClient — week URL sync (A2)', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    replaceMock.mockClear()
+    window.history.replaceState({}, '', '/calendar')
+  })
+
+  it('onWeekChange writes ?week= via router.replace with scroll:false', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-week-change' }))
+
+    expect(replaceMock).toHaveBeenCalledWith('?week=2026-06-07', { scroll: false })
+    // A URL write only — never a data refetch or a resync token bump.
+    expect(refreshMock).not.toHaveBeenCalled()
+    expect(screen.getByTestId('week-calendar-view').dataset.resyncToken).toBe('0')
+  })
+
+  it('preserves other query params when writing the week', async () => {
+    window.history.replaceState({}, '', '/calendar?q=gym&view=grid')
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-week-change' }))
+
+    expect(replaceMock).toHaveBeenCalledWith('?q=gym&view=grid&week=2026-06-07', { scroll: false })
+  })
+
+  it('overwrites an existing week param rather than appending a duplicate', async () => {
+    window.history.replaceState({}, '', '/calendar?week=2026-01-06')
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-week-change' }))
+
+    expect(replaceMock).toHaveBeenCalledWith('?week=2026-06-07', { scroll: false })
   })
 })
 
@@ -776,7 +894,7 @@ describe('CalendarClient — event edit persistence', () => {
     )
   })
 
-  it('refuses to edit a completed event (remounts to restore, no updateTask)', async () => {
+  it('refuses to edit a completed event (immediate token resync, no updateTask, no refresh)', async () => {
     const user = userEvent.setup()
     render(
       <CalendarClient
@@ -792,14 +910,14 @@ describe('CalendarClient — event edit persistence', () => {
     const beforeNode = screen.getByTestId('week-calendar-view')
     await user.click(screen.getByRole('button', { name: 'trigger-edit-completed' }))
 
-    await waitFor(() => {
-      expect(screen.getByTestId('week-calendar-view')).not.toBe(beforeNode)
-    })
+    // Guard path: props already hold truth → immediate token bump, no server call.
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
+    expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
     expect(updateTaskMock).not.toHaveBeenCalled()
-    expect(refreshMock).toHaveBeenCalled()
+    expect(refreshMock).not.toHaveBeenCalled()
   })
 
-  it('surfaces a toast and remounts when the edit fails to persist', async () => {
+  it('surfaces a toast and resyncs in place when the edit fails to persist', async () => {
     updateTaskMock.mockResolvedValueOnce({ error: 'Not found' })
     const user = userEvent.setup()
     render(
@@ -819,7 +937,8 @@ describe('CalendarClient — event edit persistence', () => {
     await waitFor(() =>
       expect(toastErrorMock).toHaveBeenCalledWith('Could not save event — calendar restored'),
     )
-    expect(screen.getByTestId('week-calendar-view')).not.toBe(beforeNode)
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
+    expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
     expect(refreshMock).toHaveBeenCalled()
   })
 
@@ -934,7 +1053,7 @@ describe('CalendarClient — series-shaped edit routing (S8)', () => {
     expect(updateTaskSeriesMock).not.toHaveBeenCalled()
   })
 
-  it('surfaces a toast and remounts when a series edit fails to persist', async () => {
+  it('surfaces a toast and resyncs in place when a series edit fails to persist', async () => {
     updateTaskSeriesMock.mockResolvedValueOnce({ error: 'Not found' })
     const user = userEvent.setup()
     render(
@@ -954,7 +1073,8 @@ describe('CalendarClient — series-shaped edit routing (S8)', () => {
     await waitFor(() =>
       expect(toastErrorMock).toHaveBeenCalledWith('Could not save event — calendar restored'),
     )
-    expect(screen.getByTestId('week-calendar-view')).not.toBe(beforeNode)
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
+    expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
     expect(refreshMock).toHaveBeenCalled()
   })
 })
@@ -1506,7 +1626,7 @@ describe('CalendarClient — completion contract mapping (0.17.0)', () => {
 //
 // onEventToggleComplete mirrors useActivityActions.handleComplete: recurring
 // tasks log an occurrence via recordCompletion, non-recurring tasks/goals flip
-// status via updateTask. On failure it toasts and remounts to restore.
+// status via updateTask. On failure it toasts and resyncs in place to restore.
 
 describe('CalendarClient — complete-toggle persistence (0.17.0)', () => {
   beforeEach(() => {
@@ -1560,7 +1680,7 @@ describe('CalendarClient — complete-toggle persistence (0.17.0)', () => {
     expect(refreshMock).toHaveBeenCalled()
   })
 
-  it('toasts and remounts when a recurring completion fails to persist', async () => {
+  it('toasts and resyncs in place when a recurring completion fails to persist', async () => {
     recordCompletionMock.mockResolvedValueOnce({ error: 'Unauthorized' })
     const user = userEvent.setup()
     render(
@@ -1578,11 +1698,12 @@ describe('CalendarClient — complete-toggle persistence (0.17.0)', () => {
     await user.click(screen.getByRole('button', { name: 'trigger-toggle-recurring' }))
 
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not log completion'))
-    expect(screen.getByTestId('week-calendar-view')).not.toBe(beforeNode)
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
+    expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
     expect(refreshMock).toHaveBeenCalled()
   })
 
-  it('toasts and remounts when a non-recurring completion fails to persist', async () => {
+  it('toasts and resyncs in place when a non-recurring completion fails to persist', async () => {
     updateTaskMock.mockResolvedValueOnce({ error: 'Not found' })
     const user = userEvent.setup()
     render(
@@ -1600,7 +1721,8 @@ describe('CalendarClient — complete-toggle persistence (0.17.0)', () => {
     await user.click(screen.getByRole('button', { name: 'trigger-toggle-nonrecurring' }))
 
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not mark complete'))
-    expect(screen.getByTestId('week-calendar-view')).not.toBe(beforeNode)
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
+    expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
     expect(refreshMock).toHaveBeenCalled()
   })
 
@@ -1653,7 +1775,7 @@ describe('CalendarClient — complete-toggle persistence (0.17.0)', () => {
     expect(refreshMock).toHaveBeenCalled()
   })
 
-  it('toasts and remounts when marking incomplete fails to persist', async () => {
+  it('toasts and resyncs in place when marking incomplete fails to persist', async () => {
     updateTaskMock.mockResolvedValueOnce({ error: 'Not found' })
     const user = userEvent.setup()
     render(
@@ -1671,7 +1793,8 @@ describe('CalendarClient — complete-toggle persistence (0.17.0)', () => {
     await user.click(screen.getByRole('button', { name: 'trigger-toggle-recurring-uncomplete' }))
 
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not mark incomplete'))
-    expect(screen.getByTestId('week-calendar-view')).not.toBe(beforeNode)
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
+    expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
     expect(refreshMock).toHaveBeenCalled()
   })
 })
@@ -1754,7 +1877,7 @@ describe('CalendarClient — lock toggle (A2.4)', () => {
     expect(updateTaskSeriesMock).not.toHaveBeenCalled()
   })
 
-  it('toasts and remounts when the lock update fails to persist', async () => {
+  it('toasts and resyncs in place when the lock update fails to persist', async () => {
     updateTaskMock.mockResolvedValueOnce({ error: 'Not found' })
     const user = userEvent.setup()
     render(
@@ -1774,7 +1897,8 @@ describe('CalendarClient — lock toggle (A2.4)', () => {
     await waitFor(() =>
       expect(toastErrorMock).toHaveBeenCalledWith('Could not update lock — calendar restored'),
     )
-    expect(screen.getByTestId('week-calendar-view')).not.toBe(beforeNode)
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
+    expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
     expect(refreshMock).toHaveBeenCalled()
   })
 })
