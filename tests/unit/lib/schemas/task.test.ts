@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { createTaskSchema, updateTaskSchema, deleteTaskSchema } from '@/lib/schemas/task'
+import {
+  createTaskSchema,
+  updateTaskSchema,
+  deleteTaskSchema,
+  updateSeriesSchema,
+} from '@/lib/schemas/task'
 
 describe('createTaskSchema', () => {
   it('accepts valid task', () => {
@@ -82,5 +87,81 @@ describe('deleteTaskSchema', () => {
   it('accepts valid uuid', () => {
     const result = deleteTaskSchema.safeParse({ id: '550e8400-e29b-41d4-a716-446655440000' })
     expect(result.success).toBe(true)
+  })
+})
+
+describe('updateSeriesSchema', () => {
+  const VALID_ID = '550e8400-e29b-41d4-a716-446655440000'
+
+  it('accepts a full valid payload', () => {
+    const result = updateSeriesSchema.safeParse({
+      taskId: VALID_ID,
+      title: 'Run',
+      color: 'blue',
+      location: 'Gym',
+      description: 'leg day',
+      allDay: false,
+      startAt: '2026-05-18T09:00:00.000Z',
+      endAt: '2026-05-18T10:00:00.000Z',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Tue'],
+      recurrenceCount: 2,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a minimal payload with only taskId', () => {
+    expect(updateSeriesSchema.safeParse({ taskId: VALID_ID }).success).toBe(true)
+  })
+
+  it('rejects a non-uuid taskId', () => {
+    expect(updateSeriesSchema.safeParse({ taskId: 'not-a-uuid' }).success).toBe(false)
+  })
+
+  it('rejects an oversize title (>200 chars)', () => {
+    const result = updateSeriesSchema.safeParse({ taskId: VALID_ID, title: 'x'.repeat(201) })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects an empty title', () => {
+    expect(updateSeriesSchema.safeParse({ taskId: VALID_ID, title: '' }).success).toBe(false)
+  })
+
+  it('rejects an invalid recurrence enum value', () => {
+    const result = updateSeriesSchema.safeParse({ taskId: VALID_ID, recurrence: 'yearly' })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects recurrenceCount below 1', () => {
+    expect(updateSeriesSchema.safeParse({ taskId: VALID_ID, recurrenceCount: 0 }).success).toBe(
+      false,
+    )
+  })
+
+  it('rejects recurrenceCount above 52', () => {
+    expect(updateSeriesSchema.safeParse({ taskId: VALID_ID, recurrenceCount: 53 }).success).toBe(
+      false,
+    )
+  })
+
+  it('accepts null for the nullable fields', () => {
+    const result = updateSeriesSchema.safeParse({
+      taskId: VALID_ID,
+      color: null,
+      location: null,
+      description: null,
+      endAt: null,
+      recurrence: null,
+      recurrenceCount: null,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects unknown recurrenceDays tokens', () => {
+    const result = updateSeriesSchema.safeParse({
+      taskId: VALID_ID,
+      recurrenceDays: ['Monday'],
+    })
+    expect(result.success).toBe(false)
   })
 })

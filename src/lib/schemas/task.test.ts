@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createTaskSchema, updateTaskSchema } from '@/lib/schemas/task'
+import { createTaskSchema, updateTaskSchema, updateSeriesSchema } from '@/lib/schemas/task'
 
 describe('createTaskSchema', () => {
   it('accepts rich fields', () => {
@@ -37,5 +37,29 @@ describe('updateTaskSchema', () => {
   it('rejects a non-boolean locked flag', () => {
     const r = updateTaskSchema.safeParse({ id: crypto.randomUUID(), locked: 'yes' })
     expect(r.success).toBe(false)
+  })
+})
+
+describe('updateSeriesSchema', () => {
+  it('accepts a rich shared-field payload', () => {
+    const r = updateSeriesSchema.safeParse({
+      taskId: crypto.randomUUID(),
+      title: 'x',
+      color: null,
+      allDay: true,
+      recurrence: 'daily',
+      recurrenceCount: 5,
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('rejects a non-uuid taskId', () => {
+    expect(updateSeriesSchema.safeParse({ taskId: 'nope' }).success).toBe(false)
+  })
+
+  it('rejects an out-of-range recurrenceCount', () => {
+    expect(
+      updateSeriesSchema.safeParse({ taskId: crypto.randomUUID(), recurrenceCount: 53 }).success,
+    ).toBe(false)
   })
 })
