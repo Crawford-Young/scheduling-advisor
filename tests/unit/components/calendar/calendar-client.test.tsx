@@ -256,7 +256,7 @@ describe('CalendarClient', () => {
       await vi.waitFor(() => expect(mockRescheduleTask).toHaveBeenCalled())
     })
 
-    it('ignores move of completed event and resyncs in place to snap back (no refresh)', async () => {
+    it('moves a completed event via rescheduleTask like any other event (no completed guard)', async () => {
       render(
         <CalendarClient
           weekStart="2026-05-25"
@@ -267,7 +267,6 @@ describe('CalendarClient', () => {
           use24h={false}
         />,
       )
-      const initialToken = capturedProps.resyncToken as number
       const onEventMove = capturedProps.onEventMove as (e: unknown) => void
       onEventMove({
         id: 'e2',
@@ -275,10 +274,14 @@ describe('CalendarClient', () => {
         start: '2026-05-29T11:00:00',
         end: '2026-05-29T12:00:00',
       })
-      // Guard path: no server call → immediate token bump, no router.refresh.
-      await vi.waitFor(() => expect(capturedProps.resyncToken).toBe(initialToken + 1))
-      expect(mockRefresh).not.toHaveBeenCalled()
-      expect(mockRescheduleTask).not.toHaveBeenCalled()
+      await vi.waitFor(() => {
+        expect(mockRescheduleTask).toHaveBeenCalledWith({
+          taskId: 'e2',
+          newStartAt: new Date('2026-05-29T11:00:00').toISOString(),
+          newEndAt: new Date('2026-05-29T12:00:00').toISOString(),
+        })
+      })
+      expect(mockRefresh).toHaveBeenCalled()
     })
 
     it('shows toast on reschedule error', async () => {
@@ -304,7 +307,7 @@ describe('CalendarClient', () => {
       expect(mockRefresh).toHaveBeenCalled()
     })
 
-    it('bumps the resync token in place on completed-event move (guard path, no remount)', async () => {
+    it('bumps the resync token in place after a completed-event move settles (no remount)', async () => {
       render(
         <CalendarClient
           weekStart="2026-05-25"
@@ -324,6 +327,7 @@ describe('CalendarClient', () => {
         start: '2026-05-29T11:00:00',
         end: '2026-05-29T12:00:00',
       })
+      await vi.waitFor(() => expect(mockRefresh).toHaveBeenCalled())
       await vi.waitFor(() => expect(capturedProps.resyncToken).toBe(initialToken + 1))
       // The library re-seeds via the token — never remounted.
       expect(mountCount.value).toBe(initialMountCount)
@@ -658,7 +662,7 @@ describe('CalendarClient', () => {
       expect(mockUpdateTaskSeries).not.toHaveBeenCalled()
     })
 
-    it('ignores edit of a completed event (no updateTask) but resyncs in place to restore', async () => {
+    it('persists an edit of a completed event via updateTask like any other event (no completed guard)', async () => {
       render(
         <CalendarClient
           weekStart="2026-05-25"
@@ -669,14 +673,23 @@ describe('CalendarClient', () => {
           use24h={false}
         />,
       )
-      const initialMountCount = mountCount.value
-      const initialToken = capturedProps.resyncToken as number
-      ;(capturedProps.onEventEdit as (e: unknown) => void)({ id: 'e2', title: 'Done event' })
-      // Guard path: immediate token bump, no server call, no refresh.
-      await vi.waitFor(() => expect(capturedProps.resyncToken).toBe(initialToken + 1))
-      expect(mockRefresh).not.toHaveBeenCalled()
-      expect(mockUpdateTask).not.toHaveBeenCalled()
-      expect(mountCount.value).toBe(initialMountCount)
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({
+        id: 'e2',
+        title: 'Done event v2',
+        start: '2026-05-29T09:00:00.000Z',
+        end: '2026-05-29T10:30:00.000Z',
+      })
+      await vi.waitFor(() =>
+        expect(mockUpdateTask).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: 'e2',
+            title: 'Done event v2',
+            startAt: '2026-05-29T09:00:00.000Z',
+            endAt: '2026-05-29T10:30:00.000Z',
+          }),
+        ),
+      )
+      expect(mockRefresh).toHaveBeenCalled()
     })
 
     it('shows a toast and resyncs in place when the edit fails to persist', async () => {

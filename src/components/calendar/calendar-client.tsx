@@ -204,20 +204,11 @@ export function CalendarClient({
     setResyncToken((t) => t + 1)
   }
 
-  function isCompleted(id: string): boolean {
-    return events.find((e) => e.id === id)?.status === 'completed'
-  }
-
   // The library chip popover owns the edit form; onEventEdit delivers the
   // FINISHED edit to persist (already applied optimistically to the library's
   // internal state). Mirror handleTimeChange's error handling: toast on error,
-  // refreshAndResync on every persist path. Completed events cannot be edited —
-  // restore immediately via resyncNow, like the completed move guard.
+  // refreshAndResync on every persist path.
   function handleEventEdit(libEvent: LibraryCalendarEvent): void {
-    if (isCompleted(libEvent.id)) {
-      resyncNow()
-      return
-    }
     startTransition(async () => {
       // Series-shaped vs row-shaped routing. The chip popover emits both the
       // recurrence PATTERN (frequency + a weekday set) and row-shaped fields
@@ -303,10 +294,6 @@ export function CalendarClient({
   }
 
   function handleTimeChange(libEvent: LibraryCalendarEvent): void {
-    if (isCompleted(libEvent.id)) {
-      resyncNow()
-      return
-    }
     startTransition(async () => {
       const result = await rescheduleTask({
         taskId: libEvent.id,
