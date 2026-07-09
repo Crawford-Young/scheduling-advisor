@@ -23,12 +23,38 @@ function getCurrentWeekStart(): string {
   return monday.toISOString().slice(0, 10)
 }
 
-export default async function CalendarPage(): Promise<React.JSX.Element> {
+const WEEK_PARAM_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Validates the `?week=` URL param. The library snaps any date to its
+ * containing week's Sunday internally, so a valid date string is passed
+ * through unchanged; anything missing or malformed falls back to today's
+ * week.
+ */
+function resolveWeekStart(week: string | undefined): string {
+  if (
+    week !== undefined &&
+    WEEK_PARAM_RE.test(week) &&
+    !Number.isNaN(new Date(`${week}T00:00:00`).getTime())
+  ) {
+    return week
+  }
+  return getCurrentWeekStart()
+}
+
+interface CalendarPageProps {
+  readonly searchParams: Promise<{ week?: string }>
+}
+
+export default async function CalendarPage({
+  searchParams,
+}: CalendarPageProps): Promise<React.JSX.Element> {
   const session = await auth()
   if (!session?.user?.id) redirect('/login')
 
   const userId = session.user.id
-  const weekStart = getCurrentWeekStart()
+  const { week } = await searchParams
+  const weekStart = resolveWeekStart(week)
 
   const prefs = await getCalendarPrefs()
   // Prefs are minutes-since-midnight; CalendarClient still consumes whole hours.
