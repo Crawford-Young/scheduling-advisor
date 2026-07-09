@@ -1195,4 +1195,70 @@ describe('updateTaskSeries', () => {
     })
     expect(result).toMatchObject({ error: 'Insert failed' })
   })
+
+  // ── Anchor-week fan-out (bug fix): a future anchor must generate around its
+  // OWN week, not the week of `now`. `now` is Monday 2026-05-18; 2026-06-15 is
+  // also a Monday, 4 weeks later, so it exercises a materially different week.
+  const FUTURE_MONDAY = new Date('2026-06-15T09:00:00.000Z')
+  const FUTURE_MONDAY_END = new Date('2026-06-15T10:00:00.000Z')
+
+  it('materialize: a future-week anchor fans weekday rows out around the ANCHOR week, not the current week', async () => {
+    primeSelect([
+      anchorRow({
+        recurrenceGroupId: null,
+        startAt: FUTURE_MONDAY,
+        endAt: FUTURE_MONDAY_END,
+      }),
+    ])
+    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', title: 'Run', type: 'task' }])
+    mockReturningInsert.mockResolvedValueOnce([{ id: 'new-1', title: 'Run', type: 'task' }])
+
+    await updateTaskSeries({
+      taskId: 'task-1',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Wed', 'Fri'],
+    })
+
+    const rows = insertedRowsArg()
+    // Anchor's own Monday slot is skipped (it IS the anchor); Wed + Fri of the
+    // SAME (future) week are the only generated rows — nothing in the current
+    // week of `now` (2026-05-18).
+    expect(rows.map((r) => r.startAt.toISOString())).toEqual([
+      '2026-06-17T09:00:00.000Z', // anchor-week Wed
+      '2026-06-19T09:00:00.000Z', // anchor-week Fri
+    ])
+    const currentWeekEnd = new Date('2026-05-25T00:00:00.000Z').getTime()
+    expect(rows.every((r) => r.startAt.getTime() > currentWeekEnd)).toBe(true)
+  })
+
+  it('regenerate: an existing group whose anchor sits in a future week fans weekday rows out around the ANCHOR week, not the current week', async () => {
+    primeSelect(
+      [
+        anchorRow({
+          recurrenceGroupId: 'grp-1',
+          startAt: FUTURE_MONDAY,
+          endAt: FUTURE_MONDAY_END,
+        }),
+      ],
+      [],
+    )
+    mockReturningInsert.mockResolvedValueOnce([{ id: 'new-1', title: 'Run', type: 'task' }])
+
+    await updateTaskSeries({
+      taskId: 'task-1',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Wed', 'Fri'],
+    })
+
+    const rows = insertedRowsArg()
+    // Regenerate has no anchor-slot skip (the old row is deleted, not preserved),
+    // so all three anchor-week days land — none of them in the current week.
+    expect(rows.map((r) => r.startAt.toISOString())).toEqual([
+      '2026-06-15T09:00:00.000Z', // anchor-week Mon
+      '2026-06-17T09:00:00.000Z', // anchor-week Wed
+      '2026-06-19T09:00:00.000Z', // anchor-week Fri
+    ])
+    const currentWeekEnd = new Date('2026-05-25T00:00:00.000Z').getTime()
+    expect(rows.every((r) => r.startAt.getTime() > currentWeekEnd)).toBe(true)
+  })
 })
