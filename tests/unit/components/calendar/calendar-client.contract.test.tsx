@@ -20,6 +20,7 @@ import { CalendarClient } from '@/components/calendar/calendar-client'
 // Only the server actions and the router are mocked.
 
 const updateTaskMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e1' } }))
+const updateSeriesMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e1' } }))
 const createTaskMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e1' } }))
 const deleteTaskMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { success: true } }))
 const rescheduleTaskMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: {} }))
@@ -39,6 +40,9 @@ vi.mock('@/server/actions/tasks', () => ({
   updateTask: updateTaskMock,
   deleteTask: deleteTaskMock,
 }))
+vi.mock('@/server/actions/series-mutations', () => ({
+  updateSeries: updateSeriesMock,
+}))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: refreshMock, replace: replaceMock }),
 }))
@@ -55,6 +59,10 @@ const events = [
     activityType: 'solo',
     visibility: 'only_me',
     recurrence: 'weekly',
+    // Ungrouped (wave 2.6 S4): an already-recurring row not yet materialized
+    // into a group — editing it (even via the real popover form, unchanged)
+    // is a becomingSeries edit and routes through updateSeries.
+    recurrenceGroupId: null,
   },
 ]
 
@@ -62,6 +70,8 @@ describe('CalendarClient — library contract (real WeekCalendarView)', () => {
   beforeEach(() => {
     updateTaskMock.mockClear()
     updateTaskMock.mockResolvedValue({ data: { id: 'e1' } })
+    updateSeriesMock.mockClear()
+    updateSeriesMock.mockResolvedValue({ data: { id: 'e1' } })
     createTaskMock.mockClear()
     deleteTaskMock.mockClear()
     rescheduleTaskMock.mockClear()
@@ -92,7 +102,11 @@ describe('CalendarClient — library contract (real WeekCalendarView)', () => {
     expect(screen.getByRole('button', { name: /^Delete$/i })).toBeInTheDocument()
   })
 
-  it('editing via the chip popover Save persists the finished edit through updateTask', async () => {
+  // e1 is ungrouped but already stores recurrence 'weekly' — re-asserting a
+  // series frequency through the REAL popover form (even unchanged) is a
+  // becomingSeries edit (wave 2.6 S4) and routes through updateSeries, not
+  // updateTask.
+  it('editing via the chip popover Save persists the finished edit through updateSeries (becomingSeries)', async () => {
     const user = userEvent.setup()
     render(
       <CalendarClient
@@ -118,13 +132,14 @@ describe('CalendarClient — library contract (real WeekCalendarView)', () => {
 
     await user.click(screen.getByRole('button', { name: /^Save$/i }))
 
-    await waitFor(() => expect(updateTaskMock).toHaveBeenCalledTimes(1))
-    const arg = updateTaskMock.mock.calls[0]![0] as Record<string, unknown>
+    await waitFor(() => expect(updateSeriesMock).toHaveBeenCalledTimes(1))
+    const arg = updateSeriesMock.mock.calls[0]![0] as Record<string, unknown>
     // The FINISHED edit is persisted — not the original event, not via a dialog.
-    expect(arg.id).toBe('e1')
+    expect(arg.taskId).toBe('e1')
     expect(arg.title).toBe('Evening run')
     // recurrence round-trips out of the popover's Repeat select (seeded 'weekly').
     expect(arg.recurrence).toBe('weekly')
+    expect(updateTaskMock).not.toHaveBeenCalled()
     expect(refreshMock).toHaveBeenCalled()
   })
 

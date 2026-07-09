@@ -19,7 +19,9 @@ import {
   type DayOfWeek,
 } from '@/lib/ui'
 import { rescheduleTask, recordCompletion } from '@/server/actions/consistency'
-import { createTask, deleteTask, updateTask, updateTaskSeries } from '@/server/actions/tasks'
+import { createTask, deleteTask, updateTask } from '@/server/actions/tasks'
+import { updateSeries } from '@/server/actions/series-mutations'
+import { DAY_TOKENS } from '@/lib/series-generation'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -49,6 +51,15 @@ interface AppCalendarEvent {
    * state; the lock toggle flips this and persists it via updateTask.
    */
   readonly locked?: boolean
+  /**
+   * Recurrence-group id (plain uuid column `recurrence_group_id`, wave 2.6 S4).
+   * Non-null means the row belongs to a fanned recurrence group — grouped
+   * edits/drags route through updateSeries (the single writer for every row
+   * of the group) instead of the per-occurrence updateTask/rescheduleTask
+   * paths. The server, not the client, decides field-vs-pattern for a
+   * grouped edit.
+   */
+  readonly recurrenceGroupId: string | null
 }
 
 // ─── Recurrence mapping (app ↔ library) ───────────────────────────────────────
@@ -70,23 +81,13 @@ function toLibraryRecurrenceFrequency(
     : undefined
 }
 
-// The subset of frequencies updateTaskSeries can regenerate (its schema is a
+// The subset of frequencies updateSeries can regenerate (its schema is a
 // daily|weekly|monthly enum — 'yearly' never fans out, so it is not a series).
 const SERIES_FREQUENCIES = ['daily', 'weekly', 'monthly'] as const
 type SeriesFrequency = (typeof SERIES_FREQUENCIES)[number]
 
 function isSeriesFrequency(value: string | null | undefined): value is SeriesFrequency {
   return value != null && (SERIES_FREQUENCIES as readonly string[]).includes(value)
-}
-
-// Order-insensitive equality for two weekday-token sets. The library seeds the
-// chip picker from `seriesDays` and re-emits the selection under `recurrenceDays`
-// on EVERY save, so routing must compare the emitted set against the persisted
-// set by membership (not presence) — a reordered but unchanged set is NOT an edit.
-function sameDaySet(a: readonly DayOfWeek[], b: readonly DayOfWeek[]): boolean {
-  if (a.length !== b.length) return false
-  const setB = new Set(b)
-  return a.every((day) => setB.has(day))
 }
 
 // ─── Color mapping ────────────────────────────────────────────────────────────
@@ -208,51 +209,35 @@ export function CalendarClient({
   // FINISHED edit to persist (already applied optimistically to the library's
   // internal state). Mirror handleTimeChange's error handling: toast on error,
   // refreshAndResync on every persist path.
+  // Series semantics v2 (wave 2.6 S4): a GROUPED row (recurrenceGroupId set)
+  // always routes through updateSeries — the SERVER decides field-vs-pattern
+  // (see series-mutations.ts), not the client. There is no more client-side
+  // sameDaySet/daysChanged/recurrenceChanged/wasRecurring predicate. An
+  // UNGROUPED row edited with a series frequency (becomingSeries) also routes
+  // through updateSeries, which materializes a fresh group (or re-joins one).
+  // Goals never materialize (the becomingSeries guard excludes type 'goal';
+  // a grouped goal is not a real state). A non-series frequency (e.g.
+  // 'yearly') maps recurrence to null in the updateSeries payload.
   function handleEventEdit(libEvent: LibraryCalendarEvent): void {
     startTransition(async () => {
-      // Series-shaped vs row-shaped routing. The chip popover emits both the
-      // recurrence PATTERN (frequency + a weekday set) and row-shaped fields
-      // (time/title/color) in one save. A change to the pattern of an existing
-      // series regenerates the group's future pending rows via updateTaskSeries;
-      // a plain time/field change keeps the single-row updateTask path.
-      //
-      // Detection (S9): the picker is now SEEDED (toLibraryEvent seeds seriesDays
-      // from the persisted set), so handleSave re-emits recurrenceDays on every
-      // save. Presence is therefore no signal — route on order-insensitive SET
-      // EQUALITY against the row's persisted recurrenceDays: only a genuinely
-      // changed set counts as a pattern edit. A differing frequency also counts.
-      // Both are only meaningful on a row that is already recurring (else there
-      // is no group for updateTaskSeries to anchor).
-      //
-      // Mixed edit (a pattern change AND a row-shaped change in the same save):
-      // the series change owns the save — updateTaskSeries regenerates from the
-      // anchor row's persisted time/title, and the co-changed row-shaped fields
-      // are NOT separately written here. This is the interim state until S9 lands
-      // the library's seriesDays edit-seed and a unified series-edit form.
-      //
-      // S10: setting a series frequency on a NON-recurring event ALSO routes to
-      // updateTaskSeries, which materializes the series (updates the anchor in
-      // place and fans out future occurrences). Clearing recurrence on an
-      // already-recurring event (freq drops to a non-series value) stays on
-      // updateTask — that direction is unchanged. Goals are never a series:
-      // pre-S10 the wasRecurring gate implicitly excluded them (goals are never
-      // recurring), so the added !wasRecurring materialize arm needs its own
-      // explicit exclusion here (mirrors use-activity-actions' `type !== 'goal'`).
       const original = events.find((e) => e.id === libEvent.id)
       const freq = libEvent.recurrenceFrequency
       const emittedDays = libEvent.recurrenceDays ?? []
-      const persistedDays = original?.recurrenceDays ?? []
-      const daysChanged = !sameDaySet(emittedDays, persistedDays)
-      const recurrenceChanged = (freq ?? null) !== (original?.recurrence ?? null)
-      const wasRecurring = original?.recurrence != null
+      const grouped = original?.recurrenceGroupId != null
+      const becomingSeries = original?.type !== 'goal' && isSeriesFrequency(freq) && !grouped
 
       const result =
-        original?.type !== 'goal' &&
-        isSeriesFrequency(freq) &&
-        (!wasRecurring || daysChanged || recurrenceChanged)
-          ? await updateTaskSeries({
+        grouped || becomingSeries
+          ? await updateSeries({
               taskId: libEvent.id,
-              recurrence: freq,
+              title: libEvent.title,
+              startAt: new Date(libEvent.start).toISOString(),
+              endAt: new Date(libEvent.end).toISOString(),
+              color: libEvent.color ?? null,
+              location: libEvent.location ?? null,
+              description: libEvent.description ?? null,
+              allDay: libEvent.allDay ?? false,
+              recurrence: isSeriesFrequency(freq) ? freq : null,
               recurrenceDays: emittedDays.length > 0 ? emittedDays : undefined,
             })
           : await updateTask({
@@ -293,13 +278,48 @@ export function CalendarClient({
     }
   }
 
+  // Ungrouped rows keep the single-row rescheduleTask path. Grouped rows route
+  // through updateSeries: a same-weekday drag is a time-of-day-only rewrite;
+  // a cross-weekday drag on a row with a persisted weekday set also rewrites
+  // that set (old weekday out, new weekday in); a cross-weekday drag with NO
+  // day set (daily/monthly interval series) has no set to rewrite, so it also
+  // stays time-of-day-only (a day-set rewrite has no meaning without a set).
   function handleTimeChange(libEvent: LibraryCalendarEvent): void {
     startTransition(async () => {
-      const result = await rescheduleTask({
-        taskId: libEvent.id,
-        newStartAt: new Date(libEvent.start).toISOString(),
-        newEndAt: new Date(libEvent.end).toISOString(),
-      })
+      const original = events.find((e) => e.id === libEvent.id)
+      const startAt = new Date(libEvent.start).toISOString()
+      const endAt = new Date(libEvent.end).toISOString()
+
+      let result:
+        | Awaited<ReturnType<typeof rescheduleTask>>
+        | Awaited<ReturnType<typeof updateSeries>>
+      if (original === undefined || original.recurrenceGroupId === null) {
+        result = await rescheduleTask({
+          taskId: libEvent.id,
+          newStartAt: startAt,
+          newEndAt: endAt,
+        })
+      } else {
+        const oldDow = new Date(original.start).getUTCDay()
+        const newDow = new Date(libEvent.start).getUTCDay()
+        const persistedDays = original.recurrenceDays ?? []
+        result =
+          oldDow !== newDow && persistedDays.length > 0
+            ? await updateSeries({
+                taskId: libEvent.id,
+                startAt,
+                endAt,
+                recurrence: 'weekly',
+                recurrenceDays: Array.from(
+                  new Set([
+                    ...persistedDays.filter((token) => token !== DAY_TOKENS[oldDow]),
+                    DAY_TOKENS[newDow],
+                  ]),
+                ),
+              })
+            : await updateSeries({ taskId: libEvent.id, startAt, endAt })
+      }
+
       if ('error' in result) {
         toast.error('Could not reschedule — calendar restored')
       }
