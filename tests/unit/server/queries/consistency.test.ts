@@ -17,11 +17,11 @@ const mockSelect = vi.hoisted(() => vi.fn().mockReturnValue({ from: mockFrom }))
 vi.mock('@/db', () => ({ db: { select: mockSelect } }))
 vi.mock('@/db/schema', () => ({ tasks: {} }))
 vi.mock('@/lib/streaks', () => ({
-  computeGroupStreak: vi.fn().mockReturnValue({ current: 0, best: 0 }),
+  computePerOccurrenceStreaks: vi.fn().mockReturnValue({}),
 }))
 
 import { getWeeklyConsistency, getTaskStreaks } from '@/server/queries/consistency'
-import { computeGroupStreak } from '@/lib/streaks'
+import { computePerOccurrenceStreaks } from '@/lib/streaks'
 
 describe('getWeeklyConsistency', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -65,43 +65,44 @@ describe('getTaskStreaks', () => {
     expect(await getTaskStreaks('user-1', ['a'])).toEqual({})
   })
 
-  it('reports the same streak for sibling rows sharing a group', async () => {
-    vi.mocked(computeGroupStreak).mockReturnValue({ current: 3, best: 5 })
+  it('maps sibling rows in one group to DIFFERENT per-occurrence values', async () => {
+    vi.mocked(computePerOccurrenceStreaks).mockReturnValue({ a: 1, b: 2 })
     mockRows
       .mockResolvedValueOnce([
         { id: 'a', groupId: 'g1' },
         { id: 'b', groupId: 'g1' },
       ])
       .mockResolvedValueOnce([
-        { groupId: 'g1', startAt: new Date('2026-07-06T10:00:00Z'), status: 'completed' },
+        { id: 'a', groupId: 'g1', startAt: new Date('2026-07-06T10:00:00Z'), status: 'completed' },
+        { id: 'b', groupId: 'g1', startAt: new Date('2026-07-08T10:00:00Z'), status: 'pending' },
       ])
-    expect(await getTaskStreaks('user-1', ['a', 'b'])).toEqual({ a: 3, b: 3 })
+    expect(await getTaskStreaks('user-1', ['a', 'b'])).toEqual({ a: 1, b: 2 })
   })
 
   it('skips null-group occurrence rows and defaults groups with no occurrences to 0', async () => {
-    vi.mocked(computeGroupStreak).mockReturnValue({ current: 3, best: 5 })
+    vi.mocked(computePerOccurrenceStreaks).mockReturnValue({ a: 3 })
     mockRows
       .mockResolvedValueOnce([
         { id: 'a', groupId: 'g1' },
         { id: 'd', groupId: 'g2' },
       ])
       .mockResolvedValueOnce([
-        { groupId: 'g1', startAt: new Date('2026-07-06T10:00:00Z'), status: 'completed' },
-        { groupId: null, startAt: new Date('2026-07-06T10:00:00Z'), status: 'completed' },
+        { id: 'a', groupId: 'g1', startAt: new Date('2026-07-06T10:00:00Z'), status: 'completed' },
+        { id: 'z', groupId: null, startAt: new Date('2026-07-06T10:00:00Z'), status: 'completed' },
       ])
-    // g1 resolves via computeGroupStreak; g2 has no occurrences → falls back to 0.
+    // g1 resolves via computePerOccurrenceStreaks; g2 has no occurrences → falls back to 0.
     expect(await getTaskStreaks('user-1', ['a', 'd'])).toEqual({ a: 3, d: 0 })
   })
 
   it('omits null-group rows from the map', async () => {
-    vi.mocked(computeGroupStreak).mockReturnValue({ current: 2, best: 4 })
+    vi.mocked(computePerOccurrenceStreaks).mockReturnValue({ a: 2 })
     mockRows
       .mockResolvedValueOnce([
         { id: 'a', groupId: 'g1' },
         { id: 'c', groupId: null },
       ])
       .mockResolvedValueOnce([
-        { groupId: 'g1', startAt: new Date('2026-07-06T10:00:00Z'), status: 'completed' },
+        { id: 'a', groupId: 'g1', startAt: new Date('2026-07-06T10:00:00Z'), status: 'completed' },
       ])
     const result = await getTaskStreaks('user-1', ['a', 'c'])
     expect(result).toEqual({ a: 2 })

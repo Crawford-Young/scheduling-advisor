@@ -6,7 +6,7 @@ import { recordCompletionSchema, updateTaskDateSchema } from '@/lib/schemas/cons
 import { eq, and } from 'drizzle-orm'
 import { ratelimit } from '@/lib/redis'
 import { revalidatePath } from 'next/cache'
-import { computeGroupStreak } from '@/lib/streaks'
+import { computeGroupStreak, computePerOccurrenceStreaks } from '@/lib/streaks'
 
 interface CompletionResult {
   readonly currentStreak: number
@@ -41,13 +41,15 @@ export async function recordCompletion(input: unknown): Promise<ActionResult<Com
     .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
     .limit(1)
 
-  let streak = { current: 0, best: 0 }
+  let currentStreak = 0
+  let bestStreak = 0
   if (row?.groupId) {
     const occurrences = await db
-      .select({ startAt: tasks.startAt, status: tasks.status })
+      .select({ id: tasks.id, startAt: tasks.startAt, status: tasks.status })
       .from(tasks)
       .where(and(eq(tasks.userId, userId), eq(tasks.recurrenceGroupId, row.groupId)))
-    streak = computeGroupStreak(occurrences, now)
+    currentStreak = computePerOccurrenceStreaks(occurrences, now)[taskId] ?? 0
+    bestStreak = computeGroupStreak(occurrences, now).best
   }
 
   revalidatePath('/calendar')
@@ -57,7 +59,7 @@ export async function recordCompletion(input: unknown): Promise<ActionResult<Com
   const isPerfectWeek =
     consistency.plannedCount > 0 && consistency.completedCount === consistency.plannedCount
 
-  return { data: { currentStreak: streak.current, bestStreak: streak.best, isPerfectWeek } }
+  return { data: { currentStreak, bestStreak, isPerfectWeek } }
 }
 
 export async function rescheduleTask(input: unknown): Promise<ActionResult<{ id: string }>> {

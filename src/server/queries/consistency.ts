@@ -1,7 +1,7 @@
 import { db } from '@/db'
 import { tasks } from '@/db/schema'
 import { eq, and, gte, lte, inArray } from 'drizzle-orm'
-import { computeGroupStreak } from '@/lib/streaks'
+import { computePerOccurrenceStreaks } from '@/lib/streaks'
 
 interface WeeklyConsistency {
   readonly plannedCount: number
@@ -57,22 +57,27 @@ export async function getTaskStreaks(
   ]
   if (groupIds.length === 0) return {}
   const occurrences = await db
-    .select({ groupId: tasks.recurrenceGroupId, startAt: tasks.startAt, status: tasks.status })
+    .select({
+      id: tasks.id,
+      groupId: tasks.recurrenceGroupId,
+      startAt: tasks.startAt,
+      status: tasks.status,
+    })
     .from(tasks)
     .where(and(eq(tasks.userId, userId), inArray(tasks.recurrenceGroupId, groupIds)))
-  const byGroup = new Map<string, { startAt: Date | null; status: string }[]>()
+  const byGroup = new Map<string, { id: string; startAt: Date | null; status: string }[]>()
   for (const o of occurrences) {
     if (o.groupId === null) continue
     const list = byGroup.get(o.groupId) ?? []
-    list.push({ startAt: o.startAt, status: o.status })
+    list.push({ id: o.id, startAt: o.startAt, status: o.status })
     byGroup.set(o.groupId, list)
   }
   const now = new Date()
-  const currentByGroup = new Map<string, number>()
-  for (const [gid, occ] of byGroup) currentByGroup.set(gid, computeGroupStreak(occ, now).current)
+  const streaksByGroup = new Map<string, Record<string, number>>()
+  for (const [gid, occ] of byGroup) streaksByGroup.set(gid, computePerOccurrenceStreaks(occ, now))
   return Object.fromEntries(
     requested
       .filter((r): r is { id: string; groupId: string } => r.groupId !== null)
-      .map((r) => [r.id, currentByGroup.get(r.groupId) ?? 0]),
+      .map((r) => [r.id, streaksByGroup.get(r.groupId)?.[r.id] ?? 0]),
   )
 }

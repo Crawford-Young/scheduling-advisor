@@ -50,10 +50,11 @@ vi.mock('@/server/queries/consistency', () => ({
 }))
 vi.mock('@/lib/streaks', () => ({
   computeGroupStreak: vi.fn().mockReturnValue({ current: 0, best: 0 }),
+  computePerOccurrenceStreaks: vi.fn().mockReturnValue({}),
 }))
 
 import { recordCompletion, rescheduleTask } from '@/server/actions/consistency'
-import { computeGroupStreak } from '@/lib/streaks'
+import { computeGroupStreak, computePerOccurrenceStreaks } from '@/lib/streaks'
 
 const UUID = '550e8400-e29b-41d4-a716-446655440000'
 
@@ -87,14 +88,26 @@ describe('recordCompletion', () => {
     expect(mockInsert).not.toHaveBeenCalled()
   })
 
-  it('returns a group-derived streak for a recurring task', async () => {
+  it("sets currentStreak from the completed row's own per-occurrence value; bestStreak stays group-level", async () => {
     mockGroupRows.mockResolvedValueOnce([{ groupId: 'g1' }])
-    const occ = [{ startAt: new Date('2026-07-06T10:00:00Z'), status: 'completed' }]
+    const occ = [{ id: UUID, startAt: new Date('2026-07-06T10:00:00Z'), status: 'completed' }]
     mockOccurrences.mockResolvedValue(occ)
-    vi.mocked(computeGroupStreak).mockReturnValueOnce({ current: 4, best: 6 })
+    vi.mocked(computePerOccurrenceStreaks).mockReturnValueOnce({ [UUID]: 4 })
+    vi.mocked(computeGroupStreak).mockReturnValueOnce({ current: 999, best: 6 })
     const result = await recordCompletion({ taskId: UUID })
     expect(result).toMatchObject({ data: { currentStreak: 4, bestStreak: 6 } })
+    expect(computePerOccurrenceStreaks).toHaveBeenCalledWith(occ, expect.any(Date))
     expect(computeGroupStreak).toHaveBeenCalledWith(occ, expect.any(Date))
+  })
+
+  it('falls back to 0 when the completed row is absent from the per-occurrence map', async () => {
+    mockGroupRows.mockResolvedValueOnce([{ groupId: 'g1' }])
+    const occ = [{ id: UUID, startAt: new Date('2026-07-06T10:00:00Z'), status: 'completed' }]
+    mockOccurrences.mockResolvedValue(occ)
+    vi.mocked(computePerOccurrenceStreaks).mockReturnValueOnce({})
+    vi.mocked(computeGroupStreak).mockReturnValueOnce({ current: 0, best: 6 })
+    const result = await recordCompletion({ taskId: UUID })
+    expect(result).toMatchObject({ data: { currentStreak: 0, bestStreak: 6 } })
   })
 
   it('returns a zero streak for a non-recurring (null group) task without computing', async () => {
@@ -102,6 +115,7 @@ describe('recordCompletion', () => {
     const result = await recordCompletion({ taskId: UUID })
     expect(result).toMatchObject({ data: { currentStreak: 0, bestStreak: 0 } })
     expect(computeGroupStreak).not.toHaveBeenCalled()
+    expect(computePerOccurrenceStreaks).not.toHaveBeenCalled()
   })
 
   it('sets isPerfectWeek true when all planned tasks are completed', async () => {

@@ -52,3 +52,55 @@ export function computeGroupStreak(occurrences: readonly Occurrence[], now: Date
 
   return { current, best }
 }
+
+export interface IdOccurrence {
+  readonly id: string
+  readonly startAt: Date | null
+  readonly status: string
+}
+
+interface DatedIdOccurrence {
+  readonly id: string
+  readonly startAt: Date
+  readonly status: string
+}
+
+/**
+ * Progressive per-occurrence streak over one recurrence group. Occurrences
+ * with a null startAt are excluded from the chronological walk and reported
+ * as 0. Walking ascending by startAt: a completed occurrence extends the
+ * run; a non-completed occurrence dated before today breaks it back to 0; a
+ * non-completed occurrence dated today or later extends the run as a
+ * projection ("complete me for N+1").
+ */
+export function computePerOccurrenceStreaks(
+  occurrences: readonly IdOccurrence[],
+  now: Date,
+): Record<string, number> {
+  const result: Record<string, number> = {}
+  const dated: DatedIdOccurrence[] = []
+  for (const o of occurrences) {
+    if (o.startAt === null) {
+      result[o.id] = 0
+    } else {
+      dated.push({ id: o.id, startAt: o.startAt, status: o.status })
+    }
+  }
+  dated.sort((a, b) => a.startAt.getTime() - b.startAt.getTime())
+
+  const today = utcDayIndex(now)
+  let run = 0
+  for (const o of dated) {
+    if (o.status === 'completed') {
+      run += 1
+      result[o.id] = run
+    } else if (utcDayIndex(o.startAt) < today) {
+      result[o.id] = 0
+      run = 0
+    } else {
+      run += 1
+      result[o.id] = run
+    }
+  }
+  return result
+}
