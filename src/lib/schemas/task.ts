@@ -58,8 +58,28 @@ export const updateTaskSeriesSchema = z.object({
   recurrenceCount: z.number().int().min(1).max(52).optional(),
 })
 
+// Single grouped-row edit contract (wave 2.6): every field here except `taskId`
+// is a SHARED field propagated across the whole recurrence group. `status` and
+// `locked` are per-occurrence and never appear — updateSeries never writes them.
+// startAt/endAt carry the time-of-day template (calendar dates are preserved
+// per-row). recurrence null clears the pattern; a frequency triggers regeneration.
+export const updateSeriesSchema = z.object({
+  taskId: z.string().uuid(),
+  title: z.string().min(1).max(200).optional(),
+  color: z.string().max(32).nullable().optional(),
+  location: z.string().max(200).nullable().optional(),
+  description: z.string().max(2000).nullable().optional(),
+  allDay: z.boolean().optional(),
+  startAt: z.string().datetime().optional(),
+  endAt: z.string().datetime().nullable().optional(),
+  recurrence: z.enum(['daily', 'weekly', 'monthly']).nullable().optional(),
+  recurrenceDays: dayTokenArraySchema.optional(),
+  recurrenceCount: z.number().int().min(1).max(52).nullable().optional(),
+})
+
 export type DayOfWeek = z.infer<typeof dayOfWeekSchema>
 export type CreateTask = z.infer<typeof createTaskSchema>
 export type UpdateTask = z.infer<typeof updateTaskSchema>
 export type DeleteTask = z.infer<typeof deleteTaskSchema>
 export type UpdateTaskSeries = z.infer<typeof updateTaskSeriesSchema>
+export type UpdateSeries = z.infer<typeof updateSeriesSchema>
