@@ -104,7 +104,7 @@ interface WeekCalendarViewProps {
   readonly use24h?: boolean
 }
 
-// id matches EVENTS[0].id so isCompleted() returns false.
+// id matches EVENTS[0].id (a pending, non-completed row).
 const STUB_LIB_EVENT: MockLibEvent = {
   id: 'evt-1',
   title: 'Test event',
@@ -126,7 +126,8 @@ const STUB_EDIT_PAYLOAD: MockLibEvent = {
   recurrenceFrequency: 'weekly',
 }
 
-// Completed event (id matches the completed EVENTS fixture) — edits are refused.
+// Completed event (id matches the completed EVENTS fixture) — edits are allowed
+// like any other event; only a manual lock gates move/resize.
 const STUB_COMPLETED_LIB_EVENT: MockLibEvent = {
   id: 'evt-done',
   title: 'Done event',
@@ -576,8 +577,10 @@ const EVENTS = [
 //     confirm/create) → router.refresh, then a token bump once the refresh
 //     transition settles (the new events prop has arrived).
 //   • Error paths → toast.error + the same refresh-then-settle-bump.
-//   • Guard paths (completed events) + delete-cancel → an IMMEDIATE token bump
-//     and NO router.refresh (props already hold server truth).
+//   • Guard/cancel paths that make no server call (delete-cancel) → an
+//     IMMEDIATE token bump and NO router.refresh (props already hold server
+//     truth). Completed events are NOT a guard path — only a manual lock
+//     gates move/resize, and edits are always allowed.
 //   • Successful delete → confirmedRef keeps handleDeleteOpenChange from
 //     firing a SECOND (immediate) bump on top of the confirm path's bump.
 
@@ -894,7 +897,7 @@ describe('CalendarClient — event edit persistence', () => {
     )
   })
 
-  it('refuses to edit a completed event (immediate token resync, no updateTask, no refresh)', async () => {
+  it('persists an edit of a completed event via updateTask like any other event (no completed guard)', async () => {
     const user = userEvent.setup()
     render(
       <CalendarClient
@@ -907,14 +910,14 @@ describe('CalendarClient — event edit persistence', () => {
       />,
     )
 
-    const beforeNode = screen.getByTestId('week-calendar-view')
     await user.click(screen.getByRole('button', { name: 'trigger-edit-completed' }))
 
-    // Guard path: props already hold truth → immediate token bump, no server call.
-    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
-    expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
-    expect(updateTaskMock).not.toHaveBeenCalled()
-    expect(refreshMock).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(updateTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'evt-done', title: 'Done event' }),
+      ),
+    )
+    expect(refreshMock).toHaveBeenCalled()
   })
 
   it('surfaces a toast and resyncs in place when the edit fails to persist', async () => {
