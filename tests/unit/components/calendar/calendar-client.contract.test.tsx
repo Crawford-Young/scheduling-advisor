@@ -12,6 +12,10 @@ import { CalendarClient } from '@/components/calendar/calendar-client'
 //   • the popover's own Edit form → Save calls onEventEdit with the FINISHED
 //     edit, which the app persists via updateTask (bug #1: editing through the
 //     calendar previously handed off to a second app dialog and never persisted).
+//   • the library's own week-nav arrows fire onWeekChange, which the app
+//     mirrors into the URL via router.replace (0.20.0 week/resync contract).
+//   • bumping resyncToken re-seeds the library's internal state from the
+//     current events prop IN PLACE (no remount) after a mutation settles.
 //
 // Only the server actions and the router are mocked.
 
@@ -20,6 +24,7 @@ const createTaskMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 
 const deleteTaskMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { success: true } }))
 const rescheduleTaskMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: {} }))
 const refreshMock = vi.hoisted(() => vi.fn())
+const replaceMock = vi.hoisted(() => vi.fn())
 const recordCompletionMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: {} }))
 
 // Full-day per-day windows (fractional hours) so the 9am event stays in view.
@@ -34,7 +39,9 @@ vi.mock('@/server/actions/tasks', () => ({
   updateTask: updateTaskMock,
   deleteTask: deleteTaskMock,
 }))
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: refreshMock }) }))
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: refreshMock, replace: replaceMock }),
+}))
 
 const events = [
   {
@@ -59,6 +66,7 @@ describe('CalendarClient — library contract (real WeekCalendarView)', () => {
     deleteTaskMock.mockClear()
     rescheduleTaskMock.mockClear()
     refreshMock.mockClear()
+    replaceMock.mockClear()
   })
 
   it('clicking a chip opens the library popover with event details', async () => {
@@ -163,5 +171,69 @@ describe('CalendarClient — library contract (real WeekCalendarView)', () => {
     await user.click(within(confirm).getByRole('button', { name: /^Delete$/i }))
 
     await waitFor(() => expect(deleteTaskMock).toHaveBeenCalledWith({ id: 'e1' }))
+  })
+
+  it('navigating to the next week via the library nav arrow mirrors onWeekChange into the URL', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart="2026-01-04"
+        events={events}
+        wakeHour={0}
+        sleepHour={24}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    // The real dist's own next-week arrow — proof onWeekChange fires from
+    // actual navigation, not a mocked stand-in.
+    await user.click(screen.getByRole('button', { name: 'Next week' }))
+
+    // 2026-01-04 is a Sunday; the next week's Sunday is 2026-01-11.
+    await waitFor(() =>
+      expect(replaceMock).toHaveBeenCalledWith('?week=2026-01-11', { scroll: false }),
+    )
+  })
+
+  it('resyncToken re-seeds the calendar from the current events prop after a mutation settles, without resetting the displayed week', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart="2026-01-04"
+        events={events}
+        wakeHour={0}
+        sleepHour={24}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    // The displayed week before any mutation — proves it survives the resync.
+    expect(screen.getByRole('button', { name: 'Sun 4' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Morning run/i }))
+    await user.click(await screen.findByRole('button', { name: /^Delete$/i }))
+
+    // The real dist applies the chip delete optimistically (localEvents) the
+    // instant the popover's Delete is clicked — before the app's confirm step.
+    expect(screen.queryByRole('button', { name: /Morning run/i })).not.toBeInTheDocument()
+
+    const confirm = await screen.findByRole('alertdialog')
+    await user.click(within(confirm).getByRole('button', { name: /^Delete$/i }))
+
+    await waitFor(() => expect(deleteTaskMock).toHaveBeenCalledWith({ id: 'e1' }))
+    await waitFor(() => expect(refreshMock).toHaveBeenCalled())
+
+    // resyncToken bumps once the refresh transition settles, forcing the real
+    // dist to re-seed its internal state from the CURRENT events prop. In this
+    // test the events prop is static (deleteTask is mocked, not a real
+    // mutation), so the chip — optimistically removed above — reappears. That
+    // is proof the real dist accepts resyncToken without crashing and re-derives
+    // from props rather than staying stuck on the stale optimistic delete.
+    expect(await screen.findByRole('button', { name: /Morning run/i })).toBeInTheDocument()
+
+    // No remount artifact: the displayed week header is untouched by the resync.
+    expect(screen.getByRole('button', { name: 'Sun 4' })).toBeInTheDocument()
   })
 })
