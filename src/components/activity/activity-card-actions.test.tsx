@@ -5,6 +5,7 @@ import { ActivityCardActions } from './activity-card-actions'
 
 const refreshMock = vi.fn()
 const updateTaskMock = vi.fn().mockResolvedValue({ data: {} })
+const updateSeriesMock = vi.fn().mockResolvedValue({ data: {} })
 const deleteTaskMock = vi.fn().mockResolvedValue({ data: { success: true } })
 const recordCompletionMock = vi.fn().mockResolvedValue({ data: {} })
 const toastErrorMock = vi.fn()
@@ -16,6 +17,10 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/server/actions/tasks', () => ({
   updateTask: (input: unknown) => updateTaskMock(input),
   deleteTask: (input: unknown) => deleteTaskMock(input),
+}))
+
+vi.mock('@/server/actions/series-mutations', () => ({
+  updateSeries: (input: unknown) => updateSeriesMock(input),
 }))
 
 vi.mock('@/server/actions/consistency', () => ({
@@ -140,6 +145,7 @@ describe('ActivityCardActions', () => {
   beforeEach(() => {
     refreshMock.mockClear()
     updateTaskMock.mockClear()
+    updateSeriesMock.mockClear()
     deleteTaskMock.mockClear()
     recordCompletionMock.mockClear()
     toastErrorMock.mockClear()
@@ -370,6 +376,32 @@ describe('ActivityCardActions', () => {
     await user.click(screen.getByRole('button', { name: 'submit-edit' }))
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not save activity'))
     expect(refreshMock).not.toHaveBeenCalled()
+  })
+
+  // S5: recurrenceGroupId threads straight through ActivityCardActionsProps into
+  // useActivityActions — a grouped row's edit routes through updateSeries even
+  // when the submitted values carry no series frequency.
+  it('routes a grouped task edit through updateSeries (not updateTask)', async () => {
+    const user = userEvent.setup()
+    render(
+      <ActivityCardActions
+        taskId="task-grouped"
+        type="task"
+        title="Weekly review"
+        status="pending"
+        startAt="2026-07-01T09:00:00.000Z"
+        recurrenceGroupId="group-5"
+        social={{ activityType: 'solo', visibility: 'only_me' }}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /edit task/i }))
+    await user.click(screen.getByRole('button', { name: 'submit-edit' }))
+    await waitFor(() =>
+      expect(updateSeriesMock).toHaveBeenCalledWith(
+        expect.objectContaining({ taskId: 'task-grouped' }),
+      ),
+    )
+    expect(updateTaskMock).not.toHaveBeenCalled()
   })
 
   it('shows toast.error when delete fails (no refresh)', async () => {
