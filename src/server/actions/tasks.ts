@@ -40,6 +40,22 @@ function weeksFromCount(recurrenceCount: number | undefined): number {
     : SINGLE_WEEK
 }
 
+// The base date `buildWeekdayRows`/`buildIntervalRows` fan out from. When the
+// anchor's own occurrence is still in the future, generation must start from
+// the anchor's OWN week — re-anchoring to the week of `now` would fan out a
+// month (or more) away from where the anchor actually lives. When the anchor
+// is at/before `now`, keep the existing "this and following" re-anchor to the
+// week of `now`, so regenerating an old series only ever creates upcoming
+// rows, never backdated ones.
+function resolveSeriesBaseStart(anchorStart: Date, now: Date): Date {
+  if (anchorStart.getTime() > now.getTime()) {
+    return new Date(anchorStart)
+  }
+  const baseStart = new Date(anchorStart)
+  baseStart.setUTCFullYear(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  return baseStart
+}
+
 // Fields shared by every row of a recurrence group; the fan-out helpers stamp
 // startAt/endAt onto copies of this base.
 interface SeriesBaseFields {
@@ -355,10 +371,11 @@ export async function updateTaskSeries(input: unknown): Promise<TaskActionResult
 
     if (!updatedAnchor) return { error: 'Not found' }
 
-    // Regenerate around the week of `now`, preserving the anchor's time-of-day
-    // and duration (identical anchoring to the existing series path below).
-    const baseStart = new Date(anchorStart)
-    baseStart.setUTCFullYear(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+    // Anchor future events to their OWN week; only re-anchor to the week of
+    // `now` when the anchor is at/before now (see resolveSeriesBaseStart).
+    // Preserves the anchor's time-of-day and duration either way (identical
+    // anchoring to the existing series path below).
+    const baseStart = resolveSeriesBaseStart(anchorStart, now)
     const durationMs = anchor.endAt ? anchor.endAt.getTime() - anchorStart.getTime() : null
     const baseEnd = durationMs === null ? null : new Date(baseStart.getTime() + durationMs)
 
@@ -445,10 +462,10 @@ export async function updateTaskSeries(input: unknown): Promise<TaskActionResult
       .map((row) => row.startAt.toISOString()),
   )
 
-  // Anchor regeneration to the week of `now` (UTC) while preserving the series'
-  // original time-of-day and duration.
-  const baseStart = new Date(anchorStart)
-  baseStart.setUTCFullYear(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  // Anchor future events to their OWN week; only re-anchor to the week of
+  // `now` (UTC) when the anchor is at/before now (see resolveSeriesBaseStart).
+  // Preserves the series' original time-of-day and duration either way.
+  const baseStart = resolveSeriesBaseStart(anchorStart, now)
   const durationMs = anchor.endAt ? anchor.endAt.getTime() - anchorStart.getTime() : null
   const baseEnd = durationMs === null ? null : new Date(baseStart.getTime() + durationMs)
 
