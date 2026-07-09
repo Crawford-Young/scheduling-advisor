@@ -9,7 +9,7 @@ const mockRescheduleTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { 
 const mockRecordCompletion = vi.hoisted(() => vi.fn().mockResolvedValue({ data: {} }))
 const mockDeleteTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { success: true } }))
 const mockUpdateTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e1' } }))
-const mockUpdateTaskSeries = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e5' } }))
+const mockUpdateSeries = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e5' } }))
 const mockToastError = vi.hoisted(() => vi.fn())
 const mockRefresh = vi.hoisted(() => vi.fn())
 const mountCount = vi.hoisted(() => ({ value: 0 }))
@@ -24,8 +24,10 @@ vi.mock('@/server/actions/consistency', () => ({
 vi.mock('@/server/actions/tasks', () => ({
   createTask: vi.fn(),
   updateTask: mockUpdateTask,
-  updateTaskSeries: mockUpdateTaskSeries,
   deleteTask: mockDeleteTask,
+}))
+vi.mock('@/server/actions/series-mutations', () => ({
+  updateSeries: mockUpdateSeries,
 }))
 const mockReplace = vi.hoisted(() => vi.fn())
 vi.mock('next/navigation', () => ({
@@ -74,6 +76,7 @@ const events = [
     streak: 3,
     activityType: 'solo',
     visibility: 'only_me',
+    recurrenceGroupId: null,
   },
   {
     id: 'e2',
@@ -85,6 +88,7 @@ const events = [
     streak: 0,
     activityType: 'solo',
     visibility: 'only_me',
+    recurrenceGroupId: null,
   },
   {
     id: 'e3',
@@ -96,6 +100,7 @@ const events = [
     streak: 0,
     activityType: 'solo',
     visibility: 'only_me',
+    recurrenceGroupId: null,
   },
   {
     id: 'e4',
@@ -107,6 +112,7 @@ const events = [
     streak: 0,
     activityType: 'solo',
     visibility: 'only_me',
+    recurrenceGroupId: null,
   },
   {
     id: 'e5',
@@ -119,7 +125,11 @@ const events = [
     activityType: 'solo',
     visibility: 'only_me',
     // Recurring: the complete-toggle logs an occurrence via recordCompletion.
+    // Ungrouped (wave 2.6 S4): an already-recurring row not yet materialized
+    // into a group — edits asserting a series frequency route through the
+    // becomingSeries updateSeries path, not updateTask.
     recurrence: 'daily',
+    recurrenceGroupId: null,
   },
   {
     id: 'e6',
@@ -132,8 +142,10 @@ const events = [
     activityType: 'solo',
     visibility: 'only_me',
     // A weekly series carrying a persisted weekday set (S9 seeding fixture).
+    // Grouped (wave 2.6 S4): every edit on this row routes to updateSeries.
     recurrence: 'weekly',
     recurrenceDays: ['Mon', 'Wed'] as const,
+    recurrenceGroupId: 'grp-series',
   },
   {
     id: 'e7',
@@ -147,6 +159,56 @@ const events = [
     visibility: 'only_me',
     // A2.4: a row pinned in place — the lock toggle should unlock it.
     locked: true,
+    recurrenceGroupId: null,
+  },
+  // Grouped (wave 2.6 S4), no persisted weekday set — plain field edits,
+  // yearly-frequency edits, same-dow drags, and complete/lock toggles all
+  // exercise the grouped updateSeries path from this fixture.
+  {
+    id: 'e8',
+    title: 'Grouped event',
+    // 2026-01-06 is a Tuesday.
+    start: '2026-01-06T09:00:00.000Z',
+    end: '2026-01-06T10:00:00.000Z',
+    type: 'task' as const,
+    status: 'pending' as const,
+    streak: 0,
+    activityType: 'solo',
+    visibility: 'only_me',
+    recurrence: 'weekly',
+    recurrenceGroupId: 'grp-1',
+  },
+  // Grouped weekly-days fixture — a cross-dow drag rewrites the persisted set.
+  {
+    id: 'e9',
+    title: 'Grouped days event',
+    // 2026-01-05 is a Monday.
+    start: '2026-01-05T09:00:00.000Z',
+    end: '2026-01-05T10:00:00.000Z',
+    type: 'task' as const,
+    status: 'pending' as const,
+    streak: 0,
+    activityType: 'solo',
+    visibility: 'only_me',
+    recurrence: 'weekly',
+    recurrenceDays: ['Mon', 'Wed'] as const,
+    recurrenceGroupId: 'grp-2',
+  },
+  // Grouped interval fixture with NO persisted weekday set — a cross-dow drag
+  // has no day set to rewrite, so it stays time-of-day-only.
+  {
+    id: 'e10',
+    title: 'Grouped interval event',
+    // 2026-01-05 is a Monday.
+    start: '2026-01-05T09:00:00.000Z',
+    end: '2026-01-05T10:00:00.000Z',
+    type: 'task' as const,
+    status: 'pending' as const,
+    streak: 0,
+    activityType: 'solo',
+    visibility: 'only_me',
+    recurrence: 'daily',
+    recurrenceGroupId: 'grp-3',
   },
 ]
 
@@ -540,14 +602,14 @@ describe('CalendarClient', () => {
           }),
         ),
       )
-      expect(mockUpdateTaskSeries).not.toHaveBeenCalled()
+      expect(mockUpdateSeries).not.toHaveBeenCalled()
       expect(mockRefresh).toHaveBeenCalled()
       expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
     })
 
     // S10: setting a series frequency on a NON-recurring event (e4) materializes
-    // the series — routes to updateTaskSeries, not updateTask.
-    it('routes making a non-recurring event recurring to updateTaskSeries', async () => {
+    // the series — routes to updateSeries, not updateTask.
+    it('routes making a non-recurring event recurring to updateSeries', async () => {
       render(
         <CalendarClient
           weekStart="2026-05-25"
@@ -566,8 +628,15 @@ describe('CalendarClient', () => {
         recurrenceFrequency: 'weekly',
       })
       await vi.waitFor(() =>
-        expect(mockUpdateTaskSeries).toHaveBeenCalledWith({
+        expect(mockUpdateSeries).toHaveBeenCalledWith({
           taskId: 'e4',
+          title: 'Ship report',
+          startAt: '2026-05-29T13:00:00.000Z',
+          endAt: '2026-05-29T14:00:00.000Z',
+          color: null,
+          location: null,
+          description: null,
+          allDay: false,
           recurrence: 'weekly',
           recurrenceDays: undefined,
         }),
@@ -603,14 +672,16 @@ describe('CalendarClient', () => {
           expect.objectContaining({ id: 'e3', recurrence: 'weekly' }),
         ),
       )
-      expect(mockUpdateTaskSeries).not.toHaveBeenCalled()
+      expect(mockUpdateSeries).not.toHaveBeenCalled()
     })
 
-    // S8: a chip edit that changes the recurrence PATTERN (a new weekday set or
-    // a changed frequency on an existing series) routes to updateTaskSeries so
-    // the group's future pending rows regenerate; a plain time change keeps
-    // updateTask. e5 is a daily series (recurrence 'daily').
-    it('routes a changed weekday set to updateTaskSeries with the token array', async () => {
+    // Wave 2.6 S4: e5 is UNGROUPED but already stores recurrence 'daily' — ANY
+    // edit that asserts a series frequency on an ungrouped row is a
+    // becomingSeries materialize/join, routing to updateSeries regardless of
+    // whether a weekday set is also emitted or the frequency is unchanged.
+    // The old client-side sameDaySet/daysChanged/recurrenceChanged predicate
+    // (S8/S9) is gone — the server now decides field vs pattern.
+    it('routes an ungrouped edit with a changed weekday set to updateSeries with the token array', async () => {
       render(
         <CalendarClient
           weekStart="2026-05-25"
@@ -630,8 +701,15 @@ describe('CalendarClient', () => {
         recurrenceDays: ['Mon', 'Wed'],
       })
       await vi.waitFor(() =>
-        expect(mockUpdateTaskSeries).toHaveBeenCalledWith({
+        expect(mockUpdateSeries).toHaveBeenCalledWith({
           taskId: 'e5',
+          title: 'Daily standup',
+          startAt: '2026-05-29T15:00:00.000Z',
+          endAt: '2026-05-29T15:30:00.000Z',
+          color: null,
+          location: null,
+          description: null,
+          allDay: false,
           recurrence: 'weekly',
           recurrenceDays: ['Mon', 'Wed'],
         }),
@@ -640,7 +718,7 @@ describe('CalendarClient', () => {
       expect(mockRefresh).toHaveBeenCalled()
     })
 
-    it('routes a plain time change on a series to updateTask (not updateTaskSeries)', async () => {
+    it('routes an ungrouped edit re-asserting the SAME series frequency to updateSeries (not updateTask)', async () => {
       render(
         <CalendarClient
           weekStart="2026-05-25"
@@ -658,8 +736,89 @@ describe('CalendarClient', () => {
         end: '2026-05-29T16:30:00.000Z',
         recurrenceFrequency: 'daily',
       })
-      await vi.waitFor(() => expect(mockUpdateTask).toHaveBeenCalled())
-      expect(mockUpdateTaskSeries).not.toHaveBeenCalled()
+      await vi.waitFor(() =>
+        expect(mockUpdateSeries).toHaveBeenCalledWith({
+          taskId: 'e5',
+          title: 'Daily standup',
+          startAt: '2026-05-29T16:00:00.000Z',
+          endAt: '2026-05-29T16:30:00.000Z',
+          color: null,
+          location: null,
+          description: null,
+          allDay: false,
+          recurrence: 'daily',
+          recurrenceDays: undefined,
+        }),
+      )
+      expect(mockUpdateTask).not.toHaveBeenCalled()
+    })
+
+    // Grouped row (wave 2.6 S4): e8 has recurrenceGroupId set — ANY edit
+    // (field-only here, no frequency emitted) routes to updateSeries.
+    it('routes a GROUPED row plain field edit to updateSeries', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({
+        id: 'e8',
+        title: 'Grouped edited',
+        start: '2026-01-06T09:30:00.000Z',
+        end: '2026-01-06T10:30:00.000Z',
+        color: 'violet',
+        location: 'Office',
+        description: 'standup',
+        allDay: true,
+      })
+      await vi.waitFor(() =>
+        expect(mockUpdateSeries).toHaveBeenCalledWith({
+          taskId: 'e8',
+          title: 'Grouped edited',
+          startAt: '2026-01-06T09:30:00.000Z',
+          endAt: '2026-01-06T10:30:00.000Z',
+          color: 'violet',
+          location: 'Office',
+          description: 'standup',
+          allDay: true,
+          recurrence: null,
+          recurrenceDays: undefined,
+        }),
+      )
+      expect(mockUpdateTask).not.toHaveBeenCalled()
+    })
+
+    // A non-series frequency ('yearly') on a grouped row maps recurrence to
+    // null — the server, not the client, decides field vs pattern.
+    it('maps a non-series frequency to recurrence:null on a GROUPED row edit', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      ;(capturedProps.onEventEdit as (e: unknown) => void)({
+        id: 'e8',
+        title: 'Grouped event',
+        start: '2026-01-06T09:00:00.000Z',
+        end: '2026-01-06T10:00:00.000Z',
+        recurrenceFrequency: 'yearly',
+      })
+      await vi.waitFor(() =>
+        expect(mockUpdateSeries).toHaveBeenCalledWith(
+          expect.objectContaining({ taskId: 'e8', recurrence: null }),
+        ),
+      )
+      expect(mockUpdateTask).not.toHaveBeenCalled()
     })
 
     it('persists an edit of a completed event via updateTask like any other event (no completed guard)', async () => {
@@ -745,7 +904,10 @@ describe('CalendarClient', () => {
       expect(series.recurrenceDays).toBeUndefined()
     })
 
-    it('keeps a time-only edit re-emitting the seeded set (reordered) on updateTask', async () => {
+    // e6 is GROUPED (wave 2.6 S4) — every edit routes to updateSeries
+    // regardless of whether the re-emitted day set changed. The old
+    // client-side set-equality routing predicate is gone.
+    it('routes a grouped edit re-emitting the seeded set (reordered, same set) to updateSeries', async () => {
       render(
         <CalendarClient
           weekStart="2026-05-25"
@@ -766,18 +928,23 @@ describe('CalendarClient', () => {
         recurrenceDays: ['Wed', 'Mon'],
       })
       await vi.waitFor(() =>
-        expect(mockUpdateTask).toHaveBeenCalledWith(
-          expect.objectContaining({
-            id: 'e6',
-            startAt: '2026-05-29T20:00:00.000Z',
-            endAt: '2026-05-29T21:00:00.000Z',
-          }),
-        ),
+        expect(mockUpdateSeries).toHaveBeenCalledWith({
+          taskId: 'e6',
+          title: 'Weekly review',
+          startAt: '2026-05-29T20:00:00.000Z',
+          endAt: '2026-05-29T21:00:00.000Z',
+          color: null,
+          location: null,
+          description: null,
+          allDay: false,
+          recurrence: 'weekly',
+          recurrenceDays: ['Wed', 'Mon'],
+        }),
       )
-      expect(mockUpdateTaskSeries).not.toHaveBeenCalled()
+      expect(mockUpdateTask).not.toHaveBeenCalled()
     })
 
-    it('routes a genuinely changed weekday set to updateTaskSeries with the new tokens', async () => {
+    it('routes a grouped edit with a genuinely changed weekday set to updateSeries with the new tokens', async () => {
       render(
         <CalendarClient
           weekStart="2026-05-25"
@@ -797,13 +964,174 @@ describe('CalendarClient', () => {
         recurrenceDays: ['Mon', 'Fri'],
       })
       await vi.waitFor(() =>
-        expect(mockUpdateTaskSeries).toHaveBeenCalledWith({
-          taskId: 'e6',
-          recurrence: 'weekly',
-          recurrenceDays: ['Mon', 'Fri'],
-        }),
+        expect(mockUpdateSeries).toHaveBeenCalledWith(
+          expect.objectContaining({
+            taskId: 'e6',
+            recurrence: 'weekly',
+            recurrenceDays: ['Mon', 'Fri'],
+          }),
+        ),
       )
       expect(mockUpdateTask).not.toHaveBeenCalled()
+    })
+  })
+
+  // ── drag/time-change routing (wave 2.6 S4) ──────────────────────────────
+  //
+  // Ungrouped rows keep the single-row rescheduleTask path (item 8). Grouped
+  // rows route through updateSeries: a same-weekday drag is a time-of-day-only
+  // rewrite (item 5); a cross-weekday drag on a row with a persisted weekday
+  // set rewrites that set — old weekday out, new weekday in (item 6); a
+  // cross-weekday drag with NO day set (daily/monthly interval series) has no
+  // set to rewrite, so it also stays time-of-day-only (item 7).
+  describe('grouped drag routing (wave 2.6 S4)', () => {
+    it('routes a same-weekday drag on a grouped row to a time-only updateSeries payload (item 5)', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const onEventMove = capturedProps.onEventMove as (e: unknown) => void
+      onEventMove({
+        id: 'e8',
+        title: 'Grouped event',
+        start: '2026-01-06T14:00:00.000Z',
+        end: '2026-01-06T15:00:00.000Z',
+      })
+      await vi.waitFor(() =>
+        expect(mockUpdateSeries).toHaveBeenCalledWith({
+          taskId: 'e8',
+          startAt: '2026-01-06T14:00:00.000Z',
+          endAt: '2026-01-06T15:00:00.000Z',
+        }),
+      )
+      expect(mockRescheduleTask).not.toHaveBeenCalled()
+    })
+
+    it('rewrites the persisted weekday set on a cross-weekday drag (Mon out, Fri in) (item 6)', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const onEventMove = capturedProps.onEventMove as (e: unknown) => void
+      // 2026-01-05 (Mon) → 2026-01-09 (Fri).
+      onEventMove({
+        id: 'e9',
+        title: 'Grouped days event',
+        start: '2026-01-09T09:00:00.000Z',
+        end: '2026-01-09T10:00:00.000Z',
+      })
+      await vi.waitFor(() =>
+        expect(mockUpdateSeries).toHaveBeenCalledWith({
+          taskId: 'e9',
+          startAt: '2026-01-09T09:00:00.000Z',
+          endAt: '2026-01-09T10:00:00.000Z',
+          recurrence: 'weekly',
+          recurrenceDays: ['Wed', 'Fri'],
+        }),
+      )
+    })
+
+    it('stays time-of-day-only on a cross-weekday drag with no persisted day set (item 7)', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const onEventMove = capturedProps.onEventMove as (e: unknown) => void
+      // 2026-01-05 (Mon) → 2026-01-08 (Thu).
+      onEventMove({
+        id: 'e10',
+        title: 'Grouped interval event',
+        start: '2026-01-08T09:00:00.000Z',
+        end: '2026-01-08T10:00:00.000Z',
+      })
+      await vi.waitFor(() =>
+        expect(mockUpdateSeries).toHaveBeenCalledWith({
+          taskId: 'e10',
+          startAt: '2026-01-08T09:00:00.000Z',
+          endAt: '2026-01-08T10:00:00.000Z',
+        }),
+      )
+    })
+
+    it('routes an ungrouped drag to rescheduleTask, never updateSeries (item 8)', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const onEventMove = capturedProps.onEventMove as (e: unknown) => void
+      onEventMove({
+        id: 'e1',
+        title: 'Morning run',
+        start: '2026-05-29T09:00:00',
+        end: '2026-05-29T10:00:00',
+      })
+      await vi.waitFor(() => expect(mockRescheduleTask).toHaveBeenCalled())
+      expect(mockUpdateSeries).not.toHaveBeenCalled()
+    })
+  })
+
+  // ── complete/lock toggle stay per-occurrence on a grouped row (item 9) ───
+  describe('complete/lock toggle on a grouped row (wave 2.6 S4, item 9)', () => {
+    it('routes a complete toggle on a grouped (recurring) row through recordCompletion, never updateSeries', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      ;(capturedProps.onEventToggleComplete as (e: unknown) => void)({
+        id: 'e8',
+        completed: true,
+      })
+      await vi.waitFor(() => expect(mockRecordCompletion).toHaveBeenCalledWith({ taskId: 'e8' }))
+      expect(mockUpdateSeries).not.toHaveBeenCalled()
+      expect(mockUpdateTask).not.toHaveBeenCalled()
+    })
+
+    it('routes a lock toggle on a grouped row through updateTask, never updateSeries', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      ;(capturedProps.onEventToggleLock as (e: unknown) => void)({ id: 'e8' })
+      await vi.waitFor(() =>
+        expect(mockUpdateTask).toHaveBeenCalledWith({ id: 'e8', locked: true }),
+      )
+      expect(mockUpdateSeries).not.toHaveBeenCalled()
     })
   })
 
@@ -1065,7 +1393,7 @@ describe('CalendarClient', () => {
         expect(mockUpdateTask).toHaveBeenCalledWith({ id: 'e1', locked: true }),
       )
       // Lock is not a series-shaped or completion change.
-      expect(mockUpdateTaskSeries).not.toHaveBeenCalled()
+      expect(mockUpdateSeries).not.toHaveBeenCalled()
       expect(mockRecordCompletion).not.toHaveBeenCalled()
       expect(mockRefresh).toHaveBeenCalled()
     })
@@ -1085,7 +1413,7 @@ describe('CalendarClient', () => {
       await vi.waitFor(() =>
         expect(mockUpdateTask).toHaveBeenCalledWith({ id: 'e7', locked: false }),
       )
-      expect(mockUpdateTaskSeries).not.toHaveBeenCalled()
+      expect(mockUpdateSeries).not.toHaveBeenCalled()
     })
 
     it('toasts and resyncs in place when the lock update fails to persist', async () => {

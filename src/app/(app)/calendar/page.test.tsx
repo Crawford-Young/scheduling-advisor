@@ -32,9 +32,24 @@ vi.mock('@/server/queries/calendar-prefs', () => ({
   getCalendarPrefs: () => getCalendarPrefsMock(),
 }))
 
+interface MockCalendarClientEvent {
+  readonly id: string
+  readonly recurrenceGroupId: string | null
+}
+
 vi.mock('@/components/calendar/calendar-client', () => ({
-  CalendarClient: ({ weekStart }: { weekStart: string }) => (
-    <div data-testid="calendar-client" data-week-start={weekStart} />
+  CalendarClient: ({
+    weekStart,
+    events,
+  }: {
+    weekStart: string
+    events: readonly MockCalendarClientEvent[]
+  }) => (
+    <div
+      data-testid="calendar-client"
+      data-week-start={weekStart}
+      data-evt0-recurrence-group-id={events[0]?.recurrenceGroupId ?? ''}
+    />
   ),
 }))
 
@@ -99,5 +114,60 @@ describe('CalendarPage', () => {
       'data-week-start',
       expectedFallbackWeekStart(),
     )
+  })
+
+  it('threads a task recurrenceGroupId through to the event mapping', async () => {
+    getUserTasksMock.mockResolvedValueOnce([
+      {
+        id: 'task-1',
+        title: 'Grouped task',
+        startAt: new Date('2026-06-01T09:00:00.000Z'),
+        endAt: new Date('2026-06-01T10:00:00.000Z'),
+        targetDate: null,
+        type: 'task',
+        status: 'pending',
+        activityType: 'solo',
+        visibility: 'only_me',
+        color: null,
+        allDay: false,
+        location: null,
+        description: null,
+        recurrence: null,
+        recurrenceDays: null,
+        recurrenceGroupId: 'group-1',
+        locked: false,
+      },
+    ])
+    const { getByTestId } = render(await CalendarPage({ searchParams: Promise.resolve({}) }))
+    expect(getByTestId('calendar-client')).toHaveAttribute(
+      'data-evt0-recurrence-group-id',
+      'group-1',
+    )
+  })
+
+  it('maps a null recurrenceGroupId when the task has none', async () => {
+    getUserTasksMock.mockResolvedValueOnce([
+      {
+        id: 'task-2',
+        title: 'Ungrouped task',
+        startAt: new Date('2026-06-01T09:00:00.000Z'),
+        endAt: new Date('2026-06-01T10:00:00.000Z'),
+        targetDate: null,
+        type: 'task',
+        status: 'pending',
+        activityType: 'solo',
+        visibility: 'only_me',
+        color: null,
+        allDay: false,
+        location: null,
+        description: null,
+        recurrence: null,
+        recurrenceDays: null,
+        recurrenceGroupId: null,
+        locked: false,
+      },
+    ])
+    const { getByTestId } = render(await CalendarPage({ searchParams: Promise.resolve({}) }))
+    expect(getByTestId('calendar-client')).toHaveAttribute('data-evt0-recurrence-group-id', '')
   })
 })

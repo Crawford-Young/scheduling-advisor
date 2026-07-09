@@ -13,7 +13,7 @@ const deleteTaskMock = vi.fn()
 const rescheduleTaskMock = vi.fn()
 const recordCompletionMock = vi.fn()
 const updateTaskMock = vi.fn()
-const updateTaskSeriesMock = vi.fn()
+const updateSeriesMock = vi.fn()
 const toastErrorMock = vi.fn()
 
 // AlertDialog stores a wrapper around its onOpenChange here so the Cancel and
@@ -36,7 +36,10 @@ vi.mock('@/server/actions/tasks', () => ({
   createTask: (input: unknown) => createTaskMock(input),
   deleteTask: (input: unknown) => deleteTaskMock(input),
   updateTask: (input: unknown) => updateTaskMock(input),
-  updateTaskSeries: (input: unknown) => updateTaskSeriesMock(input),
+}))
+
+vi.mock('@/server/actions/series-mutations', () => ({
+  updateSeries: (input: unknown) => updateSeriesMock(input),
 }))
 
 vi.mock('@/server/actions/consistency', () => ({
@@ -137,7 +140,7 @@ const STUB_COMPLETED_LIB_EVENT: MockLibEvent = {
 
 // Series-shaped chip edit: the user picked a weekday set in the chip popover, so
 // recurrenceDays reaches onEventEdit. evt-1 is already a weekly series → this
-// must route to updateTaskSeries (regenerate the group), NOT updateTask.
+// must route to updateSeries (regenerate the group), NOT updateTask.
 const STUB_SERIES_EDIT_PAYLOAD: MockLibEvent = {
   id: 'evt-1',
   title: 'Test event',
@@ -276,7 +279,7 @@ vi.mock('@/lib/ui', () => ({
       {/* S9: evt-series persists recurrenceDays ['Mon','Wed']. The seeded picker
           re-emits the SAME set (reordered) alongside a time change → order-
           insensitive set equality must keep this on updateTask (preserve the
-          time change), NOT misroute to updateTaskSeries. */}
+          time change), NOT misroute to updateSeries. */}
       <button
         type="button"
         onClick={() =>
@@ -293,7 +296,7 @@ vi.mock('@/lib/ui', () => ({
         trigger-edit-series-same-days
       </button>
       {/* S9: the user changes the seeded set (['Mon','Wed'] → ['Mon','Fri']) →
-          a real pattern change routes to updateTaskSeries with the new tokens. */}
+          a real pattern change routes to updateSeries with the new tokens. */}
       <button
         type="button"
         onClick={() =>
@@ -324,7 +327,7 @@ vi.mock('@/lib/ui', () => ({
         trigger-edit-freq-change
       </button>
       {/* S10: a NON-recurring event (evt-oneoff) gains a frequency in the chip
-          popover → must route to updateTaskSeries to materialize the series. */}
+          popover → must route to updateSeries to materialize the series. */}
       <button
         type="button"
         onClick={() =>
@@ -340,7 +343,7 @@ vi.mock('@/lib/ui', () => ({
         trigger-edit-make-recurring
       </button>
       {/* Review fix: a GOAL (evt-goal) edited with a series frequency must NEVER
-          route to updateTaskSeries — goals never materialize into a series. */}
+          route to updateSeries — goals never materialize into a series. */}
       <button
         type="button"
         onClick={() =>
@@ -354,6 +357,118 @@ vi.mock('@/lib/ui', () => ({
         }
       >
         trigger-edit-goal-recurrence
+      </button>
+      {/* Wave 2.6 S4: a GROUPED row's plain field edit (no frequency emitted)
+          still routes through updateSeries — the server decides field vs
+          pattern, not the client. */}
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventEdit?.({
+            id: 'evt-grouped',
+            title: 'Grouped edited',
+            start: '2026-01-06T09:30:00.000Z',
+            end: '2026-01-06T10:30:00.000Z',
+            color: 'violet',
+            location: 'Office',
+            description: 'standup',
+            allDay: true,
+          })
+        }
+      >
+        trigger-edit-grouped
+      </button>
+      {/* Wave 2.6 S4: a GROUPED row edited with a non-series frequency
+          ('yearly') maps recurrence to null in the updateSeries payload. */}
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventEdit?.({
+            id: 'evt-grouped',
+            title: 'Grouped event',
+            start: '2026-01-06T09:00:00.000Z',
+            end: '2026-01-06T10:00:00.000Z',
+            recurrenceFrequency: 'yearly',
+          })
+        }
+      >
+        trigger-edit-grouped-yearly
+      </button>
+      {/* Wave 2.6 S4: same-weekday drag on a grouped row → updateSeries with
+          ONLY a time-of-day rewrite (no recurrence keys). */}
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventMove?.({
+            id: 'evt-grouped',
+            title: 'Grouped event',
+            start: '2026-01-06T14:00:00.000Z',
+            end: '2026-01-06T15:00:00.000Z',
+          })
+        }
+      >
+        trigger-move-grouped-samedow
+      </button>
+      {/* Wave 2.6 S4: cross-weekday drag on a grouped row carrying a
+          persisted weekday set (Mon,Wed) → the day set rewrites: old weekday
+          (Mon) out, new weekday (Fri) in. Monday 2026-01-05 → Friday 2026-01-09. */}
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventMove?.({
+            id: 'evt-grouped-days',
+            title: 'Grouped days event',
+            start: '2026-01-09T09:00:00.000Z',
+            end: '2026-01-09T10:00:00.000Z',
+          })
+        }
+      >
+        trigger-move-grouped-crossdow-days
+      </button>
+      {/* Wave 2.6 S4: cross-weekday drag on a grouped row with NO persisted
+          weekday set (daily interval) → no day set to rewrite, stays
+          time-of-day-only. Monday 2026-01-05 → Thursday 2026-01-08. */}
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventMove?.({
+            id: 'evt-grouped-nodays',
+            title: 'Grouped interval event',
+            start: '2026-01-08T09:00:00.000Z',
+            end: '2026-01-08T10:00:00.000Z',
+          })
+        }
+      >
+        trigger-move-grouped-crossdow-nodays
+      </button>
+      {/* Wave 2.6 S4: complete-toggle and lock-toggle on a grouped row must
+          never route through updateSeries — they stay per-occurrence. */}
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventToggleComplete?.({
+            id: 'evt-grouped',
+            title: 'Grouped event',
+            start: '2026-01-06T09:00:00.000Z',
+            end: '2026-01-06T10:00:00.000Z',
+            completed: true,
+          })
+        }
+      >
+        trigger-toggle-complete-grouped
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventToggleLock?.({
+            id: 'evt-grouped',
+            title: 'Grouped event',
+            start: '2026-01-06T09:00:00.000Z',
+            end: '2026-01-06T10:00:00.000Z',
+          })
+        }
+      >
+        trigger-toggle-lock-grouped
       </button>
       {/* Recurring event (evt-1 has recurrence 'weekly') → recordCompletion.
           Library hands off the TOGGLED event (completed: true = user wants
@@ -497,6 +612,10 @@ const EVENTS = [
     allDay: true,
     location: 'Gym',
     description: 'leg day',
+    // Ungrouped (wave 2.6 S4): an already-recurring row that has not been
+    // materialized into a group — edits/drags exercise the becomingSeries /
+    // plain-rescheduleTask paths, never the grouped updateSeries path.
+    recurrenceGroupId: null,
   },
   {
     id: 'evt-done',
@@ -510,6 +629,7 @@ const EVENTS = [
     visibility: 'only_me',
     // Persisted, truthy user-chosen color must pass through unchanged.
     color: 'violet',
+    recurrenceGroupId: null,
   },
   // A pending, NON-recurring event — the S10 make-recurring routing fixture.
   {
@@ -523,6 +643,7 @@ const EVENTS = [
     activityType: 'solo',
     visibility: 'only_me',
     recurrence: null,
+    recurrenceGroupId: null,
   },
   // A goal (never a series) — the S10 review-fix goal-exclusion fixture.
   {
@@ -536,9 +657,12 @@ const EVENTS = [
     activityType: 'solo',
     visibility: 'only_me',
     recurrence: null,
+    recurrenceGroupId: null,
   },
   // S9: a weekly series row carrying a persisted weekday set — seeds the chip
-  // popover's Days picker (via seriesDays) and drives set-equality routing.
+  // popover's Days picker (via seriesDays). Grouped (wave 2.6 S4): every edit
+  // on this row routes to updateSeries regardless of whether the re-emitted
+  // day set changed — the server, not the client, decides field vs pattern.
   {
     id: 'evt-series',
     title: 'Series',
@@ -551,6 +675,7 @@ const EVENTS = [
     visibility: 'only_me',
     recurrence: 'weekly',
     recurrenceDays: ['Mon', 'Wed'] as const,
+    recurrenceGroupId: 'grp-series',
   },
   // A2.4: a row pinned in place — seeds locked:true onto the library event and
   // the lock toggle should flip it to unlocked.
@@ -565,6 +690,56 @@ const EVENTS = [
     activityType: 'solo',
     visibility: 'only_me',
     locked: true,
+    recurrenceGroupId: null,
+  },
+  // Grouped (wave 2.6 S4), no persisted weekday set — a plain field edit, a
+  // yearly-frequency edit, a same-dow drag, and the complete/lock toggles all
+  // exercise the grouped updateSeries path from this fixture.
+  {
+    id: 'evt-grouped',
+    title: 'Grouped event',
+    // 2026-01-06 is a Tuesday.
+    start: '2026-01-06T09:00:00.000Z',
+    end: '2026-01-06T10:00:00.000Z',
+    type: 'task' as const,
+    status: 'pending' as const,
+    streak: 0,
+    activityType: 'solo',
+    visibility: 'only_me',
+    recurrence: 'weekly',
+    recurrenceGroupId: 'grp-1',
+  },
+  // Grouped weekly-days fixture — cross-dow drag rewrites the persisted set.
+  {
+    id: 'evt-grouped-days',
+    title: 'Grouped days event',
+    // 2026-01-05 is a Monday.
+    start: '2026-01-05T09:00:00.000Z',
+    end: '2026-01-05T10:00:00.000Z',
+    type: 'task' as const,
+    status: 'pending' as const,
+    streak: 0,
+    activityType: 'solo',
+    visibility: 'only_me',
+    recurrence: 'weekly',
+    recurrenceDays: ['Mon', 'Wed'] as const,
+    recurrenceGroupId: 'grp-2',
+  },
+  // Grouped interval fixture with NO persisted weekday set — a cross-dow drag
+  // has no day set to rewrite, so it stays time-of-day-only.
+  {
+    id: 'evt-grouped-nodays',
+    title: 'Grouped interval event',
+    // 2026-01-05 is a Monday.
+    start: '2026-01-05T09:00:00.000Z',
+    end: '2026-01-05T10:00:00.000Z',
+    type: 'task' as const,
+    status: 'pending' as const,
+    streak: 0,
+    activityType: 'solo',
+    visibility: 'only_me',
+    recurrence: 'daily',
+    recurrenceGroupId: 'grp-3',
   },
 ]
 
@@ -832,10 +1007,16 @@ describe('CalendarClient — event edit persistence', () => {
     refreshMock.mockClear()
     updateTaskMock.mockClear()
     updateTaskMock.mockResolvedValue({})
+    updateSeriesMock.mockClear()
+    updateSeriesMock.mockResolvedValue({})
     toastErrorMock.mockClear()
   })
 
-  it('persists the finished chip-popover edit via updateTask (no app dialog opens)', async () => {
+  // evt-1 is UNGROUPED (recurrenceGroupId: null) but already stores
+  // recurrence 'weekly' — an edit that re-asserts a series frequency on an
+  // ungrouped row is a becomingSeries materialize/join, so it routes through
+  // updateSeries (wave 2.6 S4), never updateTask.
+  it('routes an ungrouped edit asserting a series frequency to updateSeries (becomingSeries)', async () => {
     const user = userEvent.setup()
     render(
       <CalendarClient
@@ -851,24 +1032,28 @@ describe('CalendarClient — event edit persistence', () => {
     await user.click(screen.getByRole('button', { name: 'trigger-edit' }))
 
     await waitFor(() =>
-      expect(updateTaskMock).toHaveBeenCalledWith({
-        id: 'evt-1',
+      expect(updateSeriesMock).toHaveBeenCalledWith({
+        taskId: 'evt-1',
         title: 'Edited title',
         startAt: '2026-01-06T09:30:00.000Z',
         endAt: '2026-01-06T10:30:00.000Z',
         color: 'violet',
         location: 'Gym',
         description: 'leg day',
-        recurrence: 'weekly',
         allDay: false,
+        recurrence: 'weekly',
+        recurrenceDays: undefined,
       }),
     )
+    expect(updateTaskMock).not.toHaveBeenCalled()
     expect(refreshMock).toHaveBeenCalled()
     // No app-owned edit dialog — the library popover is the only edit UI.
     expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
   })
 
-  it('maps missing optional fields to null / allDay:false on edit', async () => {
+  // Ungrouped, non-series edit (item 2): no frequency in the payload → stays
+  // on the existing per-row updateTask path, untouched by wave 2.6.
+  it('maps missing optional fields to null / allDay:false on edit (ungrouped, non-series)', async () => {
     const user = userEvent.setup()
     render(
       <CalendarClient
@@ -895,6 +1080,7 @@ describe('CalendarClient — event edit persistence', () => {
         }),
       ),
     )
+    expect(updateSeriesMock).not.toHaveBeenCalled()
   })
 
   it('persists an edit of a completed event via updateTask like any other event (no completed guard)', async () => {
@@ -917,11 +1103,12 @@ describe('CalendarClient — event edit persistence', () => {
         expect.objectContaining({ id: 'evt-done', title: 'Done event' }),
       ),
     )
+    expect(updateSeriesMock).not.toHaveBeenCalled()
     expect(refreshMock).toHaveBeenCalled()
   })
 
-  it('surfaces a toast and resyncs in place when the edit fails to persist', async () => {
-    updateTaskMock.mockResolvedValueOnce({ error: 'Not found' })
+  it('surfaces a toast and resyncs in place when the (becomingSeries) edit fails to persist', async () => {
+    updateSeriesMock.mockResolvedValueOnce({ error: 'Not found' })
     const user = userEvent.setup()
     render(
       <CalendarClient
@@ -964,24 +1151,26 @@ describe('CalendarClient — event edit persistence', () => {
   })
 })
 
-// ── series-shaped edit routing (S8) ─────────────────────────────────────────
+// ── ungrouped becomingSeries + grouped edit routing (wave 2.6 S4) ───────────
 //
-// The chip popover can change the recurrence PATTERN (a weekday set or a changed
-// frequency on an existing series) as well as row-shaped fields (time/title).
-// A series-shaped change routes to updateTaskSeries, which regenerates the
-// group's future pending rows; a plain time/field change keeps updateTask.
+// series semantics v2: an UNGROUPED row (recurrenceGroupId null) edited with a
+// series frequency (daily/weekly/monthly) routes to updateSeries — the
+// materialize/join path. A GROUPED row (recurrenceGroupId set) ALWAYS routes
+// through updateSeries, for ANY edit (field-only, day-set-only, or both) — the
+// server decides field-vs-pattern, not the client. The old client-side
+// sameDaySet / daysChanged / recurrenceChanged / wasRecurring predicate is gone.
 
-describe('CalendarClient — series-shaped edit routing (S8)', () => {
+describe('CalendarClient — ungrouped becomingSeries + grouped edit routing (wave 2.6 S4)', () => {
   beforeEach(() => {
     refreshMock.mockClear()
     updateTaskMock.mockClear()
     updateTaskMock.mockResolvedValue({})
-    updateTaskSeriesMock.mockClear()
-    updateTaskSeriesMock.mockResolvedValue({})
+    updateSeriesMock.mockClear()
+    updateSeriesMock.mockResolvedValue({})
     toastErrorMock.mockClear()
   })
 
-  it('routes a chip edit with a changed weekday set to updateTaskSeries with the token array', async () => {
+  it('routes an ungrouped edit with a changed weekday set to updateSeries (becomingSeries)', async () => {
     const user = userEvent.setup()
     render(
       <CalendarClient
@@ -997,18 +1186,24 @@ describe('CalendarClient — series-shaped edit routing (S8)', () => {
     await user.click(screen.getByRole('button', { name: 'trigger-edit-series-days' }))
 
     await waitFor(() =>
-      expect(updateTaskSeriesMock).toHaveBeenCalledWith({
+      expect(updateSeriesMock).toHaveBeenCalledWith({
         taskId: 'evt-1',
+        title: 'Test event',
+        startAt: '2026-01-06T09:00:00.000Z',
+        endAt: '2026-01-06T10:00:00.000Z',
+        color: null,
+        location: null,
+        description: null,
+        allDay: false,
         recurrence: 'weekly',
         recurrenceDays: ['Mon', 'Wed'],
       }),
     )
-    // Series-shaped change owns the save — updateTask must NOT also fire.
     expect(updateTaskMock).not.toHaveBeenCalled()
     expect(refreshMock).toHaveBeenCalled()
   })
 
-  it('routes a chip edit that changes only the frequency (no weekday set) to updateTaskSeries', async () => {
+  it('routes an ungrouped edit that changes only the frequency to updateSeries (becomingSeries)', async () => {
     const user = userEvent.setup()
     render(
       <CalendarClient
@@ -1021,13 +1216,19 @@ describe('CalendarClient — series-shaped edit routing (S8)', () => {
       />,
     )
 
-    // evt-1 is stored as 'weekly'; the popover switches it to 'daily' with no
-    // weekday picker → a series-shaped frequency change, recurrenceDays undefined.
+    // evt-1 is ungrouped; the popover switches its frequency to 'daily'.
     await user.click(screen.getByRole('button', { name: 'trigger-edit-freq-change' }))
 
     await waitFor(() =>
-      expect(updateTaskSeriesMock).toHaveBeenCalledWith({
+      expect(updateSeriesMock).toHaveBeenCalledWith({
         taskId: 'evt-1',
+        title: 'Test event',
+        startAt: '2026-01-06T09:00:00.000Z',
+        endAt: '2026-01-06T10:00:00.000Z',
+        color: null,
+        location: null,
+        description: null,
+        allDay: false,
         recurrence: 'daily',
         recurrenceDays: undefined,
       }),
@@ -1035,7 +1236,7 @@ describe('CalendarClient — series-shaped edit routing (S8)', () => {
     expect(updateTaskMock).not.toHaveBeenCalled()
   })
 
-  it('routes a chip edit with only a time change to updateTask (not updateTaskSeries)', async () => {
+  it('routes a GROUPED row plain field edit (no frequency emitted) to updateSeries', async () => {
     const user = userEvent.setup()
     render(
       <CalendarClient
@@ -1048,16 +1249,53 @@ describe('CalendarClient — series-shaped edit routing (S8)', () => {
       />,
     )
 
-    // STUB_EDIT_PAYLOAD keeps recurrenceFrequency 'weekly' (evt-1's stored value)
-    // and carries no recurrenceDays → row-shaped edit.
-    await user.click(screen.getByRole('button', { name: 'trigger-edit' }))
+    await user.click(screen.getByRole('button', { name: 'trigger-edit-grouped' }))
 
-    await waitFor(() => expect(updateTaskMock).toHaveBeenCalled())
-    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(updateSeriesMock).toHaveBeenCalledWith({
+        taskId: 'evt-grouped',
+        title: 'Grouped edited',
+        startAt: '2026-01-06T09:30:00.000Z',
+        endAt: '2026-01-06T10:30:00.000Z',
+        color: 'violet',
+        location: 'Office',
+        description: 'standup',
+        allDay: true,
+        recurrence: null,
+        recurrenceDays: undefined,
+      }),
+    )
+    expect(updateTaskMock).not.toHaveBeenCalled()
+    expect(refreshMock).toHaveBeenCalled()
   })
 
-  it('surfaces a toast and resyncs in place when a series edit fails to persist', async () => {
-    updateTaskSeriesMock.mockResolvedValueOnce({ error: 'Not found' })
+  // A non-series frequency ('yearly') on a grouped row maps recurrence to
+  // null — the server, not the client, decides field vs pattern.
+  it('maps a non-series frequency to recurrence:null on a GROUPED row edit', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-edit-grouped-yearly' }))
+
+    await waitFor(() =>
+      expect(updateSeriesMock).toHaveBeenCalledWith(
+        expect.objectContaining({ taskId: 'evt-grouped', recurrence: null }),
+      ),
+    )
+    expect(updateTaskMock).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a toast and resyncs in place when an updateSeries edit fails to persist', async () => {
+    updateSeriesMock.mockResolvedValueOnce({ error: 'Not found' })
     const user = userEvent.setup()
     render(
       <CalendarClient
@@ -1082,23 +1320,23 @@ describe('CalendarClient — series-shaped edit routing (S8)', () => {
   })
 })
 
-// ── make-recurring routing (S10) ────────────────────────────────────────────
+// ── make-recurring routing (S10, wave 2.6 S4 renaming) ──────────────────────
 //
-// Setting a frequency on a NON-recurring event routes to updateTaskSeries, which
-// materializes the series (updates the anchor in place + fans out future rows).
-// Clearing recurrence on an already-recurring event stays on updateTask.
+// Setting a frequency on a NON-recurring, ungrouped event routes to
+// updateSeries (materialize path). Clearing recurrence on an already-recurring
+// event stays on updateTask.
 
 describe('CalendarClient — make-recurring routing (S10)', () => {
   beforeEach(() => {
     refreshMock.mockClear()
     updateTaskMock.mockClear()
     updateTaskMock.mockResolvedValue({})
-    updateTaskSeriesMock.mockClear()
-    updateTaskSeriesMock.mockResolvedValue({})
+    updateSeriesMock.mockClear()
+    updateSeriesMock.mockResolvedValue({})
     toastErrorMock.mockClear()
   })
 
-  it('routes making a non-recurring event recurring to updateTaskSeries (not updateTask)', async () => {
+  it('routes making a non-recurring event recurring to updateSeries (not updateTask)', async () => {
     const user = userEvent.setup()
     render(
       <CalendarClient
@@ -1114,8 +1352,15 @@ describe('CalendarClient — make-recurring routing (S10)', () => {
     await user.click(screen.getByRole('button', { name: 'trigger-edit-make-recurring' }))
 
     await waitFor(() =>
-      expect(updateTaskSeriesMock).toHaveBeenCalledWith({
+      expect(updateSeriesMock).toHaveBeenCalledWith({
         taskId: 'evt-oneoff',
+        title: 'One off',
+        startAt: '2026-01-06T11:00:00.000Z',
+        endAt: '2026-01-06T12:00:00.000Z',
+        color: null,
+        location: null,
+        description: null,
+        allDay: false,
         recurrence: 'weekly',
         recurrenceDays: undefined,
       }),
@@ -1142,13 +1387,12 @@ describe('CalendarClient — make-recurring routing (S10)', () => {
     await user.click(screen.getByRole('button', { name: 'trigger-edit-min' }))
 
     await waitFor(() => expect(updateTaskMock).toHaveBeenCalled())
-    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+    expect(updateSeriesMock).not.toHaveBeenCalled()
   })
 
-  // Review fix: goals never materialize into a series — the pre-S10 wasRecurring
-  // gate implicitly protected goals (never recurring → false → updateTask); the
-  // !wasRecurring materialize arm must not remove that protection.
-  it('never routes a goal edited with a series frequency to updateTaskSeries', async () => {
+  // Review fix: goals never materialize into a series — the becomingSeries
+  // guard excludes type 'goal' regardless of the emitted frequency.
+  it('never routes a goal edited with a series frequency to updateSeries', async () => {
     const user = userEvent.setup()
     render(
       <CalendarClient
@@ -1168,26 +1412,25 @@ describe('CalendarClient — make-recurring routing (S10)', () => {
         expect.objectContaining({ id: 'evt-goal', recurrence: 'weekly' }),
       ),
     )
-    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+    expect(updateSeriesMock).not.toHaveBeenCalled()
   })
 })
 
-// ── seriesDays seeding + set-equality routing (S9 / 0.18.0) ─────────────────
+// ── seriesDays seeding (S9 / 0.18.0) ────────────────────────────────────────
 //
 // 0.18.0 seeds the chip edit popover's Days picker from `seriesDays` (decoupled
-// from the display-fan-out `recurrenceDays`), so handleSave re-emits days on
-// EVERY save. The routing predicate therefore switches from presence-based to
-// order-insensitive SET EQUALITY against the row's persisted recurrenceDays:
-// unchanged (even reordered) days keep updateTask (time change preserved); a
-// changed set routes to updateTaskSeries.
+// from the display-fan-out `recurrenceDays`). evt-series is GROUPED (wave 2.6
+// S4), so every edit — whether it re-emits the SAME day set (reordered) or a
+// genuinely CHANGED set — routes to updateSeries; the old client-side
+// set-equality routing predicate is gone (the server decides field vs pattern).
 
-describe('CalendarClient — seriesDays seeding + set-equality routing (S9)', () => {
+describe('CalendarClient — seriesDays seeding (S9) + grouped edit routing (wave 2.6 S4)', () => {
   beforeEach(() => {
     refreshMock.mockClear()
     updateTaskMock.mockClear()
     updateTaskMock.mockResolvedValue({})
-    updateTaskSeriesMock.mockClear()
-    updateTaskSeriesMock.mockResolvedValue({})
+    updateSeriesMock.mockClear()
+    updateSeriesMock.mockResolvedValue({})
     toastErrorMock.mockClear()
   })
 
@@ -1210,7 +1453,7 @@ describe('CalendarClient — seriesDays seeding + set-equality routing (S9)', ()
     expect(view.dataset.evtSeriesHasRecurrenceDays).toBe('false')
   })
 
-  it('keeps a time-only edit with the seeded days (reordered, same set) on updateTask', async () => {
+  it('routes a grouped edit re-emitting the seeded days (reordered, same set) to updateSeries', async () => {
     const user = userEvent.setup()
     render(
       <CalendarClient
@@ -1225,21 +1468,24 @@ describe('CalendarClient — seriesDays seeding + set-equality routing (S9)', ()
 
     await user.click(screen.getByRole('button', { name: 'trigger-edit-series-same-days' }))
 
-    // The re-emitted seeded set equals the persisted set (order-insensitive) →
-    // the time change must be written via updateTask, not dropped by a series edit.
     await waitFor(() =>
-      expect(updateTaskMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'evt-series',
-          startAt: '2026-01-06T15:30:00.000Z',
-          endAt: '2026-01-06T16:30:00.000Z',
-        }),
-      ),
+      expect(updateSeriesMock).toHaveBeenCalledWith({
+        taskId: 'evt-series',
+        title: 'Series',
+        startAt: '2026-01-06T15:30:00.000Z',
+        endAt: '2026-01-06T16:30:00.000Z',
+        color: null,
+        location: null,
+        description: null,
+        allDay: false,
+        recurrence: 'weekly',
+        recurrenceDays: ['Wed', 'Mon'],
+      }),
     )
-    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+    expect(updateTaskMock).not.toHaveBeenCalled()
   })
 
-  it('routes a genuinely changed weekday set to updateTaskSeries with the new tokens', async () => {
+  it('routes a grouped edit with a genuinely changed weekday set to updateSeries with the new tokens', async () => {
     const user = userEvent.setup()
     render(
       <CalendarClient
@@ -1255,13 +1501,186 @@ describe('CalendarClient — seriesDays seeding + set-equality routing (S9)', ()
     await user.click(screen.getByRole('button', { name: 'trigger-edit-series-changed-days' }))
 
     await waitFor(() =>
-      expect(updateTaskSeriesMock).toHaveBeenCalledWith({
-        taskId: 'evt-series',
-        recurrence: 'weekly',
-        recurrenceDays: ['Mon', 'Fri'],
-      }),
+      expect(updateSeriesMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskId: 'evt-series',
+          recurrence: 'weekly',
+          recurrenceDays: ['Mon', 'Fri'],
+        }),
+      ),
     )
     expect(updateTaskMock).not.toHaveBeenCalled()
+  })
+})
+
+// ── drag/time-change routing (wave 2.6 S4) ──────────────────────────────────
+//
+// Ungrouped rows keep the single-row rescheduleTask path (item 8). Grouped
+// rows route through updateSeries: a same-weekday drag is a time-of-day-only
+// rewrite (item 5); a cross-weekday drag on a row with a persisted weekday set
+// rewrites that set — old weekday out, new weekday in (item 6); a cross-
+// weekday drag with NO day set (daily/monthly interval series) has no set to
+// rewrite, so it also stays time-of-day-only (item 7).
+
+describe('CalendarClient — grouped drag routing (wave 2.6 S4)', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    rescheduleTaskMock.mockClear()
+    rescheduleTaskMock.mockResolvedValue({})
+    updateSeriesMock.mockClear()
+    updateSeriesMock.mockResolvedValue({})
+    toastErrorMock.mockClear()
+  })
+
+  it('routes an ungrouped drag to rescheduleTask, never updateSeries (item 8)', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-move' }))
+
+    await waitFor(() => expect(rescheduleTaskMock).toHaveBeenCalled())
+    expect(updateSeriesMock).not.toHaveBeenCalled()
+  })
+
+  it('routes a same-weekday drag on a grouped row to a time-only updateSeries payload (item 5)', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-move-grouped-samedow' }))
+
+    await waitFor(() =>
+      expect(updateSeriesMock).toHaveBeenCalledWith({
+        taskId: 'evt-grouped',
+        startAt: '2026-01-06T14:00:00.000Z',
+        endAt: '2026-01-06T15:00:00.000Z',
+      }),
+    )
+    expect(rescheduleTaskMock).not.toHaveBeenCalled()
+  })
+
+  it('rewrites the persisted weekday set on a cross-weekday drag (Mon out, Fri in) (item 6)', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-move-grouped-crossdow-days' }))
+
+    await waitFor(() =>
+      expect(updateSeriesMock).toHaveBeenCalledWith({
+        taskId: 'evt-grouped-days',
+        startAt: '2026-01-09T09:00:00.000Z',
+        endAt: '2026-01-09T10:00:00.000Z',
+        recurrence: 'weekly',
+        recurrenceDays: ['Wed', 'Fri'],
+      }),
+    )
+  })
+
+  it('stays time-of-day-only on a cross-weekday drag with no persisted day set (item 7)', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-move-grouped-crossdow-nodays' }))
+
+    await waitFor(() =>
+      expect(updateSeriesMock).toHaveBeenCalledWith({
+        taskId: 'evt-grouped-nodays',
+        startAt: '2026-01-08T09:00:00.000Z',
+        endAt: '2026-01-08T10:00:00.000Z',
+      }),
+    )
+  })
+})
+
+// ── complete/lock toggle stay per-occurrence on a grouped row (item 9) ──────
+
+describe('CalendarClient — complete/lock toggle on a grouped row (wave 2.6 S4, item 9)', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    updateTaskMock.mockClear()
+    updateTaskMock.mockResolvedValue({})
+    recordCompletionMock.mockClear()
+    recordCompletionMock.mockResolvedValue({})
+    updateSeriesMock.mockClear()
+    updateSeriesMock.mockResolvedValue({})
+  })
+
+  it('routes a complete toggle on a grouped (recurring) row through recordCompletion, never updateSeries', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-toggle-complete-grouped' }))
+
+    await waitFor(() =>
+      expect(recordCompletionMock).toHaveBeenCalledWith({ taskId: 'evt-grouped' }),
+    )
+    expect(updateSeriesMock).not.toHaveBeenCalled()
+    expect(updateTaskMock).not.toHaveBeenCalled()
+  })
+
+  it('routes a lock toggle on a grouped row through updateTask, never updateSeries', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-toggle-lock-grouped' }))
+
+    await waitFor(() =>
+      expect(updateTaskMock).toHaveBeenCalledWith({ id: 'evt-grouped', locked: true }),
+    )
+    expect(updateSeriesMock).not.toHaveBeenCalled()
   })
 })
 
@@ -1814,8 +2233,8 @@ describe('CalendarClient — lock toggle (A2.4)', () => {
     refreshMock.mockClear()
     updateTaskMock.mockClear()
     updateTaskMock.mockResolvedValue({})
-    updateTaskSeriesMock.mockClear()
-    updateTaskSeriesMock.mockResolvedValue({})
+    updateSeriesMock.mockClear()
+    updateSeriesMock.mockResolvedValue({})
     recordCompletionMock.mockClear()
     toastErrorMock.mockClear()
   })
@@ -1854,7 +2273,7 @@ describe('CalendarClient — lock toggle (A2.4)', () => {
 
     await waitFor(() => expect(updateTaskMock).toHaveBeenCalledWith({ id: 'evt-1', locked: true }))
     // Lock is neither a series-shaped edit nor a completion change.
-    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+    expect(updateSeriesMock).not.toHaveBeenCalled()
     expect(recordCompletionMock).not.toHaveBeenCalled()
     expect(refreshMock).toHaveBeenCalled()
   })
@@ -1877,7 +2296,7 @@ describe('CalendarClient — lock toggle (A2.4)', () => {
     await waitFor(() =>
       expect(updateTaskMock).toHaveBeenCalledWith({ id: 'evt-locked', locked: false }),
     )
-    expect(updateTaskSeriesMock).not.toHaveBeenCalled()
+    expect(updateSeriesMock).not.toHaveBeenCalled()
   })
 
   it('toasts and resyncs in place when the lock update fails to persist', async () => {

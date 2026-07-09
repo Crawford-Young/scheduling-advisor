@@ -106,6 +106,10 @@ export default async function CalendarPage({
         recurrenceDays: t.recurrenceDays ?? null,
         // Persisted lock flag seeds the chip's lock state (A2.4).
         locked: t.locked,
+        // Recurrence-group id (wave 2.6 S4): non-null means the row belongs to
+        // a fanned recurrence group, driving calendar-client's updateSeries
+        // routing instead of the per-occurrence updateTask/rescheduleTask paths.
+        recurrenceGroupId: t.recurrenceGroupId ?? null,
       }
     })
 
