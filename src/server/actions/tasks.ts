@@ -7,125 +7,23 @@ import {
   updateTaskSchema,
   deleteTaskSchema,
   updateTaskSeriesSchema,
-  type DayOfWeek,
 } from '@/lib/schemas/task'
 import { eq, and, gt } from 'drizzle-orm'
 import { ratelimit } from '@/lib/redis'
 import { logger } from '@/lib/logger'
+import {
+  DAY_TOKENS,
+  SINGLE_OCCURRENCE,
+  SINGLE_WEEK,
+  SUPPORTED_RECURRENCES,
+  buildIntervalRows,
+  buildWeekdayRows,
+  resolveSeriesBaseStart,
+  weeksFromCount,
+  type SeriesBaseFields,
+} from '@/lib/series-generation'
 
 type TaskActionResult = { data: (typeof tasks)['$inferSelect'] } | { error: unknown }
-type TaskInsert = (typeof tasks)['$inferInsert']
-
-// A fanned-out occurrence always carries a concrete startAt, which lets callers
-// key on it (e.g. the completed-slot skip in updateTaskSeries) without a re-guard.
-type GeneratedRow = TaskInsert & { readonly startAt: Date; readonly endAt: Date | null }
-
-const SUPPORTED_RECURRENCES = ['daily', 'weekly', 'monthly'] as const
-
-// Index of each weekday token — must match Date#getUTCDay (0 = Sunday). Mirrors
-// the library's DAY_ABBR ordering so recurrenceDays map to the right column.
-const DAY_TOKENS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
-const DAYS_PER_WEEK = 7
-const SINGLE_WEEK = 1
-// Distinct from SINGLE_WEEK: this is a fallback occurrence COUNT (buildIntervalRows'
-// `count` param), not a week count — same numeric value, different unit.
-const SINGLE_OCCURRENCE = 1
-
-// Weeks to fan a weekday pattern out over: `recurrenceCount` when it specifies
-// more than one week, else a single week. Shared by createTask's weekday
-// fan-out and updateTaskSeries' materialize/regenerate paths.
-function weeksFromCount(recurrenceCount: number | undefined): number {
-  return recurrenceCount !== undefined && recurrenceCount > SINGLE_WEEK
-    ? recurrenceCount
-    : SINGLE_WEEK
-}
-
-// The base date `buildWeekdayRows`/`buildIntervalRows` fan out from. When the
-// anchor's own occurrence is still in the future, generation must start from
-// the anchor's OWN week — re-anchoring to the week of `now` would fan out a
-// month (or more) away from where the anchor actually lives. When the anchor
-// is at/before `now`, keep the existing "this and following" re-anchor to the
-// week of `now`, so regenerating an old series only ever creates upcoming
-// rows, never backdated ones.
-function resolveSeriesBaseStart(anchorStart: Date, now: Date): Date {
-  if (anchorStart.getTime() > now.getTime()) {
-    return new Date(anchorStart)
-  }
-  const baseStart = new Date(anchorStart)
-  baseStart.setUTCFullYear(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  return baseStart
-}
-
-// Fields shared by every row of a recurrence group; the fan-out helpers stamp
-// startAt/endAt onto copies of this base.
-interface SeriesBaseFields {
-  readonly userId: string
-  readonly title: string
-  readonly type: TaskInsert['type']
-  readonly recurrence: string | null
-  readonly recurrenceGroupId: string
-  readonly recurrenceDays: readonly DayOfWeek[] | null
-  readonly recurrenceCount: number | null
-  readonly targetDate: Date | null
-  readonly location: string | null
-  readonly description: string | null
-  readonly color: string | null
-  readonly allDay: boolean
-}
-
-// Weekly multi-day fan-out: one row per selected weekday, anchored to that
-// weekday within `baseStart`'s week and repeated over `weeks` weeks. Times are
-// carried from baseStart/baseEnd.
-function buildWeekdayRows(
-  base: SeriesBaseFields,
-  baseStart: Date,
-  baseEnd: Date | null,
-  selectedDows: readonly number[],
-  weeks: number,
-): GeneratedRow[] {
-  const rows: GeneratedRow[] = []
-  const baseDow = baseStart.getUTCDay()
-  for (let week = 0; week < weeks; week++) {
-    for (const dow of selectedDows) {
-      const dayShift = dow - baseDow + week * DAYS_PER_WEEK
-      const start = new Date(baseStart)
-      start.setUTCDate(start.getUTCDate() + dayShift)
-      let end: Date | null = null
-      if (baseEnd) {
-        end = new Date(baseEnd)
-        end.setUTCDate(end.getUTCDate() + dayShift)
-      }
-      rows.push({ ...base, startAt: start, endAt: end })
-    }
-  }
-  return rows
-}
-
-// Interval fan-out: `count` occurrences stepping by the daily/weekly/monthly
-// recurrence from baseStart, times carried from baseStart/baseEnd.
-function buildIntervalRows(
-  base: SeriesBaseFields,
-  recurrence: string,
-  baseStart: Date,
-  baseEnd: Date | null,
-  count: number,
-): GeneratedRow[] {
-  return Array.from({ length: count }, (_, i) => {
-    const start = new Date(baseStart)
-    const end = baseEnd ? new Date(baseEnd) : null
-    if (recurrence === 'daily') {
-      start.setUTCDate(start.getUTCDate() + i)
-      if (end) end.setUTCDate(end.getUTCDate() + i)
-    } else if (recurrence === 'weekly') {
-      start.setUTCDate(start.getUTCDate() + i * DAYS_PER_WEEK)
-      if (end) end.setUTCDate(end.getUTCDate() + i * DAYS_PER_WEEK)
-    } else {
-      start.setUTCMonth(start.getUTCMonth() + i)
-      if (end) end.setUTCMonth(end.getUTCMonth() + i)
-    }
-    return { ...base, startAt: start, endAt: end }
-  })
-}
 
 export async function createTask(input: unknown): Promise<TaskActionResult> {
   const session = await auth()
