@@ -68,10 +68,17 @@ export const updateSeriesSchema = z.object({
   recurrenceCount: z.number().int().min(1).max(52).nullable().optional(),
 })
 
+// Whole-series delete contract (wave 2.6, S10): removes every occurrence row of
+// the group AND its slot tombstones. Keyed by the group id, not a single task id.
+export const deleteSeriesSchema = z.object({
+  groupId: z.string().uuid(),
+})
+
 export type DayOfWeek = z.infer<typeof dayOfWeekSchema>
 export type CreateTask = z.infer<typeof createTaskSchema>
 export type UpdateTask = z.infer<typeof updateTaskSchema>
 export type DeleteTask = z.infer<typeof deleteTaskSchema>
+export type DeleteSeries = z.infer<typeof deleteSeriesSchema>
 export type UpdateSeries = z.infer<typeof updateSeriesSchema>
 
 // The fields updateSeries propagates across every row of a recurrence group.

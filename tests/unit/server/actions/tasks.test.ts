@@ -3,8 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const mockReturningInsert = vi.hoisted(() =>
   vi.fn().mockResolvedValue([{ id: 'task-1', title: 'Run 5k', type: 'goal', status: 'pending' }]),
 )
+const mockOnConflict = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 const mockValuesInsert = vi.hoisted(() =>
-  vi.fn().mockReturnValue({ returning: mockReturningInsert }),
+  vi.fn().mockReturnValue({ returning: mockReturningInsert, onConflictDoNothing: mockOnConflict }),
 )
 const mockInsert = vi.hoisted(() => vi.fn().mockReturnValue({ values: mockValuesInsert }))
 
@@ -51,6 +52,12 @@ vi.mock('@/db/schema', () => ({
     recurrenceGroupId: 'tasks.recurrenceGroupId',
     status: 'tasks.status',
     startAt: 'tasks.startAt',
+  },
+  seriesSlotTombstones: {
+    id: 'tombstones.id',
+    userId: 'tombstones.userId',
+    recurrenceGroupId: 'tombstones.recurrenceGroupId',
+    slotStart: 'tombstones.slotStart',
   },
 }))
 
@@ -800,12 +807,69 @@ describe('updateTask grouped-row shared-field guard', () => {
 })
 
 describe('deleteTask', () => {
-  beforeEach(() => vi.clearAllMocks())
+  const DELETE_ID = '550e8400-e29b-41d4-a716-446655440000'
+  const primeRowOnce = (recurrenceGroupId: string | null, startAt: Date | null): void => {
+    mockSelectWhere.mockReturnValueOnce({
+      limit: vi.fn().mockResolvedValue([{ recurrenceGroupId, startAt }]),
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSelectWhere.mockReset()
+    // Restore the tombstone insert chain (createTask tests override values() with
+    // a returning-only stub that persists past clearAllMocks).
+    mockValuesInsert.mockReturnValue({
+      returning: mockReturningInsert,
+      onConflictDoNothing: mockOnConflict,
+    })
+    // Default pre-read: an ungrouped row (writes no tombstone).
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([{ recurrenceGroupId: null, startAt: null }]),
+    })
+  })
 
   it('deletes task with valid uuid', async () => {
     mockReturningDelete.mockResolvedValueOnce([{ id: 'task-1' }])
     const result = await deleteTask({ id: '550e8400-e29b-41d4-a716-446655440000' })
     expect(result).toMatchObject({ data: { success: true } })
+  })
+
+  it('writes a slot tombstone (group id + start) for a grouped row, idempotently', async () => {
+    primeRowOnce('grp-1', new Date('2026-05-18T09:00:00.000Z'))
+    mockReturningDelete.mockResolvedValueOnce([{ id: 'task-1' }])
+    await deleteTask({ id: DELETE_ID })
+    expect(mockInsert).toHaveBeenCalledTimes(1)
+    const tombstone = mockValuesInsert.mock.calls[0]![0] as {
+      userId: string
+      recurrenceGroupId: string
+      slotStart: Date
+    }
+    expect(tombstone.recurrenceGroupId).toBe('grp-1')
+    expect(tombstone.slotStart.toISOString()).toBe('2026-05-18T09:00:00.000Z')
+    expect(mockOnConflict).toHaveBeenCalledTimes(1)
+  })
+
+  it('writes no tombstone for an ungrouped row', async () => {
+    primeRowOnce(null, new Date('2026-05-18T09:00:00.000Z'))
+    mockReturningDelete.mockResolvedValueOnce([{ id: 'task-1' }])
+    await deleteTask({ id: DELETE_ID })
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('writes no tombstone for a grouped row that has no dated slot', async () => {
+    primeRowOnce('grp-1', null)
+    mockReturningDelete.mockResolvedValueOnce([{ id: 'task-1' }])
+    await deleteTask({ id: DELETE_ID })
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('writes no tombstone when the delete matched no row (not found)', async () => {
+    primeRowOnce('grp-1', new Date('2026-05-18T09:00:00.000Z'))
+    mockReturningDelete.mockResolvedValueOnce([])
+    const result = await deleteTask({ id: DELETE_ID })
+    expect(result).toMatchObject({ error: 'Not found' })
+    expect(mockInsert).not.toHaveBeenCalled()
   })
 
   it('returns not-found when task does not exist', async () => {

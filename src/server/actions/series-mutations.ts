@@ -2,8 +2,8 @@
 import * as Sentry from '@sentry/nextjs'
 import { auth } from '@/auth'
 import { db } from '@/db'
-import { tasks } from '@/db/schema'
-import { updateSeriesSchema } from '@/lib/schemas/task'
+import { tasks, seriesSlotTombstones } from '@/db/schema'
+import { updateSeriesSchema, deleteSeriesSchema } from '@/lib/schemas/task'
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { ratelimit } from '@/lib/redis'
 import { logger } from '@/lib/logger'
@@ -195,6 +195,18 @@ export async function updateSeries(input: unknown): Promise<TaskActionResult> {
         ),
       )
 
+    // A pattern rewrite is a fresh start: old per-slot deletions no longer apply,
+    // so clear the group's tombstones before regenerating (else a newly generated
+    // slot could be blocked by a stale tombstone from the previous pattern).
+    await db
+      .delete(seriesSlotTombstones)
+      .where(
+        and(
+          eq(seriesSlotTombstones.recurrenceGroupId, groupId),
+          eq(seriesSlotTombstones.userId, userId),
+        ),
+      )
+
     // Completed + in_progress rows survive. Their effective slots (own date +
     // the merged time-of-day) seed the dedupe so regeneration never duplicates
     // a survivor's occurrence.
@@ -326,6 +338,28 @@ export async function extendSeries(): Promise<ExtendSeriesResult> {
     }
   }
 
+  // One batched read of every tombstone for the user, indexed by group. A
+  // tombstoned slot is treated exactly like an existing row below: never
+  // regenerated — this is what stops the sweep resurrecting a deleted occurrence.
+  const tombstoneRows = await db
+    .select({
+      recurrenceGroupId: seriesSlotTombstones.recurrenceGroupId,
+      slotStart: seriesSlotTombstones.slotStart,
+    })
+    .from(seriesSlotTombstones)
+    .where(eq(seriesSlotTombstones.userId, userId))
+
+  const tombstonesByGroup = new Map<string, string[]>()
+  for (const t of tombstoneRows) {
+    const iso = t.slotStart.toISOString()
+    const existing = tombstonesByGroup.get(t.recurrenceGroupId)
+    if (existing) {
+      existing.push(iso)
+    } else {
+      tombstonesByGroup.set(t.recurrenceGroupId, [iso])
+    }
+  }
+
   let extended = 0
   for (const [groupId, groupRows] of groups) {
     const dated = groupRows.filter((r): r is TaskRow & { startAt: Date } => r.startAt !== null)
@@ -338,6 +372,10 @@ export async function extendSeries(): Promise<ExtendSeriesResult> {
     if (recurrence !== 'daily' && recurrence !== 'weekly' && recurrence !== 'monthly') continue
 
     const existingSlots = new Set(dated.map((r) => r.startAt.toISOString()))
+    // Union in tombstoned slots: they are skipped just like existing rows.
+    for (const iso of tombstonesByGroup.get(groupId) ?? []) {
+      existingSlots.add(iso)
+    }
     const selectedDows =
       maxRow.recurrenceDays && maxRow.recurrenceDays.length > 0
         ? maxRow.recurrenceDays.map((token) => DAY_TOKENS.indexOf(token)).sort((a, b) => a - b)
@@ -395,4 +433,39 @@ export async function safeExtendSeries(): Promise<void> {
   } catch (err) {
     Sentry.captureException(err)
   }
+}
+
+type DeleteSeriesResult = { data: { success: boolean } } | { error: unknown }
+
+/**
+ * Deletes an entire recurrence group: every occurrence row AND its slot
+ * tombstones (the series is gone, so per-slot deletions are dead weight). Both
+ * deletes are scoped to the session user. Mirrors `deleteTask`'s result shape.
+ */
+export async function deleteSeries(input: unknown): Promise<DeleteSeriesResult> {
+  const session = await auth()
+  if (!session?.user?.id) return { error: 'Unauthorized' }
+
+  const { success } = await ratelimit.limit(session.user.id)
+  if (!success) return { error: 'Too many requests' }
+
+  const parsed = deleteSeriesSchema.safeParse(input)
+  if (!parsed.success) return { error: parsed.error.flatten() }
+
+  const userId = session.user.id
+  const { groupId } = parsed.data
+
+  await db.delete(tasks).where(and(eq(tasks.recurrenceGroupId, groupId), eq(tasks.userId, userId)))
+
+  await db
+    .delete(seriesSlotTombstones)
+    .where(
+      and(
+        eq(seriesSlotTombstones.recurrenceGroupId, groupId),
+        eq(seriesSlotTombstones.userId, userId),
+      ),
+    )
+
+  logger.info({ userId, groupId }, 'Series deleted')
+  return { data: { success: true } }
 }
