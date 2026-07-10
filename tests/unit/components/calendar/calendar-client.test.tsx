@@ -649,7 +649,7 @@ describe('CalendarClient', () => {
     // wasRecurring gate implicitly protected goals (never recurring → false →
     // updateTask); the !wasRecurring materialize arm must not remove that
     // protection. e3 is a goal.
-    it('never routes a goal edited with a series frequency to updateTaskSeries', async () => {
+    it('never routes a goal edited with a series frequency to updateSeries', async () => {
       render(
         <CalendarClient
           weekStart="2026-05-25"
@@ -881,7 +881,7 @@ describe('CalendarClient', () => {
   // S9 / 0.18.0: seed the chip edit popover's Days picker from the row's
   // persisted recurrenceDays via `seriesDays` (decoupled from the display
   // fan-out field), then route by order-insensitive set equality so a re-emitted
-  // unchanged set keeps updateTask and a changed set routes to updateTaskSeries.
+  // unchanged set keeps updateTask and a changed set routes to updateSeries.
   describe('seriesDays seeding + set-equality routing (S9)', () => {
     it('seeds persisted recurrenceDays onto seriesDays, leaving the library recurrenceDays undefined', () => {
       render(

@@ -54,10 +54,12 @@ vi.mock('@/db/schema', () => ({
   },
 }))
 
-// Recording stubs (not real SQL builders) so the updateTaskSeries delete-predicate
-// test can assert the exact condition shape passed to `.where()`. Every other test
-// in this file is indifferent to these — the where()/set() mocks below return
-// fixed values regardless of the condition object they receive.
+// Recording stubs (not real SQL builders) so a delete-predicate test could assert
+// the exact condition shape passed to `.where()`. That assertion now lives in
+// series-mutations.test.ts (the series-edit action moved to
+// src/server/actions/series-mutations.ts) — every test in this file is
+// indifferent to these; the where()/set() mocks below return fixed values
+// regardless of the condition object they receive.
 vi.mock('drizzle-orm', () => ({
   and: vi.fn((...args: unknown[]) => ({ op: 'and', args })),
   eq: vi.fn((col: unknown, val: unknown) => ({ op: 'eq', col, val })),
