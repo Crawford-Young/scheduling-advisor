@@ -1,7 +1,7 @@
 'use server'
 import { auth } from '@/auth'
 import { db } from '@/db'
-import { tasks } from '@/db/schema'
+import { tasks, seriesSlotTombstones } from '@/db/schema'
 import {
   createTaskSchema,
   updateTaskSchema,
@@ -237,12 +237,33 @@ export async function deleteTask(
   const parsed = deleteTaskSchema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.flatten() }
 
+  // Read the slot identity BEFORE deleting: a grouped occurrence must leave a
+  // tombstone so the rolling auto-extend sweep never resurrects it.
+  const [row] = await db
+    .select({ recurrenceGroupId: tasks.recurrenceGroupId, startAt: tasks.startAt })
+    .from(tasks)
+    .where(and(eq(tasks.id, parsed.data.id), eq(tasks.userId, session.user.id)))
+    .limit(1)
+
   const deleted = await db
     .delete(tasks)
     .where(and(eq(tasks.id, parsed.data.id), eq(tasks.userId, session.user.id)))
     .returning({ id: tasks.id })
 
   if (deleted.length === 0) return { error: 'Not found' }
+
+  // Ungrouped rows (or a grouped row with no dated slot) leave no tombstone.
+  // The unique (group, slot) index makes the insert idempotent.
+  if (row?.recurrenceGroupId != null && row.startAt != null) {
+    await db
+      .insert(seriesSlotTombstones)
+      .values({
+        userId: session.user.id,
+        recurrenceGroupId: row.recurrenceGroupId,
+        slotStart: row.startAt,
+      })
+      .onConflictDoNothing()
+  }
 
   return { data: { success: true } }
 }

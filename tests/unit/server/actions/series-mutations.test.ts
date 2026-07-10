@@ -53,6 +53,12 @@ vi.mock('@/db/schema', () => ({
     status: 'tasks.status',
     startAt: 'tasks.startAt',
   },
+  seriesSlotTombstones: {
+    id: 'tombstones.id',
+    userId: 'tombstones.userId',
+    recurrenceGroupId: 'tombstones.recurrenceGroupId',
+    slotStart: 'tombstones.slotStart',
+  },
 }))
 
 // Recording stubs so the pattern-change delete predicate can be asserted exactly.
@@ -67,7 +73,12 @@ vi.mock('drizzle-orm', () => ({
 
 vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn() }))
 
-import { updateSeries, extendSeries, safeExtendSeries } from '@/server/actions/series-mutations'
+import {
+  updateSeries,
+  extendSeries,
+  safeExtendSeries,
+  deleteSeries,
+} from '@/server/actions/series-mutations'
 import { SERIES_SHARED_FIELDS } from '@/lib/schemas/task'
 import { isNull, isNotNull, inArray, eq } from 'drizzle-orm'
 import { SUPPORTED_RECURRENCES } from '@/lib/series-generation'
@@ -167,6 +178,10 @@ const setArgs = () =>
 beforeEach(() => {
   vi.clearAllMocks()
   mockSelectWhere.mockReset()
+  // Default for any un-primed select (e.g. extendSeries' per-user tombstone
+  // fetch): resolve to an empty result. primeSelect's mockReturnValueOnce calls
+  // are consumed first, so this never masks a primed anchor/groupRows read.
+  mockSelectWhere.mockReturnValue(Promise.resolve([]))
   mockReturningInsert.mockResolvedValue([{ id: 'new-1', title: 'Run', type: 'task' }])
   mockReturningUpdate.mockResolvedValue([{ id: 'task-1', title: 'Run', type: 'task' }])
   mockWhereDelete.mockResolvedValue(undefined)
@@ -256,7 +271,8 @@ describe('updateSeries — materialize a one-off', () => {
       expect(r.recurrenceGroupId).toBe(stampGroupId)
       expect(r.recurrenceDays).toEqual(['Mon', 'Tue'])
     }
-    expect(mockDelete).toHaveBeenCalledTimes(1)
+    // Two deletes on a pattern rewrite: pending rows, then the group's tombstones.
+    expect(mockDelete).toHaveBeenCalledTimes(2)
     expect(result).toMatchObject({ data: { id: 'new-1' } })
   })
 
@@ -735,6 +751,150 @@ describe('extendSeries', () => {
     expect(isos).not.toContain('2026-05-13T09:00:00.000Z')
     expect(isos.slice(0, 2)).toEqual(['2026-05-18T09:00:00.000Z', '2026-05-20T09:00:00.000Z'])
     expect(isos.every((iso) => new Date(iso).getTime() > wednesday.startAt!.getTime())).toBe(true)
+  })
+})
+
+describe('extendSeries — tombstone union (resurrect fix)', () => {
+  const openWeekly = (overrides: Partial<Row> = {}): Row =>
+    row({
+      recurrenceGroupId: 'grp-1',
+      recurrence: 'weekly',
+      recurrenceDays: null,
+      recurrenceCount: null,
+      startAt: new Date('2026-05-18T09:00:00.000Z'),
+      endAt: new Date('2026-05-18T10:00:00.000Z'),
+      ...overrides,
+    })
+
+  it('never regenerates a tombstoned slot (deleted newest occurrence stays gone)', async () => {
+    // Group max is 2026-05-18; the deleted newest occurrence was 2026-05-25 and
+    // is tombstoned. Without the union it would be resurrected inside the horizon.
+    mockSelectWhere.mockReturnValueOnce(Promise.resolve([openWeekly()]))
+    mockSelectWhere.mockReturnValueOnce(
+      Promise.resolve([
+        { recurrenceGroupId: 'grp-1', slotStart: new Date('2026-05-25T09:00:00.000Z') },
+      ]),
+    )
+
+    await extendSeries()
+
+    const isos = insertedRows().map((r) => r.startAt.toISOString())
+    expect(isos).not.toContain('2026-05-25T09:00:00.000Z')
+    // The next non-tombstoned slot is still generated.
+    expect(isos).toContain('2026-06-01T09:00:00.000Z')
+  })
+
+  it('still regenerates a missing slot that is NOT tombstoned', async () => {
+    mockSelectWhere.mockReturnValueOnce(Promise.resolve([openWeekly()]))
+    // Tombstone query defaults to [] (no tombstones).
+
+    await extendSeries()
+
+    const isos = insertedRows().map((r) => r.startAt.toISOString())
+    expect(isos).toContain('2026-05-25T09:00:00.000Z')
+  })
+
+  it('scopes a tombstone to its own group and ignores others', async () => {
+    mockSelectWhere.mockReturnValueOnce(Promise.resolve([openWeekly()]))
+    // Tombstone belongs to a DIFFERENT group — must not block grp-1's 05-25 slot.
+    mockSelectWhere.mockReturnValueOnce(
+      Promise.resolve([
+        { recurrenceGroupId: 'grp-other', slotStart: new Date('2026-05-25T09:00:00.000Z') },
+      ]),
+    )
+
+    await extendSeries()
+
+    const isos = insertedRows().map((r) => r.startAt.toISOString())
+    expect(isos).toContain('2026-05-25T09:00:00.000Z')
+  })
+
+  it('unions multiple tombstones within a single group (each slot blocked)', async () => {
+    mockSelectWhere.mockReturnValueOnce(Promise.resolve([openWeekly()]))
+    mockSelectWhere.mockReturnValueOnce(
+      Promise.resolve([
+        { recurrenceGroupId: 'grp-1', slotStart: new Date('2026-05-25T09:00:00.000Z') },
+        { recurrenceGroupId: 'grp-1', slotStart: new Date('2026-06-01T09:00:00.000Z') },
+      ]),
+    )
+
+    await extendSeries()
+
+    const isos = insertedRows().map((r) => r.startAt.toISOString())
+    expect(isos).not.toContain('2026-05-25T09:00:00.000Z')
+    expect(isos).not.toContain('2026-06-01T09:00:00.000Z')
+    expect(isos).toContain('2026-06-08T09:00:00.000Z')
+  })
+})
+
+describe('deleteSeries', () => {
+  it('returns Unauthorized when unauthenticated (no DB access)', async () => {
+    const { auth } = await import('@/auth')
+    vi.mocked(auth).mockResolvedValueOnce(null as never)
+    const result = await deleteSeries({ groupId: VALID_ID })
+    expect(result).toMatchObject({ error: 'Unauthorized' })
+    expect(mockDelete).not.toHaveBeenCalled()
+  })
+
+  it('returns Too many requests when rate limited (no DB access)', async () => {
+    const { ratelimit } = await import('@/lib/redis')
+    vi.mocked(ratelimit.limit).mockResolvedValueOnce({ success: false } as never)
+    const result = await deleteSeries({ groupId: VALID_ID })
+    expect(result).toMatchObject({ error: 'Too many requests' })
+    expect(mockDelete).not.toHaveBeenCalled()
+  })
+
+  it('returns an error for an invalid group id', async () => {
+    const result = await deleteSeries({ groupId: 'not-a-uuid' })
+    expect(result).toHaveProperty('error')
+    expect(mockDelete).not.toHaveBeenCalled()
+  })
+
+  it('deletes every group row and its tombstones, scoped to the owner', async () => {
+    const result = await deleteSeries({ groupId: VALID_ID })
+    expect(mockDelete).toHaveBeenCalledTimes(2)
+    const wheres = mockWhereDelete.mock.calls.map(
+      (c) => c[0] as { op: string; args: Array<{ op: string; col: string; val: unknown }> },
+    )
+    // Tasks delete: group + owner.
+    expect(wheres[0]!.args).toEqual([
+      { op: 'eq', col: 'tasks.recurrenceGroupId', val: VALID_ID },
+      { op: 'eq', col: 'tasks.userId', val: 'user-123' },
+    ])
+    // Tombstones delete: group + owner.
+    expect(wheres[1]!.args).toEqual([
+      { op: 'eq', col: 'tombstones.recurrenceGroupId', val: VALID_ID },
+      { op: 'eq', col: 'tombstones.userId', val: 'user-123' },
+    ])
+    expect(result).toMatchObject({ data: { success: true } })
+  })
+})
+
+describe('updateSeries — tombstone clearing on pattern rewrite', () => {
+  const deleteTargetsTombstones = (): boolean =>
+    mockWhereDelete.mock.calls.some((c) => {
+      const where = c[0] as { args?: Array<{ col?: string }> }
+      return (where.args ?? []).some((a) => a.col === 'tombstones.recurrenceGroupId')
+    })
+
+  it('deletes the group tombstones on a pattern rewrite (fresh start)', async () => {
+    const anchor = row({ startAt: new Date('2026-05-11T09:00:00.000Z'), status: 'pending' })
+    primeSelect([anchor], [anchor])
+    await updateSeries({ taskId: VALID_ID, recurrence: 'daily', recurrenceCount: 3 })
+    expect(deleteTargetsTombstones()).toBe(true)
+  })
+
+  it('leaves tombstones untouched on a shared-field-only edit', async () => {
+    primeSelect([row()], [row()])
+    await updateSeries({ taskId: VALID_ID, title: 'Renamed' })
+    expect(mockDelete).not.toHaveBeenCalled()
+    expect(deleteTargetsTombstones()).toBe(false)
+  })
+
+  it('leaves tombstones untouched when clearing the pattern (recurrence: null)', async () => {
+    primeSelect([row()], [row()])
+    await updateSeries({ taskId: VALID_ID, recurrence: null })
+    expect(deleteTargetsTombstones()).toBe(false)
   })
 })
 
