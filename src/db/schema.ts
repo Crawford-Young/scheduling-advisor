@@ -111,6 +111,24 @@ export const tasks = pgTable('tasks', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
+// Records a series occurrence that the user explicitly deleted, so the rolling
+// auto-extend sweep (src/server/actions/series-mutations.ts `extendSeries`) never
+// resurrects it. Keyed by (recurrence_group_id, slot_start) — one tombstone per
+// deleted slot. Cleared wholesale when the series is deleted or its pattern is
+// rewritten (a fresh start voids old per-slot deletions).
+export const seriesSlotTombstones = pgTable(
+  'series_slot_tombstones',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    recurrenceGroupId: uuid('recurrence_group_id').notNull(),
+    slotStart: timestamp('slot_start', { withTimezone: true, mode: 'date' }).notNull(),
+  },
+  (t) => [unique().on(t.recurrenceGroupId, t.slotStart)],
+)
+
 export const checkIns = pgTable(
   'check_ins',
   {
