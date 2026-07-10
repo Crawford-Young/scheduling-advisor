@@ -6,6 +6,7 @@ const authMock = vi.fn()
 const getUserTasksMock = vi.fn()
 const getTaskStreaksMock = vi.fn()
 const safeDeleteExpiredEventsMock = vi.fn()
+const safeExtendSeriesMock = vi.fn()
 const getCalendarPrefsMock = vi.fn()
 
 vi.mock('@/auth', () => ({ auth: () => authMock() }))
@@ -26,6 +27,10 @@ vi.mock('@/server/queries/consistency', () => ({
 
 vi.mock('@/server/actions/event-ttl', () => ({
   safeDeleteExpiredEvents: () => safeDeleteExpiredEventsMock(),
+}))
+
+vi.mock('@/server/actions/series-mutations', () => ({
+  safeExtendSeries: () => safeExtendSeriesMock(),
 }))
 
 vi.mock('@/server/queries/calendar-prefs', () => ({
@@ -73,7 +78,17 @@ describe('CalendarPage', () => {
     getUserTasksMock.mockReset().mockResolvedValue([])
     getTaskStreaksMock.mockReset().mockResolvedValue({})
     safeDeleteExpiredEventsMock.mockReset().mockResolvedValue(undefined)
+    safeExtendSeriesMock.mockReset().mockResolvedValue(undefined)
     getCalendarPrefsMock.mockReset().mockResolvedValue(null)
+  })
+
+  it('sweeps safeExtendSeries after safeDeleteExpiredEvents and before getUserTasks', async () => {
+    await CalendarPage({ searchParams: Promise.resolve({}) })
+    const deleteOrder = safeDeleteExpiredEventsMock.mock.invocationCallOrder[0]!
+    const extendOrder = safeExtendSeriesMock.mock.invocationCallOrder[0]!
+    const tasksOrder = getUserTasksMock.mock.invocationCallOrder[0]!
+    expect(deleteOrder).toBeLessThan(extendOrder)
+    expect(extendOrder).toBeLessThan(tasksOrder)
   })
 
   it('redirects to /login when unauthenticated', async () => {

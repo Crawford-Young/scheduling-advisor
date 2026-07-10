@@ -5,6 +5,7 @@ import { getUserTasks } from '@/server/queries/tasks'
 import { getTaskStreaks } from '@/server/queries/consistency'
 import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
 import { safeDeleteExpiredEvents } from '@/server/actions/event-ttl'
+import { safeExtendSeries } from '@/server/actions/series-mutations'
 import { EmptyState } from '@/lib/ui'
 import { OpenChatButton } from '@/components/chat/open-chat-button'
 import { ActivityFilters } from '@/components/activity/activity-filters'
@@ -93,6 +94,7 @@ export default async function ActivitiesPage({
   const filter = resolveFilter(type)
 
   await safeDeleteExpiredEvents()
+  await safeExtendSeries()
   const prefs = await getCalendarPrefs()
   const use24h = prefs?.use24h ?? false
   const allTasks = await getUserTasks()
