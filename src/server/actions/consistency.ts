@@ -16,6 +16,12 @@ interface CompletionResult {
 
 type ActionResult<T> = { data: T } | { error: string }
 
+// rescheduleTask only ever writes shared time-of-day fields (startAt/endAt/
+// targetDate), so any call against a grouped row is a defect — that write
+// must go through `updateSeries` (src/server/actions/series-mutations.ts) so
+// every row in the group stays in sync.
+const GROUPED_ROW_ERROR = 'Grouped rows are series-managed — use updateSeries'
+
 export async function recordCompletion(input: unknown): Promise<ActionResult<CompletionResult>> {
   const session = await auth()
   if (!session?.user?.id) return { error: 'Unauthorized' }
@@ -73,6 +79,15 @@ export async function rescheduleTask(input: unknown): Promise<ActionResult<{ id:
   if (!parsed.success) return { error: parsed.error.message }
 
   const { taskId, newStartAt, newEndAt, newTargetDate } = parsed.data
+  const userId = session.user.id
+
+  const [row] = await db
+    .select({ recurrenceGroupId: tasks.recurrenceGroupId })
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
+    .limit(1)
+
+  if (row?.recurrenceGroupId != null) return { error: GROUPED_ROW_ERROR }
 
   const [task] = await db
     .update(tasks)
@@ -82,7 +97,7 @@ export async function rescheduleTask(input: unknown): Promise<ActionResult<{ id:
       ...(newTargetDate !== undefined && { targetDate: new Date(newTargetDate) }),
       updatedAt: new Date(),
     })
-    .where(and(eq(tasks.id, taskId), eq(tasks.userId, session.user.id)))
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
     .returning({ id: tasks.id })
 
   if (!task) return { error: 'Not found' }
