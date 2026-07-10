@@ -73,3 +73,20 @@ export type CreateTask = z.infer<typeof createTaskSchema>
 export type UpdateTask = z.infer<typeof updateTaskSchema>
 export type DeleteTask = z.infer<typeof deleteTaskSchema>
 export type UpdateSeries = z.infer<typeof updateSeriesSchema>
+
+// The fields updateSeries propagates across every row of a recurrence group.
+// `status`, streak and `locked` are per-occurrence and never appear here — that
+// writer never touches them. S4/S5/S6/S7 consume this list verbatim. Lives here
+// (not in series-mutations.ts) because a 'use server' module may only export
+// async functions — a plain const export there 500s every importing page.
+export const SERIES_SHARED_FIELDS = [
+  'title',
+  'color',
+  'location',
+  'description',
+  'allDay',
+  'recurrence',
+  'recurrenceDays',
+  'recurrenceCount',
+] as const
+export type SeriesSharedField = (typeof SERIES_SHARED_FIELDS)[number]
