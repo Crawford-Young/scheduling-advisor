@@ -48,6 +48,8 @@ vi.mock('@/db/schema', () => ({
     id: 'tasks.id',
     userId: 'tasks.userId',
     recurrenceGroupId: 'tasks.recurrenceGroupId',
+    recurrenceCount: 'tasks.recurrenceCount',
+    recurrence: 'tasks.recurrence',
     status: 'tasks.status',
     startAt: 'tasks.startAt',
   },
@@ -58,9 +60,22 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn((...args: unknown[]) => ({ op: 'and', args })),
   eq: vi.fn((col: unknown, val: unknown) => ({ op: 'eq', col, val })),
   gt: vi.fn((col: unknown, val: unknown) => ({ op: 'gt', col, val })),
+  isNull: vi.fn((col: unknown) => ({ op: 'isNull', col })),
+  isNotNull: vi.fn((col: unknown) => ({ op: 'isNotNull', col })),
+  inArray: vi.fn((col: unknown, val: unknown) => ({ op: 'inArray', col, val })),
 }))
 
-import { updateSeries, SERIES_SHARED_FIELDS } from '@/server/actions/series-mutations'
+vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn() }))
+
+import {
+  updateSeries,
+  extendSeries,
+  safeExtendSeries,
+  SERIES_SHARED_FIELDS,
+} from '@/server/actions/series-mutations'
+import { isNull, isNotNull, inArray, eq } from 'drizzle-orm'
+import { SUPPORTED_RECURRENCES } from '@/lib/series-generation'
+import * as Sentry from '@sentry/nextjs'
 
 const VALID_ID = '550e8400-e29b-41d4-a716-446655440000'
 
@@ -586,5 +601,148 @@ describe('updateSeries — pattern change (regenerate)', () => {
     const result = await updateSeries({ taskId: VALID_ID, recurrence: 'daily' })
     expect(mockInsert).not.toHaveBeenCalled()
     expect(result).toMatchObject({ data: { id: 'task-1', recurrenceGroupId: 'grp-1' } })
+  })
+})
+
+describe('extendSeries', () => {
+  it('returns Unauthorized with zero DB reads/writes when unauthenticated', async () => {
+    const { auth } = await import('@/auth')
+    vi.mocked(auth).mockResolvedValueOnce(null as never)
+    const result = await extendSeries()
+    expect(result).toMatchObject({ error: 'Unauthorized' })
+    expect(mockSelect).not.toHaveBeenCalled()
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('builds the selection predicate and ignores rows that cannot be extended (defensive)', async () => {
+    mockSelectWhere.mockReturnValueOnce(
+      Promise.resolve([
+        // A row with no group id at all — should never be grouped.
+        row({ recurrenceGroupId: null, startAt: null }),
+        // A lone row in its own group with no startAt — group has nothing dated.
+        row({ id: 'no-start', recurrenceGroupId: 'grp-nostart', startAt: null, endAt: null }),
+        // A group whose (only) row carries an unsupported recurrence value.
+        row({
+          id: 'bad-recurrence',
+          recurrenceGroupId: 'grp-bad',
+          recurrence: 'yearly',
+          startAt: new Date('2026-05-18T09:00:00.000Z'),
+        }),
+      ]),
+    )
+
+    const result = await extendSeries()
+
+    expect(vi.mocked(eq).mock.calls).toContainEqual(['tasks.userId', 'user-123'])
+    expect(vi.mocked(isNotNull).mock.calls).toContainEqual(['tasks.recurrenceGroupId'])
+    expect(vi.mocked(isNull).mock.calls).toContainEqual(['tasks.recurrenceCount'])
+    expect(vi.mocked(inArray).mock.calls).toContainEqual([
+      'tasks.recurrence',
+      SUPPORTED_RECURRENCES,
+    ])
+    expect(mockInsert).not.toHaveBeenCalled()
+    expect(result).toEqual({ data: { extended: 0 } })
+  })
+
+  it('extends an open-ended group below the threshold up to the 8-week horizon, and skips a group at/above it', async () => {
+    // grp-A: maxStart is 2026-05-18T09:00, well inside now (Mon 2026-05-18) + 4
+    // weeks — extends. Monthly open-ended steps from maxStart; only 2026-06-18
+    // lands inside the 8-week horizon window (2026-07-13 cutoff).
+    const groupA = row({
+      id: 'a-max',
+      recurrenceGroupId: 'grp-A',
+      recurrence: 'monthly',
+      recurrenceDays: null,
+      recurrenceCount: null,
+      startAt: new Date('2026-05-18T09:00:00.000Z'),
+      endAt: new Date('2026-05-18T10:00:00.000Z'),
+      color: 'violet',
+      location: 'Gym',
+      description: 'legs',
+    })
+    // An older row in the SAME group, listed after the max — exercises the
+    // reduce's "existing max wins" branch (not just "new max found").
+    const groupAOlder = row({
+      id: 'a-older',
+      recurrenceGroupId: 'grp-A',
+      recurrence: 'monthly',
+      recurrenceDays: null,
+      recurrenceCount: null,
+      startAt: new Date('2026-04-18T09:00:00.000Z'),
+      endAt: new Date('2026-04-18T10:00:00.000Z'),
+    })
+    // grp-B: maxStart is already at/beyond the 4-week threshold — untouched.
+    const groupB = row({
+      id: 'b-max',
+      recurrenceGroupId: 'grp-B',
+      recurrence: 'weekly',
+      recurrenceDays: null,
+      recurrenceCount: null,
+      startAt: new Date('2026-06-20T09:00:00.000Z'),
+      endAt: new Date('2026-06-20T10:00:00.000Z'),
+    })
+    mockSelectWhere.mockReturnValueOnce(Promise.resolve([groupA, groupAOlder, groupB]))
+
+    const result = await extendSeries()
+
+    expect(mockInsert).toHaveBeenCalledTimes(1)
+    const rows = insertedRows()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.startAt.toISOString()).toBe('2026-06-18T09:00:00.000Z')
+    expect(rows[0]!.recurrenceGroupId).toBe('grp-A')
+    expect(rows[0]!.color).toBe('violet')
+    expect(result).toEqual({ data: { extended: 1 } })
+  })
+
+  it('dedupes existing slots and never inserts a slot at or before the group max startAt', async () => {
+    // Same group, two existing rows: Monday and Wednesday of the week containing
+    // the group's max startAt (Wednesday). Both must be excluded from the
+    // generated top-up — Monday via existingSlots, Wednesday via existingSlots
+    // AND notBefore (it IS the max).
+    const monday = row({
+      id: 'mon',
+      recurrenceGroupId: 'grp-1',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Wed'],
+      recurrenceCount: null,
+      startAt: new Date('2026-05-11T09:00:00.000Z'),
+      endAt: new Date('2026-05-11T10:00:00.000Z'),
+    })
+    const wednesday = row({
+      id: 'wed',
+      recurrenceGroupId: 'grp-1',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Wed'],
+      recurrenceCount: null,
+      startAt: new Date('2026-05-13T09:00:00.000Z'),
+      endAt: new Date('2026-05-13T10:00:00.000Z'),
+    })
+    mockSelectWhere.mockReturnValueOnce(Promise.resolve([monday, wednesday]))
+
+    await extendSeries()
+
+    const rows = insertedRows()
+    const isos = rows.map((r) => r.startAt.toISOString())
+    expect(isos).not.toContain('2026-05-11T09:00:00.000Z')
+    expect(isos).not.toContain('2026-05-13T09:00:00.000Z')
+    expect(isos.slice(0, 2)).toEqual(['2026-05-18T09:00:00.000Z', '2026-05-20T09:00:00.000Z'])
+    expect(isos.every((iso) => new Date(iso).getTime() > wednesday.startAt!.getTime())).toBe(true)
+  })
+})
+
+describe('safeExtendSeries', () => {
+  it('resolves without throwing and does not report to Sentry on success', async () => {
+    mockSelectWhere.mockReturnValueOnce(Promise.resolve([]))
+    await expect(safeExtendSeries()).resolves.toBeUndefined()
+    expect(Sentry.captureException).not.toHaveBeenCalled()
+  })
+
+  it('swallows a thrown error and reports it to Sentry instead of throwing', async () => {
+    const dbError = new Error('db unreachable')
+    mockSelectWhere.mockImplementationOnce(() => {
+      throw dbError
+    })
+    await expect(safeExtendSeries()).resolves.toBeUndefined()
+    expect(Sentry.captureException).toHaveBeenCalledWith(dbError)
   })
 })

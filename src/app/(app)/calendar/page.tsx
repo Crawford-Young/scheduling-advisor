@@ -5,6 +5,7 @@ import { getUserTasks } from '@/server/queries/tasks'
 import { getTaskStreaks } from '@/server/queries/consistency'
 import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
 import { safeDeleteExpiredEvents } from '@/server/actions/event-ttl'
+import { safeExtendSeries } from '@/server/actions/series-mutations'
 import { CalendarClient } from '@/components/calendar/calendar-client'
 import {
   DEFAULT_WAKE_MINUTES,
@@ -74,6 +75,7 @@ export default async function CalendarPage({
   }))
 
   await safeDeleteExpiredEvents()
+  await safeExtendSeries()
   const allTasks = await getUserTasks()
 
   const taskIds = allTasks.map((t) => t.id)

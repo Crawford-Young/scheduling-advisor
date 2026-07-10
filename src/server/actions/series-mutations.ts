@@ -1,15 +1,21 @@
 'use server'
+import * as Sentry from '@sentry/nextjs'
 import { auth } from '@/auth'
 import { db } from '@/db'
 import { tasks } from '@/db/schema'
 import { updateSeriesSchema } from '@/lib/schemas/task'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { ratelimit } from '@/lib/redis'
 import { logger } from '@/lib/logger'
 import {
   DAY_TOKENS,
+  EXTEND_THRESHOLD_WEEKS,
+  HORIZON_WEEKS,
+  MS_PER_WEEK,
+  SUPPORTED_RECURRENCES,
   generateSeriesRows,
   resolveSeriesWindow,
+  sundayOfWeekUTC,
   type SeriesBaseFields,
 } from '@/lib/series-generation'
 
@@ -291,4 +297,117 @@ export async function updateSeries(input: unknown): Promise<TaskActionResult> {
   if (!representative) return { error: 'Not found' }
   logger.info({ userId, groupId, rows: groupRows.length }, 'Series shared fields updated')
   return { data: representative }
+}
+
+type ExtendSeriesResult = { data: { extended: number } } | { error: unknown }
+
+/**
+ * Rolling 8-week auto-extend for open-ended (uncounted) recurring series.
+ * Swept on every calendar/activities page read via `safeExtendSeries` below.
+ * Counted series (`recurrenceCount` set) are excluded by the selection
+ * predicate and never extended.
+ */
+export async function extendSeries(): Promise<ExtendSeriesResult> {
+  const session = await auth()
+  if (!session?.user?.id) return { error: 'Unauthorized' }
+
+  const userId = session.user.id
+  const now = new Date()
+  const extendCutoff = now.getTime() + EXTEND_THRESHOLD_WEEKS * MS_PER_WEEK
+
+  const candidateRows = await db
+    .select()
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.userId, userId),
+        isNotNull(tasks.recurrenceGroupId),
+        isNull(tasks.recurrenceCount),
+        inArray(tasks.recurrence, SUPPORTED_RECURRENCES),
+      ),
+    )
+
+  const groupedRows = candidateRows.filter(
+    (r): r is TaskRow & { recurrenceGroupId: string } => r.recurrenceGroupId !== null,
+  )
+
+  const groups = new Map<string, TaskRow[]>()
+  for (const r of groupedRows) {
+    const existing = groups.get(r.recurrenceGroupId)
+    if (existing) {
+      existing.push(r)
+    } else {
+      groups.set(r.recurrenceGroupId, [r])
+    }
+  }
+
+  let extended = 0
+  for (const [groupId, groupRows] of groups) {
+    const dated = groupRows.filter((r): r is TaskRow & { startAt: Date } => r.startAt !== null)
+    if (dated.length === 0) continue
+
+    const maxRow = dated.reduce((max, r) => (r.startAt.getTime() > max.startAt.getTime() ? r : max))
+    if (maxRow.startAt.getTime() >= extendCutoff) continue
+
+    const recurrence = maxRow.recurrence
+    if (recurrence !== 'daily' && recurrence !== 'weekly' && recurrence !== 'monthly') continue
+
+    const existingSlots = new Set(dated.map((r) => r.startAt.toISOString()))
+    const selectedDows =
+      maxRow.recurrenceDays && maxRow.recurrenceDays.length > 0
+        ? maxRow.recurrenceDays.map((token) => DAY_TOKENS.indexOf(token)).sort((a, b) => a - b)
+        : null
+
+    const base: SeriesBaseFields = {
+      userId,
+      title: maxRow.title,
+      type: maxRow.type,
+      recurrence,
+      recurrenceGroupId: groupId,
+      recurrenceDays: maxRow.recurrenceDays,
+      recurrenceCount: maxRow.recurrenceCount,
+      targetDate: maxRow.targetDate,
+      location: maxRow.location,
+      description: maxRow.description,
+      color: maxRow.color,
+      allDay: maxRow.allDay,
+    }
+
+    const window = {
+      start: sundayOfWeekUTC(maxRow.startAt),
+      end: new Date(now.getTime() + HORIZON_WEEKS * MS_PER_WEEK),
+    }
+
+    const generated = generateSeriesRows({
+      base,
+      template: { start: maxRow.startAt, end: maxRow.endAt },
+      window,
+      recurrence,
+      selectedDows,
+      intervalCount: null,
+      existingSlots,
+      notBefore: maxRow.startAt,
+    })
+
+    if (generated.length > 0) {
+      const inserted = await db.insert(tasks).values(generated).returning()
+      extended += inserted.length
+    }
+  }
+
+  logger.info({ userId, groups: groups.size, extended }, 'Series auto-extend swept')
+  return { data: { extended } }
+}
+
+/**
+ * Read-path-safe wrapper: never throws. Mirrors `safeDeleteExpiredEvents`
+ * (`src/server/actions/event-ttl.ts`) so a broken auto-extend sweep cannot
+ * crash a calendar/activities page render.
+ */
+export async function safeExtendSeries(): Promise<void> {
+  try {
+    await extendSeries()
+  } catch (err) {
+    Sentry.captureException(err)
+  }
 }
