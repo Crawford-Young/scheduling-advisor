@@ -8,6 +8,7 @@ const getTaskStreaksMock = vi.fn()
 const safeDeleteExpiredEventsMock = vi.fn()
 const safeExtendSeriesMock = vi.fn()
 const getCalendarPrefsMock = vi.fn()
+const reportSeriesDriftMock = vi.fn()
 
 vi.mock('@/auth', () => ({ auth: () => authMock() }))
 
@@ -35,6 +36,10 @@ vi.mock('@/server/actions/series-mutations', () => ({
 
 vi.mock('@/server/queries/calendar-prefs', () => ({
   getCalendarPrefs: () => getCalendarPrefsMock(),
+}))
+
+vi.mock('@/lib/series-consistency', () => ({
+  reportSeriesDrift: (rows: unknown) => reportSeriesDriftMock(rows),
 }))
 
 interface MockCalendarClientEvent {
@@ -80,6 +85,7 @@ describe('CalendarPage', () => {
     safeDeleteExpiredEventsMock.mockReset().mockResolvedValue(undefined)
     safeExtendSeriesMock.mockReset().mockResolvedValue(undefined)
     getCalendarPrefsMock.mockReset().mockResolvedValue(null)
+    reportSeriesDriftMock.mockReset()
   })
 
   it('sweeps safeExtendSeries after safeDeleteExpiredEvents and before getUserTasks', async () => {
@@ -89,6 +95,40 @@ describe('CalendarPage', () => {
     const tasksOrder = getUserTasksMock.mock.invocationCallOrder[0]!
     expect(deleteOrder).toBeLessThan(extendOrder)
     expect(extendOrder).toBeLessThan(tasksOrder)
+  })
+
+  it('reports series drift after getUserTasks and still renders the calendar normally', async () => {
+    const groupedTask = {
+      id: 'task-1',
+      title: 'Grouped task',
+      startAt: new Date('2026-06-01T09:00:00.000Z'),
+      endAt: new Date('2026-06-01T10:00:00.000Z'),
+      targetDate: null,
+      type: 'task',
+      status: 'pending',
+      activityType: 'solo',
+      visibility: 'only_me',
+      color: null,
+      allDay: false,
+      location: null,
+      description: null,
+      recurrence: null,
+      recurrenceDays: null,
+      recurrenceGroupId: 'group-1',
+      locked: false,
+    }
+    getUserTasksMock.mockResolvedValueOnce([groupedTask])
+
+    const { getByTestId } = render(await CalendarPage({ searchParams: Promise.resolve({}) }))
+
+    const tasksOrder = getUserTasksMock.mock.invocationCallOrder[0]!
+    const driftOrder = reportSeriesDriftMock.mock.invocationCallOrder[0]!
+    expect(tasksOrder).toBeLessThan(driftOrder)
+    expect(reportSeriesDriftMock).toHaveBeenCalledWith([groupedTask])
+    expect(getByTestId('calendar-client')).toHaveAttribute(
+      'data-evt0-recurrence-group-id',
+      'group-1',
+    )
   })
 
   it('redirects to /login when unauthenticated', async () => {
