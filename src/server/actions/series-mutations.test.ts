@@ -67,15 +67,23 @@ vi.mock('drizzle-orm', () => ({
 
 vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn() }))
 
-import {
-  updateSeries,
-  extendSeries,
-  safeExtendSeries,
-  SERIES_SHARED_FIELDS,
-} from '@/server/actions/series-mutations'
+import { updateSeries, extendSeries, safeExtendSeries } from '@/server/actions/series-mutations'
+import { SERIES_SHARED_FIELDS } from '@/lib/schemas/task'
 import { isNull, isNotNull, inArray, eq } from 'drizzle-orm'
 import { SUPPORTED_RECURRENCES } from '@/lib/series-generation'
 import * as Sentry from '@sentry/nextjs'
+
+// Regression guard: a 'use server' module may only export async functions —
+// exporting a plain value (e.g. a shared-fields const) is a runtime 500 on
+// every page that imports this module (Next.js "use server" export rule).
+describe('module export shape', () => {
+  it('every export from series-mutations is a function (use server contract)', async () => {
+    const mod = await import('@/server/actions/series-mutations')
+    for (const [name, value] of Object.entries(mod)) {
+      expect(typeof value, `export "${name}" must be a function`).toBe('function')
+    }
+  })
+})
 
 const VALID_ID = '550e8400-e29b-41d4-a716-446655440000'
 

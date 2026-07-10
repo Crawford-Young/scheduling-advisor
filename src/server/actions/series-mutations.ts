@@ -19,21 +19,6 @@ import {
   type SeriesBaseFields,
 } from '@/lib/series-generation'
 
-// The fields updateSeries propagates across every row of a recurrence group.
-// `status`, streak and `locked` are per-occurrence and never appear here — this
-// writer never touches them. S4/S5/S6/S7 consume this list verbatim.
-export const SERIES_SHARED_FIELDS = [
-  'title',
-  'color',
-  'location',
-  'description',
-  'allDay',
-  'recurrence',
-  'recurrenceDays',
-  'recurrenceCount',
-] as const
-export type SeriesSharedField = (typeof SERIES_SHARED_FIELDS)[number]
-
 type TaskRow = (typeof tasks)['$inferSelect']
 type TaskActionResult = { data: TaskRow } | { error: unknown }
 
