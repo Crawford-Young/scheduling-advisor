@@ -430,6 +430,7 @@ export function CalendarClient({
           sleepEnd={sleepEnd}
           dayWindows={dayWindows}
           use24h={use24h}
+          recurrenceEditMode="server"
         />
       </div>
 
