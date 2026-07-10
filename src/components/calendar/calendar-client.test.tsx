@@ -105,6 +105,7 @@ interface WeekCalendarViewProps {
   readonly sleepEnd?: number
   readonly dayWindows?: readonly MockDayWindow[]
   readonly use24h?: boolean
+  readonly recurrenceEditMode?: 'local' | 'server'
 }
 
 // id matches EVENTS[0].id (a pending, non-completed row).
@@ -210,6 +211,10 @@ vi.mock('@/lib/ui', () => ({
       // remounting. Every server-mutating success path bumps it after the
       // router.refresh transition settles; guard/cancel paths bump it immediately.
       data-resync-token={String(props.resyncToken ?? '')}
+      // 0.21.0: server-materialized rows need chip-popover edits to preserve a
+      // stored row's empty recurrenceDays instead of the library's default
+      // fan-out-adopt behavior.
+      data-recurrence-edit-mode={props.recurrenceEditMode ?? ''}
     >
       <button type="button" onClick={() => props.onEventDelete?.(STUB_LIB_EVENT)}>
         trigger-delete
@@ -2322,5 +2327,30 @@ describe('CalendarClient — lock toggle (A2.4)', () => {
     await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
     expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
     expect(refreshMock).toHaveBeenCalled()
+  })
+})
+
+// ── recurrenceEditMode pass-through (0.21.0) ────────────────────────────────
+//
+// This app's calendar rows are server-materialized, so the interactive
+// calendar must opt WeekCalendarView into 'server' edit semantics: chip-
+// popover edits preserve a stored row's empty recurrenceDays instead of the
+// library's default local fan-out-adopt behavior.
+
+describe('CalendarClient — recurrenceEditMode pass-through (0.21.0)', () => {
+  it("passes recurrenceEditMode='server' to WeekCalendarView", () => {
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    const view = screen.getByTestId('week-calendar-view')
+    expect(view.dataset.recurrenceEditMode).toBe('server')
   })
 })
