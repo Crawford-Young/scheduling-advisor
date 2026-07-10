@@ -8,7 +8,8 @@ import type { DayOfWeek } from '@/lib/schemas/task'
 type TaskInsert = (typeof tasks)['$inferInsert']
 
 // A fanned-out occurrence always carries a concrete startAt, which lets callers
-// key on it (e.g. the completed-slot skip in updateTaskSeries) without a re-guard.
+// key on it (e.g. the survivor-slot dedupe in updateSeries' pattern-rewrite path,
+// src/server/actions/series-mutations.ts) without a re-guard.
 export type GeneratedRow = TaskInsert & { readonly startAt: Date; readonly endAt: Date | null }
 
 export const SUPPORTED_RECURRENCES = ['daily', 'weekly', 'monthly'] as const
@@ -40,7 +41,8 @@ export const EXTEND_THRESHOLD_WEEKS = 4
 
 // Weeks to fan a weekday pattern out over: `recurrenceCount` when it specifies
 // more than one week, else a single week. Shared by createTask's weekday
-// fan-out and updateTaskSeries' materialize/regenerate paths.
+// fan-out and updateSeries' materialize/regenerate paths (src/server/actions/
+// series-mutations.ts).
 export function weeksFromCount(recurrenceCount: number | undefined): number {
   return recurrenceCount !== undefined && recurrenceCount > SINGLE_WEEK
     ? recurrenceCount
