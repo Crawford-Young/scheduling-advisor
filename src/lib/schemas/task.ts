@@ -49,15 +49,6 @@ export const deleteTaskSchema = z.object({
   id: z.string().uuid(),
 })
 
-// Regenerate a recurrence group's future pending occurrences from a new pattern.
-// `taskId` resolves the group; the anchor row supplies title/time-of-day/duration.
-export const updateTaskSeriesSchema = z.object({
-  taskId: z.string().min(1),
-  recurrence: z.enum(['daily', 'weekly', 'monthly']),
-  recurrenceDays: dayTokenArraySchema.optional(),
-  recurrenceCount: z.number().int().min(1).max(52).optional(),
-})
-
 // Single grouped-row edit contract (wave 2.6): every field here except `taskId`
 // is a SHARED field propagated across the whole recurrence group. `status` and
 // `locked` are per-occurrence and never appear — updateSeries never writes them.
@@ -81,5 +72,4 @@ export type DayOfWeek = z.infer<typeof dayOfWeekSchema>
 export type CreateTask = z.infer<typeof createTaskSchema>
 export type UpdateTask = z.infer<typeof updateTaskSchema>
 export type DeleteTask = z.infer<typeof deleteTaskSchema>
-export type UpdateTaskSeries = z.infer<typeof updateTaskSeriesSchema>
 export type UpdateSeries = z.infer<typeof updateSeriesSchema>

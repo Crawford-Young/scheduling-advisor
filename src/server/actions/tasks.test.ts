@@ -10,6 +10,11 @@ let insertValues: Record<string, unknown> | Array<Record<string, unknown>> = {}
 let updateSet: Record<string, unknown> = {}
 const id = crypto.randomUUID()
 
+// The grouped-row guard selects the row's recurrenceGroupId before writing.
+// Default (overridable per-test via mockReturnValueOnce): ungrouped.
+let selectGroupId: string | null = null
+const selectLimit = vi.fn().mockImplementation(() => [{ recurrenceGroupId: selectGroupId }])
+
 vi.mock('@/db', () => {
   const returning = vi.fn().mockImplementation(() => [{ id, userId: 'u1' }])
   const where = vi.fn().mockReturnValue({ returning })
@@ -26,7 +31,10 @@ vi.mock('@/db', () => {
   const insert = vi.fn().mockReturnValue({ values })
   const update = vi.fn().mockReturnValue({ set })
   const del = vi.fn().mockReturnValue({ where })
-  return { db: { insert, update, delete: del } }
+  const selectWhere = vi.fn().mockReturnValue({ limit: selectLimit })
+  const selectFrom = vi.fn().mockReturnValue({ where: selectWhere })
+  const select = vi.fn().mockReturnValue({ from: selectFrom })
+  return { db: { insert, update, delete: del, select } }
 })
 
 import { auth } from '@/auth'
@@ -88,6 +96,7 @@ describe('updateTask', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     updateSet = {}
+    selectGroupId = null
     vi.mocked(auth).mockResolvedValue({ user: { id: 'u1' } } as never)
   })
 
@@ -101,5 +110,38 @@ describe('updateTask', () => {
     const { updateTask } = await import('./tasks')
     await updateTask({ id, locked: true })
     expect(updateSet).toMatchObject({ locked: true })
+  })
+})
+
+describe('updateTask grouped-row guard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    updateSet = {}
+    selectGroupId = null
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1' } } as never)
+  })
+
+  it('rejects a shared-field edit on a grouped row and does not write', async () => {
+    selectGroupId = 'grp-1'
+    const { updateTask } = await import('./tasks')
+    const result = await updateTask({ id, title: 'New title' })
+    expect(result).toMatchObject({
+      error: 'Grouped rows are series-managed — use updateSeries',
+    })
+    expect(updateSet).toEqual({})
+  })
+
+  it('passes a status+locked edit on a grouped row through unchanged', async () => {
+    selectGroupId = 'grp-1'
+    const { updateTask } = await import('./tasks')
+    await updateTask({ id, status: 'completed', locked: true })
+    expect(updateSet).toMatchObject({ status: 'completed', locked: true })
+  })
+
+  it('leaves an ungrouped-row shared-field edit unchanged', async () => {
+    selectGroupId = null
+    const { updateTask } = await import('./tasks')
+    await updateTask({ id, title: 'New title' })
+    expect(updateSet).toMatchObject({ title: 'New title' })
   })
 })

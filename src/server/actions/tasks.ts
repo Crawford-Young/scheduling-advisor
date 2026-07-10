@@ -6,24 +6,42 @@ import {
   createTaskSchema,
   updateTaskSchema,
   deleteTaskSchema,
-  updateTaskSeriesSchema,
+  type UpdateTask,
 } from '@/lib/schemas/task'
-import { eq, and, gt } from 'drizzle-orm'
+import { eq, and } from 'drizzle-orm'
 import { ratelimit } from '@/lib/redis'
 import { logger } from '@/lib/logger'
 import {
   DAY_TOKENS,
-  SINGLE_OCCURRENCE,
   SINGLE_WEEK,
   SUPPORTED_RECURRENCES,
   buildIntervalRows,
   buildWeekdayRows,
-  resolveSeriesBaseStart,
   weeksFromCount,
-  type SeriesBaseFields,
 } from '@/lib/series-generation'
 
 type TaskActionResult = { data: (typeof tasks)['$inferSelect'] } | { error: unknown }
+
+// Error returned when a grouped row's shared fields are written via `updateTask`
+// or `rescheduleTask` — those writes must go through `updateSeries`
+// (src/server/actions/series-mutations.ts) so every row in the group stays in
+// sync. `status`/`locked` are per-occurrence and excluded from this list.
+const GROUPED_ROW_ERROR = 'Grouped rows are series-managed — use updateSeries'
+
+// Every updateTask field EXCEPT `id`, `status` and `locked` is a shared field
+// propagated by updateSeries — writing any of these to a grouped row via
+// updateTask would silently desync the rest of the group.
+const GROUPED_SHARED_FIELDS: readonly Exclude<keyof UpdateTask, 'id' | 'status' | 'locked'>[] = [
+  'title',
+  'recurrence',
+  'targetDate',
+  'startAt',
+  'endAt',
+  'color',
+  'location',
+  'description',
+  'allDay',
+]
 
 export async function createTask(input: unknown): Promise<TaskActionResult> {
   const session = await auth()
@@ -166,6 +184,17 @@ export async function updateTask(input: unknown): Promise<TaskActionResult> {
 
   const { id, ...fields } = parsed.data
 
+  const [row] = await db
+    .select({ recurrenceGroupId: tasks.recurrenceGroupId })
+    .from(tasks)
+    .where(and(eq(tasks.id, id), eq(tasks.userId, session.user.id)))
+    .limit(1)
+
+  if (row?.recurrenceGroupId != null) {
+    const touchesSharedField = GROUPED_SHARED_FIELDS.some((field) => fields[field] !== undefined)
+    if (touchesSharedField) return { error: GROUPED_ROW_ERROR }
+  }
+
   const [task] = await db
     .update(tasks)
     .set({
@@ -216,208 +245,4 @@ export async function deleteTask(
   if (deleted.length === 0) return { error: 'Not found' }
 
   return { data: { success: true } }
-}
-
-export async function updateTaskSeries(input: unknown): Promise<TaskActionResult> {
-  const session = await auth()
-  if (!session?.user?.id) return { error: 'Unauthorized' }
-
-  const { success } = await ratelimit.limit(session.user.id)
-  if (!success) return { error: 'Too many requests' }
-
-  const parsed = updateTaskSeriesSchema.safeParse(input)
-  if (!parsed.success) return { error: parsed.error.flatten() }
-
-  const { taskId, recurrence, recurrenceDays, recurrenceCount } = parsed.data
-  const userId = session.user.id
-  const now = new Date()
-
-  const [anchor] = await db
-    .select()
-    .from(tasks)
-    .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
-    .limit(1)
-
-  if (!anchor) return { error: 'Not found' }
-  // Without a start there are no occurrences to anchor a regenerated pattern to.
-  if (!anchor.startAt) return { error: 'Not a series' }
-
-  // S10: a row with a startAt but no group id is a standalone (one-off) event.
-  // Setting a recurrence on it MATERIALIZES the series — the anchor becomes the
-  // first member of a fresh group (identity/id/startAt/status untouched, gains
-  // the pattern + a new group id), and future occurrences fan out around it.
-  if (!anchor.recurrenceGroupId) {
-    const newGroupId = crypto.randomUUID()
-    const anchorStart = anchor.startAt
-    const useWeekdays =
-      recurrence === 'weekly' && recurrenceDays !== undefined && recurrenceDays.length > 0
-
-    // Update the anchor in place: pattern + fresh group id only. The weekday path
-    // persists the token array; the interval path persists null (matches
-    // createTask and the existing regenerate path).
-    const [updatedAnchor] = await db
-      .update(tasks)
-      .set({
-        recurrence,
-        recurrenceDays: useWeekdays ? recurrenceDays : null,
-        recurrenceCount: recurrenceCount ?? null,
-        recurrenceGroupId: newGroupId,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
-      .returning()
-
-    if (!updatedAnchor) return { error: 'Not found' }
-
-    // Anchor future events to their OWN week; only re-anchor to the week of
-    // `now` when the anchor is at/before now (see resolveSeriesBaseStart).
-    // Preserves the anchor's time-of-day and duration either way (identical
-    // anchoring to the existing series path below).
-    const baseStart = resolveSeriesBaseStart(anchorStart, now)
-    const durationMs = anchor.endAt ? anchor.endAt.getTime() - anchorStart.getTime() : null
-    const baseEnd = durationMs === null ? null : new Date(baseStart.getTime() + durationMs)
-
-    const baseFields: Omit<SeriesBaseFields, 'recurrenceDays'> = {
-      userId,
-      title: anchor.title,
-      type: anchor.type,
-      recurrence,
-      recurrenceGroupId: newGroupId,
-      recurrenceCount: recurrenceCount ?? null,
-      targetDate: anchor.targetDate,
-      location: anchor.location,
-      description: anchor.description,
-      color: anchor.color,
-      allDay: anchor.allDay,
-    }
-    const weeks = weeksFromCount(recurrenceCount)
-    const generated = useWeekdays
-      ? buildWeekdayRows(
-          { ...baseFields, recurrenceDays },
-          baseStart,
-          baseEnd,
-          recurrenceDays.map((token) => DAY_TOKENS.indexOf(token)).sort((a, b) => a - b),
-          weeks,
-        )
-      : buildIntervalRows(
-          { ...baseFields, recurrenceDays: null },
-          recurrence,
-          baseStart,
-          baseEnd,
-          recurrenceCount ?? SINGLE_OCCURRENCE,
-        )
-
-    // Future-only, and skip the anchor's own (day, time) slot — the anchor IS
-    // that occurrence, so a regenerated copy of it would be a duplicate.
-    const anchorSlot = anchorStart.toISOString()
-    const rows = generated
-      .filter((row) => row.startAt.getTime() > now.getTime())
-      .filter((row) => row.startAt.toISOString() !== anchorSlot)
-
-    if (rows.length === 0) {
-      logger.info({ userId, groupId: newGroupId }, 'Task series materialized with no extra rows')
-      return { data: updatedAnchor }
-    }
-
-    const inserted = await db.insert(tasks).values(rows).returning()
-    const first = inserted[0]
-    if (!first) return { error: 'Insert failed' }
-    logger.info({ userId, groupId: newGroupId, count: rows.length }, 'Task series materialized')
-    return { data: updatedAnchor }
-  }
-
-  const groupId = anchor.recurrenceGroupId
-  const anchorStart = anchor.startAt
-
-  // Delete only the group's FUTURE pending rows; past rows and completed rows of
-  // any date survive the regenerate.
-  await db
-    .delete(tasks)
-    .where(
-      and(
-        eq(tasks.recurrenceGroupId, groupId),
-        eq(tasks.userId, userId),
-        eq(tasks.status, 'pending'),
-        gt(tasks.startAt, now),
-      ),
-    )
-
-  // Surviving completed occurrences — a regenerated slot on the exact (day, time)
-  // of one of these is skipped so the recorded completion is not duplicated.
-  const completedRows = await db
-    .select({ startAt: tasks.startAt })
-    .from(tasks)
-    .where(
-      and(
-        eq(tasks.recurrenceGroupId, groupId),
-        eq(tasks.userId, userId),
-        eq(tasks.status, 'completed'),
-      ),
-    )
-  const completedSlots = new Set(
-    completedRows
-      .filter((row): row is { startAt: Date } => row.startAt !== null)
-      .map((row) => row.startAt.toISOString()),
-  )
-
-  // Anchor future events to their OWN week; only re-anchor to the week of
-  // `now` (UTC) when the anchor is at/before now (see resolveSeriesBaseStart).
-  // Preserves the series' original time-of-day and duration either way.
-  const baseStart = resolveSeriesBaseStart(anchorStart, now)
-  const durationMs = anchor.endAt ? anchor.endAt.getTime() - anchorStart.getTime() : null
-  const baseEnd = durationMs === null ? null : new Date(baseStart.getTime() + durationMs)
-
-  const baseFields: Omit<SeriesBaseFields, 'recurrenceDays'> = {
-    userId,
-    title: anchor.title,
-    type: anchor.type,
-    recurrence,
-    recurrenceGroupId: groupId,
-    recurrenceCount: recurrenceCount ?? null,
-    targetDate: anchor.targetDate,
-    location: anchor.location,
-    description: anchor.description,
-    color: anchor.color,
-    allDay: anchor.allDay,
-  }
-
-  const useWeekdays =
-    recurrence === 'weekly' && recurrenceDays !== undefined && recurrenceDays.length > 0
-  const weeks = weeksFromCount(recurrenceCount)
-
-  // Only the weekday path persists the token array — matches createTask, where
-  // the interval fan-out always stamps recurrenceDays null.
-  const generated = useWeekdays
-    ? buildWeekdayRows(
-        { ...baseFields, recurrenceDays },
-        baseStart,
-        baseEnd,
-        recurrenceDays.map((token) => DAY_TOKENS.indexOf(token)).sort((a, b) => a - b),
-        weeks,
-      )
-    : buildIntervalRows(
-        { ...baseFields, recurrenceDays: null },
-        recurrence,
-        baseStart,
-        baseEnd,
-        recurrenceCount ?? SINGLE_OCCURRENCE,
-      )
-
-  // Series edits are future-only ("this and following" semantics, symmetric with
-  // the future-pending delete predicate above): a regenerated slot landing at or
-  // before `now` — e.g. a selected weekday earlier in the current week than
-  // today — is dropped rather than inserted as a duplicate/backdated occurrence.
-  const futureRows = generated.filter((row) => row.startAt.getTime() > now.getTime())
-  const rows = futureRows.filter((row) => !completedSlots.has(row.startAt.toISOString()))
-
-  if (rows.length === 0) {
-    logger.info({ userId, groupId }, 'Task series regenerate produced no new rows')
-    return { data: anchor }
-  }
-
-  const inserted = await db.insert(tasks).values(rows).returning()
-  const first = inserted[0]
-  if (!first) return { error: 'Insert failed' }
-  logger.info({ userId, groupId, count: rows.length }, 'Task series regenerated')
-  return { data: first }
 }

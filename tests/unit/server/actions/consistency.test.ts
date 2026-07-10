@@ -180,4 +180,21 @@ describe('rescheduleTask', () => {
     })
     expect(result).toMatchObject({ data: { id: UUID } })
   })
+
+  it('rejects a grouped row with the series-managed error and does not update', async () => {
+    mockGroupRows.mockResolvedValueOnce([{ recurrenceGroupId: 'grp-1' }])
+    const result = await rescheduleTask({ taskId: UUID, newStartAt: new Date().toISOString() })
+    expect(result).toMatchObject({
+      error: 'Grouped rows are series-managed — use updateSeries',
+    })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('leaves an ungrouped row unchanged (passes, writes)', async () => {
+    mockGroupRows.mockResolvedValueOnce([{ recurrenceGroupId: null }])
+    mockUpdateReturning.mockResolvedValueOnce([{ id: UUID }])
+    const result = await rescheduleTask({ taskId: UUID, newStartAt: new Date().toISOString() })
+    expect(result).toMatchObject({ data: { id: UUID } })
+    expect(mockUpdate).toHaveBeenCalled()
+  })
 })

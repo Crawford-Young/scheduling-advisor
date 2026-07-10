@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mockReturningInsert = vi.hoisted(() =>
   vi.fn().mockResolvedValue([{ id: 'task-1', title: 'Run 5k', type: 'goal', status: 'pending' }]),
@@ -64,7 +64,7 @@ vi.mock('drizzle-orm', () => ({
   gt: vi.fn((col: unknown, val: unknown) => ({ op: 'gt', col, val })),
 }))
 
-import { createTask, updateTask, deleteTask, updateTaskSeries } from '@/server/actions/tasks'
+import { createTask, updateTask, deleteTask } from '@/server/actions/tasks'
 
 describe('createTask', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -618,7 +618,18 @@ describe('createTask single insert recurrence group identity', () => {
 })
 
 describe('updateTask', () => {
-  beforeEach(() => vi.clearAllMocks())
+  // The grouped-row guard selects the row's recurrenceGroupId before writing.
+  // Default (set via mockReturnValue, not -Once): ungrouped, so every
+  // pre-existing test below is unaffected. The grouped-row guard itself is
+  // covered separately in the 'updateTask grouped-row shared-field guard'
+  // describe block below.
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSelectWhere.mockReset()
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([{ recurrenceGroupId: null }]),
+    })
+  })
 
   it('updates task status', async () => {
     const result = await updateTask({
@@ -713,6 +724,79 @@ describe('updateTask', () => {
   })
 })
 
+describe('updateTask grouped-row shared-field guard', () => {
+  const GROUP_ERROR = 'Grouped rows are series-managed — use updateSeries'
+  const ID = '550e8400-e29b-41d4-a716-446655440000'
+
+  const primeGroupRowOnce = (recurrenceGroupId: string | null) => {
+    mockSelectWhere.mockReturnValueOnce({
+      limit: vi.fn().mockResolvedValue([{ recurrenceGroupId }]),
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSelectWhere.mockReset()
+  })
+
+  it('rejects a title edit on a grouped row and does not write', async () => {
+    primeGroupRowOnce('grp-1')
+    const result = await updateTask({ id: ID, title: 'New title' })
+    expect(result).toMatchObject({ error: GROUP_ERROR })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['recurrence', { recurrence: 'weekly' }],
+    ['targetDate', { targetDate: '2026-06-01T00:00:00.000Z' }],
+    ['startAt', { startAt: '2026-06-01T09:00:00.000Z' }],
+    ['endAt', { endAt: '2026-06-01T10:00:00.000Z' }],
+    ['color', { color: 'blue' }],
+    ['location', { location: 'Gym' }],
+    ['description', { description: 'leg day' }],
+    ['allDay', { allDay: true }],
+  ])('rejects a grouped-row edit that defines %s', async (_field, patch) => {
+    primeGroupRowOnce('grp-1')
+    const result = await updateTask({ id: ID, ...patch })
+    expect(result).toMatchObject({ error: GROUP_ERROR })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('passes a status-only update on a grouped row', async () => {
+    primeGroupRowOnce('grp-1')
+    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', status: 'completed', type: 'task' }])
+    const result = await updateTask({ id: ID, status: 'completed' })
+    expect(result).toMatchObject({ data: { status: 'completed' } })
+    expect(mockUpdate).toHaveBeenCalled()
+  })
+
+  it('passes a locked-only update on a grouped row', async () => {
+    primeGroupRowOnce('grp-1')
+    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', type: 'task' }])
+    const result = await updateTask({ id: ID, locked: true })
+    expect(result).toMatchObject({ data: { id: 'task-1' } })
+    expect(mockUpdate).toHaveBeenCalled()
+    const setArg = mockSetUpdate.mock.calls[0]![0] as { locked?: boolean }
+    expect(setArg.locked).toBe(true)
+  })
+
+  it('passes a combined status + locked update on a grouped row', async () => {
+    primeGroupRowOnce('grp-1')
+    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', status: 'completed', type: 'task' }])
+    const result = await updateTask({ id: ID, status: 'completed', locked: true })
+    expect(result).toMatchObject({ data: { status: 'completed' } })
+    expect(mockUpdate).toHaveBeenCalled()
+  })
+
+  it('leaves an ungrouped-row title edit unchanged (passes, writes)', async () => {
+    primeGroupRowOnce(null)
+    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', title: 'New title', type: 'task' }])
+    const result = await updateTask({ id: ID, title: 'New title' })
+    expect(result).toMatchObject({ data: { title: 'New title' } })
+    expect(mockUpdate).toHaveBeenCalled()
+  })
+})
+
 describe('deleteTask', () => {
   beforeEach(() => vi.clearAllMocks())
 
@@ -745,520 +829,5 @@ describe('deleteTask', () => {
   it('returns error for invalid uuid', async () => {
     const result = await deleteTask({ id: 'not-a-uuid' })
     expect(result).toHaveProperty('error')
-  })
-})
-
-describe('updateTaskSeries', () => {
-  // 2026-05-18 is a Monday (UTC) — the anchor week for regeneration in these tests.
-  const MONDAY = new Date('2026-05-18T00:00:00.000Z')
-
-  interface AnchorRow {
-    id: string
-    userId: string
-    title: string
-    type: 'task' | 'goal'
-    recurrence: string | null
-    recurrenceGroupId: string | null
-    recurrenceDays: readonly string[] | null
-    recurrenceCount: number | null
-    status: string
-    targetDate: Date | null
-    startAt: Date | null
-    endAt: Date | null
-    location: string | null
-    description: string | null
-    color: string | null
-    allDay: boolean
-  }
-
-  const anchorRow = (overrides: Partial<AnchorRow> = {}): AnchorRow => ({
-    id: 'task-1',
-    userId: 'user-123',
-    title: 'Run',
-    type: 'task',
-    recurrence: 'weekly',
-    recurrenceGroupId: 'grp-1',
-    recurrenceDays: ['Mon'],
-    recurrenceCount: null,
-    status: 'pending',
-    targetDate: null,
-    startAt: new Date('2026-05-11T09:00:00.000Z'),
-    endAt: new Date('2026-05-11T10:00:00.000Z'),
-    location: null,
-    description: null,
-    color: null,
-    allDay: false,
-    ...overrides,
-  })
-
-  // Prime the two select() calls updateTaskSeries makes: the anchor lookup
-  // (resolved via .limit(1)) and, only when it proceeds, the completed-rows scan
-  // (awaited directly). Priming completed only when needed avoids a leftover
-  // mockReturnValueOnce leaking into the next test's anchor lookup.
-  const primeSelect = (
-    anchor: readonly AnchorRow[],
-    completed?: ReadonlyArray<{ startAt: Date | null }>,
-  ) => {
-    mockSelectWhere.mockReturnValueOnce({ limit: vi.fn().mockResolvedValue(anchor) })
-    if (completed !== undefined) {
-      mockSelectWhere.mockReturnValueOnce(Promise.resolve(completed))
-    }
-  }
-
-  const insertedRowsArg = () =>
-    mockValuesInsert.mock.calls[0]![0] as Array<{
-      startAt: Date
-      endAt: Date | null
-      recurrenceGroupId: string | null
-      recurrenceDays: readonly string[] | null
-      recurrenceCount: number | null
-      title: string
-      type: string
-    }>
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockSelectWhere.mockReset()
-    vi.useFakeTimers({ now: MONDAY })
-  })
-
-  afterEach(() => vi.useRealTimers())
-
-  it('returns Unauthorized when unauthenticated', async () => {
-    const { auth } = await import('@/auth')
-    vi.mocked(auth).mockResolvedValueOnce(null as never)
-    const result = await updateTaskSeries({ taskId: 'task-1', recurrence: 'weekly' })
-    expect(result).toMatchObject({ error: 'Unauthorized' })
-  })
-
-  it('returns Too many requests when rate limited', async () => {
-    const { ratelimit } = await import('@/lib/redis')
-    vi.mocked(ratelimit.limit).mockResolvedValueOnce({ success: false } as never)
-    const result = await updateTaskSeries({ taskId: 'task-1', recurrence: 'weekly' })
-    expect(result).toMatchObject({ error: 'Too many requests' })
-  })
-
-  it('returns error for invalid input', async () => {
-    const result = await updateTaskSeries({ taskId: 'task-1', recurrence: 'yearly' })
-    expect(result).toHaveProperty('error')
-  })
-
-  it('returns Not found when the anchor task does not exist', async () => {
-    primeSelect([])
-    const result = await updateTaskSeries({ taskId: 'task-1', recurrence: 'weekly' })
-    expect(result).toMatchObject({ error: 'Not found' })
-  })
-
-  it("returns 'Not a series' when the series row has a null startAt", async () => {
-    primeSelect([anchorRow({ startAt: null })])
-    const result = await updateTaskSeries({ taskId: 'task-1', recurrence: 'weekly' })
-    expect(result).toMatchObject({ error: 'Not a series' })
-  })
-
-  it('deletes only the group future pending rows: predicate is groupId + userId + status=pending + startAt>now', async () => {
-    primeSelect([anchorRow()], [])
-    mockReturningInsert.mockResolvedValueOnce([{ id: 'new-1', title: 'Run', type: 'task' }])
-    await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'weekly',
-      recurrenceDays: ['Mon', 'Tue'],
-    })
-    expect(mockDelete).toHaveBeenCalledTimes(1)
-    expect(mockWhereDelete).toHaveBeenCalledTimes(1)
-    // The condition object passed to .where() for the delete call, built from the
-    // recording stubs above — asserts the exact predicate shape, not just call counts.
-    expect(mockWhereDelete.mock.calls[0]![0]).toEqual({
-      op: 'and',
-      args: [
-        { op: 'eq', col: 'tasks.recurrenceGroupId', val: 'grp-1' },
-        { op: 'eq', col: 'tasks.userId', val: 'user-123' },
-        { op: 'eq', col: 'tasks.status', val: 'pending' },
-        { op: 'gt', col: 'tasks.startAt', val: MONDAY },
-      ],
-    })
-  })
-
-  it('regenerates a weekly multi-day series anchored at the current week, preserving group id, days and count', async () => {
-    primeSelect([anchorRow()], [])
-    mockReturningInsert.mockResolvedValueOnce([{ id: 'new-1', title: 'Run', type: 'task' }])
-    const result = await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'weekly',
-      recurrenceDays: ['Mon', 'Tue'],
-      recurrenceCount: 2,
-    })
-    const rows = insertedRowsArg()
-    expect(rows.map((r) => r.startAt.toISOString())).toEqual([
-      '2026-05-18T09:00:00.000Z', // week 0 Mon (anchor week of `now`)
-      '2026-05-19T09:00:00.000Z', // week 0 Tue
-      '2026-05-25T09:00:00.000Z', // week 1 Mon
-      '2026-05-26T09:00:00.000Z', // week 1 Tue
-    ])
-    for (const row of rows) {
-      expect(row.recurrenceGroupId).toBe('grp-1')
-      expect(row.recurrenceDays).toEqual(['Mon', 'Tue'])
-      expect(row.recurrenceCount).toBe(2)
-    }
-    expect(result).toMatchObject({ data: { id: 'new-1' } })
-  })
-
-  it('preserves the anchor time-of-day and duration on regenerated rows', async () => {
-    primeSelect([anchorRow()], [])
-    mockReturningInsert.mockResolvedValueOnce([{ id: 'new-1', title: 'Run', type: 'task' }])
-    await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'weekly',
-      recurrenceDays: ['Mon'],
-    })
-    const rows = insertedRowsArg()
-    expect(rows[0]!.startAt.toISOString()).toBe('2026-05-18T09:00:00.000Z')
-    expect(rows[0]!.endAt!.toISOString()).toBe('2026-05-18T10:00:00.000Z')
-  })
-
-  it('persists recurrenceCount as null when omitted (single week)', async () => {
-    primeSelect([anchorRow()], [])
-    mockReturningInsert.mockResolvedValueOnce([{ id: 'new-1', title: 'Run', type: 'task' }])
-    await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'weekly',
-      recurrenceDays: ['Mon', 'Tue'],
-    })
-    const rows = insertedRowsArg()
-    expect(rows).toHaveLength(2)
-    expect(rows.every((r) => r.recurrenceCount === null)).toBe(true)
-  })
-
-  it('skips a regenerated slot that collides with a surviving completed row that week', async () => {
-    // Monday 09:00 already completed → its regenerated slot is skipped; a null
-    // completed startAt is ignored when building the skip set.
-    primeSelect(
-      [anchorRow()],
-      [{ startAt: null }, { startAt: new Date('2026-05-18T09:00:00.000Z') }],
-    )
-    mockReturningInsert.mockResolvedValueOnce([{ id: 'new-1', title: 'Run', type: 'task' }])
-    await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'weekly',
-      recurrenceDays: ['Mon', 'Tue'],
-    })
-    const rows = insertedRowsArg()
-    expect(rows).toHaveLength(1)
-    expect(rows[0]!.startAt.toISOString()).toBe('2026-05-19T09:00:00.000Z') // Tue only
-  })
-
-  it('returns the anchor row without inserting when every slot collides with a completed row', async () => {
-    primeSelect(
-      [anchorRow()],
-      [
-        { startAt: new Date('2026-05-18T09:00:00.000Z') },
-        { startAt: new Date('2026-05-19T09:00:00.000Z') },
-      ],
-    )
-    const result = await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'weekly',
-      recurrenceDays: ['Mon', 'Tue'],
-    })
-    expect(mockInsert).not.toHaveBeenCalled()
-    expect(result).toMatchObject({ data: { id: 'task-1' } })
-  })
-
-  it('regenerates an interval (daily) series from now when no recurrenceDays given', async () => {
-    // endAt null on the anchor → regenerated rows carry null end dates.
-    primeSelect([anchorRow({ endAt: null })], [])
-    mockReturningInsert.mockResolvedValueOnce([{ id: 'new-1', title: 'Run', type: 'task' }])
-    await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'daily',
-      recurrenceCount: 3,
-    })
-    const rows = insertedRowsArg()
-    expect(rows.map((r) => r.startAt.toISOString())).toEqual([
-      '2026-05-18T09:00:00.000Z',
-      '2026-05-19T09:00:00.000Z',
-      '2026-05-20T09:00:00.000Z',
-    ])
-    expect(rows.every((r) => r.endAt === null)).toBe(true)
-    expect(rows.every((r) => r.recurrenceDays === null)).toBe(true)
-  })
-
-  it('interval path never persists recurrenceDays, even when the caller sends an empty array', async () => {
-    // recurrenceDays: [] has length 0 so the weekday branch is not taken (falls
-    // through to the interval builder) — that branch must still force null,
-    // matching createTask's interval-fan-out semantics (recurrenceDays is a
-    // weekday-path-only concern).
-    primeSelect([anchorRow()], [])
-    mockReturningInsert.mockResolvedValueOnce([{ id: 'new-1', title: 'Run', type: 'task' }])
-    await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'weekly',
-      recurrenceDays: [],
-    })
-    const rows = insertedRowsArg()
-    expect(rows[0]!.recurrenceDays).toBeNull()
-  })
-
-  it('mid-week regenerate is future-only: a selected day already past this week is dropped, later weeks keep every selected day', async () => {
-    // now = Wednesday mid-day. Anchor time-of-day is 09:00 (from anchorRow()).
-    // This week's Monday slot (09:00, two days before "now") must NOT be
-    // inserted — only this week's Friday and both days of week 1 (all strictly
-    // in the future) survive.
-    vi.setSystemTime(new Date('2026-05-20T12:00:00.000Z'))
-    primeSelect([anchorRow()], [])
-    mockReturningInsert.mockResolvedValueOnce([{ id: 'new-1', title: 'Run', type: 'task' }])
-    await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'weekly',
-      recurrenceDays: ['Mon', 'Fri'],
-      recurrenceCount: 2,
-    })
-    const rows = insertedRowsArg()
-    const now = new Date('2026-05-20T12:00:00.000Z')
-
-    expect(rows.every((r) => r.startAt.getTime() > now.getTime())).toBe(true)
-
-    const week0 = rows.filter((r) => r.startAt.getTime() < new Date('2026-05-25').getTime())
-    expect(week0).toHaveLength(1)
-    expect(week0[0]!.startAt.getUTCDay()).toBe(5) // Friday only — Monday already passed
-
-    const week1 = rows.filter((r) => r.startAt.getTime() >= new Date('2026-05-25').getTime())
-    expect(week1.map((r) => r.startAt.getUTCDay()).sort()).toEqual([1, 5]) // Mon + Fri
-  })
-
-  it('regenerates a single interval occurrence when neither days nor count are given', async () => {
-    primeSelect([anchorRow()], [])
-    mockReturningInsert.mockResolvedValueOnce([{ id: 'new-1', title: 'Run', type: 'task' }])
-    await updateTaskSeries({ taskId: 'task-1', recurrence: 'weekly' })
-    const rows = insertedRowsArg()
-    expect(rows).toHaveLength(1)
-    expect(rows[0]!.startAt.toISOString()).toBe('2026-05-18T09:00:00.000Z')
-  })
-
-  it('returns Insert failed when the regenerate insert returns no rows', async () => {
-    primeSelect([anchorRow()], [])
-    mockReturningInsert.mockResolvedValueOnce([])
-    const result = await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'weekly',
-      recurrenceDays: ['Mon'],
-    })
-    expect(result).toMatchObject({ error: 'Insert failed' })
-  })
-
-  // ── S10: materialize a one-off row into a recurrence series ──────────────
-  // A row with a startAt but no group id (a standalone event) becomes the first
-  // member of a fresh group: the anchor is updated in place (identity/id/startAt/
-  // status untouched) and future occurrences fan out around it, its own slot
-  // skipped because the anchor already IS that occurrence.
-
-  const setArg = () =>
-    mockSetUpdate.mock.calls[0]![0] as {
-      recurrence: string
-      recurrenceDays: readonly string[] | null
-      recurrenceCount: number | null
-      recurrenceGroupId: string
-    }
-
-  it('materializes a weekly multi-day series: updates the anchor with a fresh group id and inserts future-only rows, skipping the anchor slot', async () => {
-    // Anchor is this-week Monday 09:00 (future vs now = Monday 00:00). Weekly
-    // ['Mon','Fri'] → Monday collides with the anchor's own slot (skipped); only
-    // Friday is inserted as a genuinely new occurrence.
-    primeSelect([
-      anchorRow({
-        recurrenceGroupId: null,
-        startAt: new Date('2026-05-18T09:00:00.000Z'),
-        endAt: new Date('2026-05-18T10:00:00.000Z'),
-      }),
-    ])
-    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', title: 'Run', type: 'task' }])
-    mockReturningInsert.mockResolvedValueOnce([{ id: 'new-1', title: 'Run', type: 'task' }])
-
-    const result = await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'weekly',
-      recurrenceDays: ['Mon', 'Fri'],
-    })
-
-    // Anchor updated in place with the pattern + a fresh non-null group id.
-    const set = setArg()
-    expect(set.recurrence).toBe('weekly')
-    expect(set.recurrenceDays).toEqual(['Mon', 'Fri'])
-    expect(set.recurrenceCount).toBeNull()
-    expect(set.recurrenceGroupId).toBeTruthy()
-    // Identity/id/startAt/status are NOT part of the update set.
-    expect(set).not.toHaveProperty('id')
-    expect(set).not.toHaveProperty('startAt')
-    expect(set).not.toHaveProperty('status')
-
-    // Future-only rows; the anchor's own (Mon 09:00) slot is skipped → Friday only.
-    const rows = insertedRowsArg()
-    expect(rows.map((r) => r.startAt.toISOString())).toEqual(['2026-05-22T09:00:00.000Z'])
-    // New rows carry the SAME fresh group id as the updated anchor + the info fields.
-    expect(rows[0]!.recurrenceGroupId).toBe(set.recurrenceGroupId)
-    expect(rows[0]!.recurrenceDays).toEqual(['Mon', 'Fri'])
-    expect(rows[0]!.title).toBe('Run')
-    // No pre-existing group to prune → delete is never issued.
-    expect(mockDelete).not.toHaveBeenCalled()
-    expect(result).toMatchObject({ data: { id: 'task-1' } })
-  })
-
-  it('materializes an interval (daily) series: recurrenceDays null on the anchor and every new row', async () => {
-    primeSelect([
-      anchorRow({
-        recurrenceGroupId: null,
-        startAt: new Date('2026-05-18T09:00:00.000Z'),
-        endAt: null,
-      }),
-    ])
-    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', title: 'Run', type: 'task' }])
-    mockReturningInsert.mockResolvedValueOnce([{ id: 'new-1', title: 'Run', type: 'task' }])
-
-    await updateTaskSeries({ taskId: 'task-1', recurrence: 'daily', recurrenceCount: 3 })
-
-    const set = setArg()
-    expect(set.recurrenceDays).toBeNull()
-    expect(set.recurrenceCount).toBe(3)
-
-    const rows = insertedRowsArg()
-    // 3 daily slots from now's Monday; the anchor's own Monday slot is skipped.
-    expect(rows.map((r) => r.startAt.toISOString())).toEqual([
-      '2026-05-19T09:00:00.000Z',
-      '2026-05-20T09:00:00.000Z',
-    ])
-    expect(rows.every((r) => r.recurrenceDays === null)).toBe(true)
-    expect(rows.every((r) => r.endAt === null)).toBe(true)
-  })
-
-  it('leaves the existing-series path unchanged: a non-null group regenerates via delete+insert and never updates the anchor row (regression guard)', async () => {
-    primeSelect([anchorRow()], []) // default recurrenceGroupId 'grp-1'
-    mockReturningInsert.mockResolvedValueOnce([{ id: 'new-1', title: 'Run', type: 'task' }])
-    await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'weekly',
-      recurrenceDays: ['Mon'],
-    })
-    expect(mockDelete).toHaveBeenCalledTimes(1)
-    expect(mockUpdate).not.toHaveBeenCalled()
-    const rows = insertedRowsArg()
-    expect(rows.every((r) => r.recurrenceGroupId === 'grp-1')).toBe(true)
-  })
-
-  it('materializing when only the anchor slot is generated inserts nothing and returns the updated anchor', async () => {
-    primeSelect([
-      anchorRow({ recurrenceGroupId: null, startAt: new Date('2026-05-18T09:00:00.000Z') }),
-    ])
-    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', title: 'Run', type: 'task' }])
-    const result = await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'weekly',
-      recurrenceDays: ['Mon'],
-    })
-    expect(mockInsert).not.toHaveBeenCalled()
-    expect(result).toMatchObject({ data: { id: 'task-1' } })
-  })
-
-  it('materializes an interval series with no count: a single anchor-week slot is generated (and skipped as the anchor)', async () => {
-    primeSelect([
-      anchorRow({ recurrenceGroupId: null, startAt: new Date('2026-05-18T09:00:00.000Z') }),
-    ])
-    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', title: 'Run', type: 'task' }])
-    const result = await updateTaskSeries({ taskId: 'task-1', recurrence: 'daily' })
-    // Only the anchor's own slot is generated → skipped → nothing to insert.
-    expect(mockInsert).not.toHaveBeenCalled()
-    expect(setArg().recurrenceCount).toBeNull()
-    expect(result).toMatchObject({ data: { id: 'task-1' } })
-  })
-
-  it('returns Not found when the anchor update matches no row while materializing', async () => {
-    primeSelect([
-      anchorRow({ recurrenceGroupId: null, startAt: new Date('2026-05-18T09:00:00.000Z') }),
-    ])
-    mockReturningUpdate.mockResolvedValueOnce([])
-    const result = await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'weekly',
-      recurrenceDays: ['Mon', 'Fri'],
-    })
-    expect(result).toMatchObject({ error: 'Not found' })
-  })
-
-  it('returns Insert failed when the materialize insert returns no rows', async () => {
-    primeSelect([
-      anchorRow({ recurrenceGroupId: null, startAt: new Date('2026-05-18T09:00:00.000Z') }),
-    ])
-    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', title: 'Run', type: 'task' }])
-    mockReturningInsert.mockResolvedValueOnce([])
-    const result = await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'weekly',
-      recurrenceDays: ['Mon', 'Fri'],
-    })
-    expect(result).toMatchObject({ error: 'Insert failed' })
-  })
-
-  // ── Anchor-week fan-out (bug fix): a future anchor must generate around its
-  // OWN week, not the week of `now`. `now` is Monday 2026-05-18; 2026-06-15 is
-  // also a Monday, 4 weeks later, so it exercises a materially different week.
-  const FUTURE_MONDAY = new Date('2026-06-15T09:00:00.000Z')
-  const FUTURE_MONDAY_END = new Date('2026-06-15T10:00:00.000Z')
-
-  it('materialize: a future-week anchor fans weekday rows out around the ANCHOR week, not the current week', async () => {
-    primeSelect([
-      anchorRow({
-        recurrenceGroupId: null,
-        startAt: FUTURE_MONDAY,
-        endAt: FUTURE_MONDAY_END,
-      }),
-    ])
-    mockReturningUpdate.mockResolvedValueOnce([{ id: 'task-1', title: 'Run', type: 'task' }])
-    mockReturningInsert.mockResolvedValueOnce([{ id: 'new-1', title: 'Run', type: 'task' }])
-
-    await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'weekly',
-      recurrenceDays: ['Mon', 'Wed', 'Fri'],
-    })
-
-    const rows = insertedRowsArg()
-    // Anchor's own Monday slot is skipped (it IS the anchor); Wed + Fri of the
-    // SAME (future) week are the only generated rows — nothing in the current
-    // week of `now` (2026-05-18).
-    expect(rows.map((r) => r.startAt.toISOString())).toEqual([
-      '2026-06-17T09:00:00.000Z', // anchor-week Wed
-      '2026-06-19T09:00:00.000Z', // anchor-week Fri
-    ])
-    const currentWeekEnd = new Date('2026-05-25T00:00:00.000Z').getTime()
-    expect(rows.every((r) => r.startAt.getTime() > currentWeekEnd)).toBe(true)
-  })
-
-  it('regenerate: an existing group whose anchor sits in a future week fans weekday rows out around the ANCHOR week, not the current week', async () => {
-    primeSelect(
-      [
-        anchorRow({
-          recurrenceGroupId: 'grp-1',
-          startAt: FUTURE_MONDAY,
-          endAt: FUTURE_MONDAY_END,
-        }),
-      ],
-      [],
-    )
-    mockReturningInsert.mockResolvedValueOnce([{ id: 'new-1', title: 'Run', type: 'task' }])
-
-    await updateTaskSeries({
-      taskId: 'task-1',
-      recurrence: 'weekly',
-      recurrenceDays: ['Mon', 'Wed', 'Fri'],
-    })
-
-    const rows = insertedRowsArg()
-    // Regenerate has no anchor-slot skip (the old row is deleted, not preserved),
-    // so all three anchor-week days land — none of them in the current week.
-    expect(rows.map((r) => r.startAt.toISOString())).toEqual([
-      '2026-06-15T09:00:00.000Z', // anchor-week Mon
-      '2026-06-17T09:00:00.000Z', // anchor-week Wed
-      '2026-06-19T09:00:00.000Z', // anchor-week Fri
-    ])
-    const currentWeekEnd = new Date('2026-05-25T00:00:00.000Z').getTime()
-    expect(rows.every((r) => r.startAt.getTime() > currentWeekEnd)).toBe(true)
   })
 })
