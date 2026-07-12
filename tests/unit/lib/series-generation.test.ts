@@ -33,6 +33,7 @@ function makeBase(overrides: Partial<SeriesBaseFields> = {}): SeriesBaseFields {
     description: null,
     color: null,
     allDay: false,
+    timeZone: null,
     ...overrides,
   }
 }
@@ -319,6 +320,176 @@ describe('generateSeriesRows — interval open-ended', () => {
       iso('2025-01-05T10:00:00.000Z'),
       iso('2025-01-07T10:00:00.000Z'),
     ])
+  })
+})
+
+// ─── TZ-aware generation (wave 2.6 S12) ───────────────────────────────────────
+// America/New_York: EST = UTC-5 (winter); EDT = UTC-4 (DST, 2026-03-08 → 2026-11-01).
+// An evening Eastern anchor (8:30 PM) is next-day 01:30 UTC — its LOCAL weekday
+// is one day behind its UTC weekday. TZ-aware generation must land occurrences on
+// the LOCAL weekday of each token.
+const NY = 'America/New_York'
+
+describe('resolveSeriesWindow — TZ-aware', () => {
+  it('counted: start = LOCAL Sunday 00:00 (as UTC), end = start + N weeks', () => {
+    // Mon 2026-01-05 20:30 ET = 2026-01-06T01:30Z. Local Sunday = 2026-01-04 00:00 ET = 05:00Z.
+    const seriesStart = new Date('2026-01-06T01:30:00.000Z')
+    const now = seriesStart
+    const window = resolveSeriesWindow(seriesStart, 2, now, NY)
+    expect(window.start.toISOString()).toBe(iso('2026-01-04T05:00:00.000Z'))
+    expect(window.end.toISOString()).toBe(iso('2026-01-18T05:00:00.000Z'))
+  })
+
+  it('omitting timeZone keeps the UTC Sunday window (fallback exactness)', () => {
+    const seriesStart = new Date('2026-01-06T01:30:00.000Z')
+    const now = seriesStart
+    const utc = resolveSeriesWindow(seriesStart, 2, now)
+    const nullTz = resolveSeriesWindow(seriesStart, 2, now, null)
+    expect(nullTz.start.toISOString()).toBe(utc.start.toISOString())
+    expect(nullTz.end.toISOString()).toBe(utc.end.toISOString())
+    // UTC Sunday of 2026-01-06 (a UTC Tuesday) is 2026-01-04.
+    expect(utc.start.toISOString()).toBe(iso('2026-01-04T00:00:00.000Z'))
+  })
+})
+
+describe('buildWeekdayRows — TZ-aware', () => {
+  it('evening Eastern Mon–Fri lands each token on its LOCAL weekday', () => {
+    const base = makeBase({ timeZone: NY })
+    const baseStart = new Date('2026-01-06T01:30:00.000Z') // Mon 8:30 PM ET
+    const rows = buildWeekdayRows(base, baseStart, null, [1, 2, 3, 4, 5], 1)
+    expect(rows.map((r) => r.startAt.toISOString())).toEqual([
+      iso('2026-01-06T01:30:00.000Z'), // Mon 8:30 PM ET
+      iso('2026-01-07T01:30:00.000Z'), // Tue
+      iso('2026-01-08T01:30:00.000Z'), // Wed
+      iso('2026-01-09T01:30:00.000Z'), // Thu
+      iso('2026-01-10T01:30:00.000Z'), // Fri
+    ])
+  })
+
+  it('null timeZone reproduces the (buggy) UTC-day placement byte-for-byte', () => {
+    const utcBase = makeBase({ timeZone: null })
+    const baseStart = new Date('2026-01-06T01:30:00.000Z')
+    const rows = buildWeekdayRows(utcBase, baseStart, null, [1, 2, 3, 4, 5], 1)
+    // UTC day of 2026-01-06 is Tuesday, so Mon lands a UTC day earlier.
+    expect(rows.map((r) => r.startAt.toISOString())).toEqual([
+      iso('2026-01-05T01:30:00.000Z'),
+      iso('2026-01-06T01:30:00.000Z'),
+      iso('2026-01-07T01:30:00.000Z'),
+      iso('2026-01-08T01:30:00.000Z'),
+      iso('2026-01-09T01:30:00.000Z'),
+    ])
+  })
+
+  it('afternoon anchor (local day == UTC day) is unchanged vs UTC math', () => {
+    const baseStart = new Date('2026-01-07T19:30:00.000Z') // Wed 2:30 PM ET
+    const zoned = buildWeekdayRows(makeBase({ timeZone: NY }), baseStart, null, [1, 3, 5], 1)
+    const utc = buildWeekdayRows(makeBase({ timeZone: null }), baseStart, null, [1, 3, 5], 1)
+    expect(zoned.map((r) => r.startAt.toISOString())).toEqual(
+      utc.map((r) => r.startAt.toISOString()),
+    )
+    expect(zoned.map((r) => r.startAt.toISOString())).toEqual([
+      iso('2026-01-05T19:30:00.000Z'),
+      iso('2026-01-07T19:30:00.000Z'),
+      iso('2026-01-09T19:30:00.000Z'),
+    ])
+  })
+
+  it('keeps the LOCAL wall-clock across a spring-forward DST boundary', () => {
+    const base = makeBase({ timeZone: NY })
+    const baseStart = new Date('2026-03-03T01:30:00.000Z') // Mon 2026-03-02 8:30 PM EST
+    const rows = buildWeekdayRows(base, baseStart, null, [1], 2)
+    expect(rows.map((r) => r.startAt.toISOString())).toEqual([
+      iso('2026-03-03T01:30:00.000Z'), // week 1 Mon, EST (-5): 8:30 PM
+      iso('2026-03-10T00:30:00.000Z'), // week 2 Mon, EDT (-4): still 8:30 PM local
+    ])
+  })
+
+  it('shifts a non-null end alongside the zoned start (duration preserved)', () => {
+    const base = makeBase({ timeZone: NY })
+    const baseStart = new Date('2026-01-06T01:30:00.000Z')
+    const baseEnd = new Date('2026-01-06T02:30:00.000Z') // +1h
+    const rows = buildWeekdayRows(base, baseStart, baseEnd, [1, 2], 1)
+    for (const row of rows) {
+      expect(row.endAt).not.toBeNull()
+      expect(row.endAt!.getTime() - row.startAt.getTime()).toBe(60 * 60 * 1000)
+    }
+  })
+
+  it('round-trips a wall-clock straddling the spring-forward gap (two-pass offset correction)', () => {
+    // Sun 2026-03-08 05:00 EDT = 09:00Z. The as-UTC guess resolves to the pre-2am
+    // EST offset while the corrected instant is post-2am EDT — forcing the
+    // two-pass re-resolution. The row must round-trip back to 09:00Z.
+    const base = makeBase({ timeZone: NY })
+    const baseStart = new Date('2026-03-08T09:00:00.000Z')
+    const rows = buildWeekdayRows(base, baseStart, null, [0], 1) // Sunday token
+    expect(rows.map((r) => r.startAt.toISOString())).toEqual([iso('2026-03-08T09:00:00.000Z')])
+  })
+})
+
+describe('generateSeriesRows — weekly-days TZ-aware', () => {
+  it('counted evening-Eastern series lands every token on its LOCAL weekday', () => {
+    const base = makeBase({ timeZone: NY })
+    const seriesStart = new Date('2026-01-06T01:30:00.000Z') // Mon 8:30 PM ET
+    const window = resolveSeriesWindow(seriesStart, 2, seriesStart, NY)
+    const rows = generateSeriesRows({
+      base,
+      template: { start: seriesStart, end: null },
+      window,
+      recurrence: 'weekly',
+      selectedDows: [1, 2, 3, 4, 5],
+      intervalCount: null,
+      existingSlots: new Set(),
+    })
+    expect(rows.map((r) => r.startAt.toISOString())).toEqual([
+      iso('2026-01-06T01:30:00.000Z'),
+      iso('2026-01-07T01:30:00.000Z'),
+      iso('2026-01-08T01:30:00.000Z'),
+      iso('2026-01-09T01:30:00.000Z'),
+      iso('2026-01-10T01:30:00.000Z'),
+      iso('2026-01-13T01:30:00.000Z'),
+      iso('2026-01-14T01:30:00.000Z'),
+      iso('2026-01-15T01:30:00.000Z'),
+      iso('2026-01-16T01:30:00.000Z'),
+      iso('2026-01-17T01:30:00.000Z'),
+    ])
+  })
+
+  it('carries a non-null duration across each zoned weekly occurrence', () => {
+    const base = makeBase({ timeZone: NY })
+    const seriesStart = new Date('2026-01-06T01:30:00.000Z') // Mon 8:30 PM ET
+    const seriesEnd = new Date('2026-01-06T02:30:00.000Z') // +1h
+    const window = resolveSeriesWindow(seriesStart, 1, seriesStart, NY)
+    const rows = generateSeriesRows({
+      base,
+      template: { start: seriesStart, end: seriesEnd },
+      window,
+      recurrence: 'weekly',
+      selectedDows: [1, 2],
+      intervalCount: null,
+      existingSlots: new Set(),
+    })
+    expect(rows).toHaveLength(2)
+    for (const row of rows) {
+      expect(row.endAt).not.toBeNull()
+      expect(row.endAt!.getTime() - row.startAt.getTime()).toBe(60 * 60 * 1000)
+    }
+  })
+
+  it('dedupes an existing zoned slot and honors notBefore', () => {
+    const base = makeBase({ timeZone: NY })
+    const seriesStart = new Date('2026-01-06T01:30:00.000Z')
+    const window = resolveSeriesWindow(seriesStart, 1, seriesStart, NY)
+    const rows = generateSeriesRows({
+      base,
+      template: { start: seriesStart, end: null },
+      window,
+      recurrence: 'weekly',
+      selectedDows: [1, 2, 3],
+      intervalCount: null,
+      existingSlots: new Set([iso('2026-01-07T01:30:00.000Z')]), // Tue deduped
+      notBefore: new Date('2026-01-06T01:30:00.000Z'), // Mon at cutoff dropped
+    })
+    expect(rows.map((r) => r.startAt.toISOString())).toEqual([iso('2026-01-08T01:30:00.000Z')])
   })
 })
 

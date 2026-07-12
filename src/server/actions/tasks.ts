@@ -53,7 +53,7 @@ export async function createTask(input: unknown): Promise<TaskActionResult> {
   const parsed = createTaskSchema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.flatten() }
 
-  const { recurrenceCount, recurrenceDays, startAt, endAt, ...rest } = parsed.data
+  const { recurrenceCount, recurrenceDays, startAt, endAt, timeZone, ...rest } = parsed.data
 
   // Weekly multi-day fan-out (library drag-create across several days): one row
   // per selected weekday, anchored to that weekday within the start week, times
@@ -91,6 +91,7 @@ export async function createTask(input: unknown): Promise<TaskActionResult> {
         description: rest.description ?? null,
         color: rest.color ?? null,
         allDay: rest.allDay ?? false,
+        timeZone: timeZone ?? null,
       },
       baseStart,
       baseEnd,
@@ -131,6 +132,7 @@ export async function createTask(input: unknown): Promise<TaskActionResult> {
         description: rest.description ?? null,
         color: rest.color ?? null,
         allDay: rest.allDay ?? false,
+        timeZone: timeZone ?? null,
       },
       rest.recurrence!,
       new Date(startAt!),
@@ -164,6 +166,7 @@ export async function createTask(input: unknown): Promise<TaskActionResult> {
       description: rest.description ?? null,
       color: rest.color ?? null,
       allDay: rest.allDay ?? false,
+      timeZone: timeZone ?? null,
     })
     .returning()
 

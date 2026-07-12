@@ -50,6 +50,24 @@ describe('createTaskSchema', () => {
     })
     expect(result.success).toBe(false)
   })
+
+  it('accepts a valid IANA timeZone', () => {
+    const result = createTaskSchema.safeParse({
+      title: 'test',
+      type: 'task',
+      timeZone: 'America/New_York',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a garbage timeZone', () => {
+    const result = createTaskSchema.safeParse({
+      title: 'test',
+      type: 'task',
+      timeZone: 'Not/AZone',
+    })
+    expect(result.success).toBe(false)
+  })
 })
 
 describe('updateTaskSchema', () => {
@@ -162,6 +180,16 @@ describe('updateSeriesSchema', () => {
       taskId: VALID_ID,
       recurrenceDays: ['Monday'],
     })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts a valid IANA timeZone', () => {
+    const result = updateSeriesSchema.safeParse({ taskId: VALID_ID, timeZone: 'Europe/London' })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a garbage timeZone', () => {
+    const result = updateSeriesSchema.safeParse({ taskId: VALID_ID, timeZone: 'Middle/Earth' })
     expect(result.success).toBe(false)
   })
 })

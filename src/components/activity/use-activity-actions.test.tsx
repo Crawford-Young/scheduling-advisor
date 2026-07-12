@@ -521,6 +521,8 @@ describe('useActivityActions', () => {
         recurrence: 'weekly',
         recurrenceDays: ['Mon', 'Wed'],
         recurrenceCount: 8,
+        // S12: the edit stamps the browser IANA zone group-wide.
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       }),
     )
     expect(updateTaskMock).not.toHaveBeenCalled()

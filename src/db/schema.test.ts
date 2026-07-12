@@ -5,6 +5,7 @@ it('tasks has rich columns', () => {
   expect(tasks.color).toBeDefined()
   expect(tasks.allDay).toBeDefined()
   expect(tasks.locked).toBeDefined()
+  expect(tasks.timeZone).toBeDefined()
 })
 
 it('series_slot_tombstones carries the slot identity columns', () => {

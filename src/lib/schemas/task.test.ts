@@ -17,6 +17,16 @@ describe('createTaskSchema', () => {
   it('rejects type habit', () => {
     expect(createTaskSchema.safeParse({ type: 'habit', title: 'x' }).success).toBe(false)
   })
+
+  it('accepts a valid IANA timeZone and rejects garbage', () => {
+    expect(
+      createTaskSchema.safeParse({ type: 'task', title: 'x', timeZone: 'America/New_York' })
+        .success,
+    ).toBe(true)
+    expect(
+      createTaskSchema.safeParse({ type: 'task', title: 'x', timeZone: 'Not/AZone' }).success,
+    ).toBe(false)
+  })
 })
 
 describe('updateTaskSchema', () => {
@@ -60,6 +70,17 @@ describe('updateSeriesSchema', () => {
   it('rejects an out-of-range recurrenceCount', () => {
     expect(
       updateSeriesSchema.safeParse({ taskId: crypto.randomUUID(), recurrenceCount: 53 }).success,
+    ).toBe(false)
+  })
+
+  it('accepts a valid IANA timeZone and rejects garbage', () => {
+    expect(
+      updateSeriesSchema.safeParse({ taskId: crypto.randomUUID(), timeZone: 'Europe/London' })
+        .success,
+    ).toBe(true)
+    expect(
+      updateSeriesSchema.safeParse({ taskId: crypto.randomUUID(), timeZone: 'Middle/Earth' })
+        .success,
     ).toBe(false)
   })
 })

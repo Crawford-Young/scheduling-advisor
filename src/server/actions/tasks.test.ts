@@ -80,6 +80,28 @@ describe('createTask', () => {
     expect(insertValues).toMatchObject({ recurrenceGroupId: null })
   })
 
+  it('stamps the client timeZone on a weekday fan-out group-wide', async () => {
+    const { createTask } = await import('./tasks')
+    await createTask({
+      type: 'task',
+      title: 'x',
+      startAt: ISO,
+      endAt: ISO,
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Wed'],
+      timeZone: 'America/New_York',
+    })
+    const rows = insertValues as Array<Record<string, unknown>>
+    expect(rows).toHaveLength(2)
+    expect(rows.every((r) => r.timeZone === 'America/New_York')).toBe(true)
+  })
+
+  it('defaults timeZone to null when the payload omits it', async () => {
+    const { createTask } = await import('./tasks')
+    await createTask({ type: 'task', title: 'x' })
+    expect(insertValues).toMatchObject({ timeZone: null })
+  })
+
   it('produces different recurrenceGroupIds across separate calls', async () => {
     const { createTask } = await import('./tasks')
     await createTask({ type: 'task', title: 'x', recurrence: 'daily' })

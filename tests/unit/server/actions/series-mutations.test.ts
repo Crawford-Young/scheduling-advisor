@@ -115,6 +115,7 @@ interface Row {
   description: string | null
   color: string | null
   allDay: boolean
+  timeZone: string | null
 }
 
 const row = (overrides: Partial<Row> = {}): Row => ({
@@ -134,6 +135,7 @@ const row = (overrides: Partial<Row> = {}): Row => ({
   description: null,
   color: null,
   allDay: false,
+  timeZone: null,
   ...overrides,
 })
 
@@ -158,6 +160,7 @@ const insertedRows = () =>
     title: string
     color: string | null
     type: string
+    timeZone: string | null
   }>
 
 const setArgs = () =>
@@ -172,6 +175,7 @@ const setArgs = () =>
         recurrenceGroupId?: string
         startAt?: Date
         endAt?: Date | null
+        timeZone?: string | null
       },
   )
 
@@ -625,6 +629,68 @@ describe('updateSeries — pattern change (regenerate)', () => {
     const result = await updateSeries({ taskId: VALID_ID, recurrence: 'daily' })
     expect(mockInsert).not.toHaveBeenCalled()
     expect(result).toMatchObject({ data: { id: 'task-1', recurrenceGroupId: 'grp-1' } })
+  })
+})
+
+describe('updateSeries — timeZone stamping (S12)', () => {
+  it('stamps the payload timeZone group-wide on a shared-field edit', async () => {
+    const anchor = row({ recurrence: 'weekly', recurrenceDays: ['Mon'], timeZone: null })
+    primeSelect([anchor], [anchor])
+    await updateSeries({ taskId: VALID_ID, title: 'Solo', timeZone: 'America/New_York' })
+    expect(setArgs()[0]!.timeZone).toBe('America/New_York')
+  })
+
+  it('falls back to the persisted row timeZone when the payload omits it', async () => {
+    const anchor = row({ recurrence: 'weekly', recurrenceDays: ['Mon'], timeZone: 'Europe/London' })
+    primeSelect([anchor], [anchor])
+    await updateSeries({ taskId: VALID_ID, title: 'Solo' })
+    expect(setArgs()[0]!.timeZone).toBe('Europe/London')
+  })
+
+  it('regenerates an evening-Eastern pattern onto the correct LOCAL weekday and stamps the zone', async () => {
+    // Mon 2026-05-11 8:30 PM EDT = 2026-05-12T00:30Z — its UTC day is Tuesday.
+    const anchor = row({
+      recurrence: 'daily',
+      recurrenceDays: null,
+      recurrenceCount: null,
+      startAt: new Date('2026-05-12T00:30:00.000Z'),
+      endAt: null,
+      timeZone: null,
+    })
+    primeSelect([anchor], [anchor])
+    await updateSeries({
+      taskId: VALID_ID,
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon'],
+      recurrenceCount: 1,
+      timeZone: 'America/New_York',
+    })
+    const rows = insertedRows()
+    expect(rows.map((r) => r.startAt.toISOString())).toEqual(['2026-05-12T00:30:00.000Z'])
+    expect(rows.every((r) => r.timeZone === 'America/New_York')).toBe(true)
+  })
+})
+
+describe('extendSeries — timeZone from persisted rows (S12)', () => {
+  it('reads the group zone from rows and stamps it on the extended occurrences', async () => {
+    // Weekly-days open-ended, evening Eastern. maxStart Mon 2026-05-11 8:30 PM EDT.
+    const maxRow = row({
+      id: 'tz-max',
+      recurrenceGroupId: 'grp-TZ',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon'],
+      recurrenceCount: null,
+      startAt: new Date('2026-05-12T00:30:00.000Z'),
+      endAt: null,
+      timeZone: 'America/New_York',
+    })
+    mockSelectWhere.mockReturnValueOnce(Promise.resolve([maxRow]))
+    await extendSeries()
+    const rows = insertedRows()
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows.every((r) => r.timeZone === 'America/New_York')).toBe(true)
+    // Every extended Monday keeps the 00:30Z instant (8:30 PM local, LOCAL Monday).
+    expect(rows.every((r) => r.startAt.toISOString().endsWith('T00:30:00.000Z'))).toBe(true)
   })
 })
 

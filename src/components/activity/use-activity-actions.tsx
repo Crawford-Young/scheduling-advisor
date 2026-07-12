@@ -150,6 +150,7 @@ export function useActivityActions({
               recurrence: isSeriesFrequency(values.recurrence) ? values.recurrence : null,
               recurrenceDays: values.recurrenceDays?.length ? values.recurrenceDays : undefined,
               recurrenceCount: values.recurrenceCount ?? null,
+              timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             })
           : await updateTask(
               values.type === 'goal'

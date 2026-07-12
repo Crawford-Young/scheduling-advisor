@@ -86,6 +86,10 @@ export const tasks = pgTable('tasks', {
   recurrenceGroupId: uuid('recurrence_group_id'),
   recurrenceDays: jsonb('recurrence_days').$type<readonly DayOfWeek[]>(),
   recurrenceCount: integer('recurrence_count'),
+  // IANA time zone the series was created/edited in (wave 2.6 S12). Null on
+  // legacy rows and non-series inserts — generation falls back to UTC day math.
+  // Stamped group-wide so `extendSeries` (no client payload) reads it from rows.
+  timeZone: text('time_zone'),
   status: text('status', { enum: ['pending', 'in_progress', 'completed'] })
     .notNull()
     .default('pending'),

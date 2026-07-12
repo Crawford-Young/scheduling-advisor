@@ -1067,6 +1067,7 @@ describe('CalendarClient — event edit persistence', () => {
         allDay: false,
         recurrence: 'weekly',
         recurrenceDays: undefined,
+        timeZone: expect.any(String),
       }),
     )
     expect(updateTaskMock).not.toHaveBeenCalled()
@@ -1221,6 +1222,7 @@ describe('CalendarClient — ungrouped becomingSeries + grouped edit routing (wa
         allDay: false,
         recurrence: 'weekly',
         recurrenceDays: ['Mon', 'Wed'],
+        timeZone: expect.any(String),
       }),
     )
     expect(updateTaskMock).not.toHaveBeenCalled()
@@ -1255,6 +1257,7 @@ describe('CalendarClient — ungrouped becomingSeries + grouped edit routing (wa
         allDay: false,
         recurrence: 'daily',
         recurrenceDays: undefined,
+        timeZone: expect.any(String),
       }),
     )
     expect(updateTaskMock).not.toHaveBeenCalled()
@@ -1287,6 +1290,7 @@ describe('CalendarClient — ungrouped becomingSeries + grouped edit routing (wa
         allDay: true,
         recurrence: null,
         recurrenceDays: undefined,
+        timeZone: expect.any(String),
       }),
     )
     expect(updateTaskMock).not.toHaveBeenCalled()
@@ -1387,6 +1391,7 @@ describe('CalendarClient — make-recurring routing (S10)', () => {
         allDay: false,
         recurrence: 'weekly',
         recurrenceDays: undefined,
+        timeZone: expect.any(String),
       }),
     )
     expect(updateTaskMock).not.toHaveBeenCalled()
@@ -1504,6 +1509,7 @@ describe('CalendarClient — seriesDays seeding (S9) + grouped edit routing (wav
         allDay: false,
         recurrence: 'weekly',
         recurrenceDays: ['Wed', 'Mon'],
+        timeZone: expect.any(String),
       }),
     )
     expect(updateTaskMock).not.toHaveBeenCalled()
@@ -1595,6 +1601,7 @@ describe('CalendarClient — grouped drag routing (wave 2.6 S4)', () => {
         taskId: 'evt-grouped',
         startAt: '2026-01-06T14:00:00.000Z',
         endAt: '2026-01-06T15:00:00.000Z',
+        timeZone: expect.any(String),
       }),
     )
     expect(rescheduleTaskMock).not.toHaveBeenCalled()
@@ -1622,6 +1629,7 @@ describe('CalendarClient — grouped drag routing (wave 2.6 S4)', () => {
         endAt: '2026-01-09T10:00:00.000Z',
         recurrence: 'weekly',
         recurrenceDays: ['Wed', 'Fri'],
+        timeZone: expect.any(String),
       }),
     )
   })
@@ -1646,6 +1654,7 @@ describe('CalendarClient — grouped drag routing (wave 2.6 S4)', () => {
         taskId: 'evt-grouped-nodays',
         startAt: '2026-01-08T09:00:00.000Z',
         endAt: '2026-01-08T10:00:00.000Z',
+        timeZone: expect.any(String),
       }),
     )
   })
@@ -1809,6 +1818,9 @@ describe('CalendarClient — event create wiring', () => {
           // The multi-day drag's selected weekdays must reach createTask so the
           // server fan-out expands Monday AND Tuesday (bug #2 fix).
           recurrenceDays: ['Mon', 'Tue'],
+          // S12: the browser IANA zone rides along so weekly-days fan-out lands
+          // occurrences on the correct LOCAL weekday.
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         }),
       ),
     )

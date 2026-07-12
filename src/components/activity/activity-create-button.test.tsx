@@ -202,6 +202,21 @@ describe('ActivityCreateButton', () => {
     expect(refreshMock).toHaveBeenCalled()
   })
 
+  it('stamps the browser IANA timeZone on the createTask payload', async () => {
+    const user = userEvent.setup()
+    render(<ActivityCreateButton />)
+    await user.click(screen.getByRole('button', { name: /new/i }))
+    await user.click(screen.getByRole('button', { name: 'submit-weekly-task' }))
+
+    await waitFor(() =>
+      expect(createTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
+      ),
+    )
+  })
+
   it('keeps the dialog open and surfaces a toast when createTask returns an error', async () => {
     createTaskMock.mockResolvedValueOnce({ error: 'Unauthorized' })
     const user = userEvent.setup()
