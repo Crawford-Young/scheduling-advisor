@@ -11,6 +11,29 @@ export const dayOfWeekSchema = z.enum(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri',
 // A set of selected weekday tokens for a weekly recurrence pattern.
 export const dayTokenArraySchema = z.array(dayOfWeekSchema).readonly()
 
+// Longest real IANA zone id ("America/Argentina/Buenos_Aires") is 32 chars; 64
+// leaves headroom while rejecting obviously-garbage input.
+const MAX_TIME_ZONE_LENGTH = 64
+
+// A string is a valid IANA zone id iff Intl accepts it as a timeZone option
+// (throws RangeError otherwise). Node ships full ICU, so this is authoritative.
+function isValidTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value })
+    return true
+  } catch {
+    return false
+  }
+}
+
+// IANA time zone the series was created/edited in. Optional on the create/series
+// payloads; a null time_zone on the row falls back to UTC day math in generation.
+export const timeZoneSchema = z
+  .string()
+  .min(1)
+  .max(MAX_TIME_ZONE_LENGTH)
+  .refine(isValidTimeZone, 'Invalid IANA time zone')
+
 export const createTaskSchema = z.object({
   title: z.string().min(1, 'Title required').max(200),
   type: taskTypeSchema,
@@ -26,6 +49,9 @@ export const createTaskSchema = z.object({
   location: z.string().max(200).nullable().optional(),
   description: z.string().max(2000).nullable().optional(),
   allDay: z.boolean().optional(),
+  // Client's IANA zone on a series-creating fan-out; stamped group-wide so
+  // weekly-days generation lands occurrences on the right LOCAL weekday.
+  timeZone: timeZoneSchema.optional(),
 })
 
 export const updateTaskSchema = z.object({
@@ -66,6 +92,9 @@ export const updateSeriesSchema = z.object({
   recurrence: z.enum(['daily', 'weekly', 'monthly']).nullable().optional(),
   recurrenceDays: dayTokenArraySchema.optional(),
   recurrenceCount: z.number().int().min(1).max(52).nullable().optional(),
+  // Client's IANA zone on a pattern edit; stamped group-wide (falls back to the
+  // persisted row value when omitted — e.g. the read-path extend sweep).
+  timeZone: timeZoneSchema.optional(),
 })
 
 // Whole-series delete contract (wave 2.6, S10): removes every occurrence row of

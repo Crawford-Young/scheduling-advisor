@@ -42,6 +42,7 @@ export function ActivityCreateButton({ use24h }: ActivityCreateButtonProps): Rea
         location: values.location ?? null,
         description: values.description ?? null,
         allDay: values.allDay,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       })
       if ('error' in result) {
         toast.error('Could not create activity')

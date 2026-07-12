@@ -16,6 +16,7 @@ import {
   generateSeriesRows,
   resolveSeriesWindow,
   sundayOfWeekUTC,
+  sundayOfWeekZoned,
   type SeriesBaseFields,
 } from '@/lib/series-generation'
 
@@ -109,6 +110,9 @@ export async function updateSeries(input: unknown): Promise<TaskActionResult> {
   const mergedDays = data.recurrenceDays !== undefined ? data.recurrenceDays : anchor.recurrenceDays
   const mergedCount =
     data.recurrenceCount !== undefined ? data.recurrenceCount : anchor.recurrenceCount
+  // Stamp the client's zone group-wide; fall back to the persisted row value when
+  // the payload omits it (keeps a field-only edit from clearing a stored zone).
+  const mergedTimeZone = (data.timeZone !== undefined ? data.timeZone : anchor.timeZone) ?? null
 
   // Day tokens only apply to a weekly pattern (interval paths persist null).
   const hasDaySet = mergedRecurrence === WEEKLY && mergedDays !== null && mergedDays.length > 0
@@ -124,6 +128,7 @@ export async function updateSeries(input: unknown): Promise<TaskActionResult> {
     recurrence: mergedRecurrence,
     recurrenceDays: persistedDays,
     recurrenceCount: persistedCount,
+    timeZone: mergedTimeZone,
     updatedAt: new Date(),
   }
 
@@ -240,7 +245,12 @@ export async function updateSeries(input: unknown): Promise<TaskActionResult> {
       timeDurationMs === null ? null : new Date(templateStart.getTime() + timeDurationMs)
 
     const weeklyDaysCounted = hasDaySet && mergedCount !== null
-    const window = resolveSeriesWindow(seriesStart, weeklyDaysCounted ? mergedCount : null, now)
+    const window = resolveSeriesWindow(
+      seriesStart,
+      weeklyDaysCounted ? mergedCount : null,
+      now,
+      mergedTimeZone,
+    )
     const selectedDows = hasDaySet
       ? persistedDays!.map((token) => DAY_TOKENS.indexOf(token)).sort((a, b) => a - b)
       : null
@@ -259,6 +269,7 @@ export async function updateSeries(input: unknown): Promise<TaskActionResult> {
       description: mergedDescription,
       color: mergedColor,
       allDay: mergedAllDay,
+      timeZone: mergedTimeZone,
     }
 
     const generated = generateSeriesRows({
@@ -381,6 +392,8 @@ export async function extendSeries(): Promise<ExtendSeriesResult> {
         ? maxRow.recurrenceDays.map((token) => DAY_TOKENS.indexOf(token)).sort((a, b) => a - b)
         : null
 
+    // No client payload on the read-path sweep — the zone comes from persisted rows.
+    const timeZone = maxRow.timeZone ?? null
     const base: SeriesBaseFields = {
       userId,
       title: maxRow.title,
@@ -394,10 +407,14 @@ export async function extendSeries(): Promise<ExtendSeriesResult> {
       description: maxRow.description,
       color: maxRow.color,
       allDay: maxRow.allDay,
+      timeZone,
     }
 
     const window = {
-      start: sundayOfWeekUTC(maxRow.startAt),
+      start:
+        timeZone != null
+          ? sundayOfWeekZoned(maxRow.startAt, timeZone)
+          : sundayOfWeekUTC(maxRow.startAt),
       end: new Date(now.getTime() + HORIZON_WEEKS * MS_PER_WEEK),
     }
 

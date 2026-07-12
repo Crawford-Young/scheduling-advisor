@@ -718,6 +718,7 @@ describe('CalendarClient', () => {
           allDay: false,
           recurrence: 'weekly',
           recurrenceDays: undefined,
+          timeZone: expect.any(String),
         }),
       )
       expect(mockUpdateTask).not.toHaveBeenCalled()
@@ -791,6 +792,7 @@ describe('CalendarClient', () => {
           allDay: false,
           recurrence: 'weekly',
           recurrenceDays: ['Mon', 'Wed'],
+          timeZone: expect.any(String),
         }),
       )
       expect(mockUpdateTask).not.toHaveBeenCalled()
@@ -827,6 +829,7 @@ describe('CalendarClient', () => {
           allDay: false,
           recurrence: 'daily',
           recurrenceDays: undefined,
+          timeZone: expect.any(String),
         }),
       )
       expect(mockUpdateTask).not.toHaveBeenCalled()
@@ -867,6 +870,7 @@ describe('CalendarClient', () => {
           allDay: true,
           recurrence: null,
           recurrenceDays: undefined,
+          timeZone: expect.any(String),
         }),
       )
       expect(mockUpdateTask).not.toHaveBeenCalled()
@@ -1018,6 +1022,7 @@ describe('CalendarClient', () => {
           allDay: false,
           recurrence: 'weekly',
           recurrenceDays: ['Wed', 'Mon'],
+          timeZone: expect.any(String),
         }),
       )
       expect(mockUpdateTask).not.toHaveBeenCalled()
@@ -1087,6 +1092,7 @@ describe('CalendarClient', () => {
           taskId: 'e8',
           startAt: '2026-01-06T14:00:00.000Z',
           endAt: '2026-01-06T15:00:00.000Z',
+          timeZone: expect.any(String),
         }),
       )
       expect(mockRescheduleTask).not.toHaveBeenCalled()
@@ -1118,6 +1124,7 @@ describe('CalendarClient', () => {
           endAt: '2026-01-09T10:00:00.000Z',
           recurrence: 'weekly',
           recurrenceDays: ['Wed', 'Fri'],
+          timeZone: expect.any(String),
         }),
       )
     })
@@ -1146,6 +1153,7 @@ describe('CalendarClient', () => {
           taskId: 'e10',
           startAt: '2026-01-08T09:00:00.000Z',
           endAt: '2026-01-08T10:00:00.000Z',
+          timeZone: expect.any(String),
         }),
       )
     })

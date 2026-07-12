@@ -486,6 +486,23 @@ describe('createTask fan-out', () => {
     }
   })
 
+  it('weekday fan-out: stamps the client timeZone on every row', async () => {
+    mockReturningInsert.mockResolvedValueOnce([
+      { id: 'task-1', title: 'test', type: 'task' },
+      { id: 'task-2', title: 'test', type: 'task' },
+    ])
+    await createTask({
+      title: 'test',
+      type: 'task',
+      recurrence: 'weekly',
+      recurrenceDays: ['Mon', 'Tue'],
+      startAt: '2026-05-18T09:00:00.000Z',
+      timeZone: 'America/New_York',
+    })
+    const insertedRows = mockValuesInsert.mock.calls[0]![0] as Array<{ timeZone: string | null }>
+    expect(insertedRows.every((r) => r.timeZone === 'America/New_York')).toBe(true)
+  })
+
   it('weekday fan-out: recurrenceCount persisted as null when not provided', async () => {
     mockReturningInsert.mockResolvedValueOnce([
       { id: 'task-1', title: 'test', type: 'task' },
@@ -616,6 +633,13 @@ describe('createTask single insert recurrence group identity', () => {
     }
     expect(insertArg.recurrenceDays).toEqual(['Mon', 'Tue'])
     expect(insertArg.recurrenceGroupId).toBeTruthy()
+  })
+
+  it('defaults timeZone to null on a single insert with no payload zone', async () => {
+    mockReturningInsert.mockResolvedValueOnce([{ id: 'task-1', title: 'test', type: 'task' }])
+    await createTask({ title: 'test', type: 'task' })
+    const insertArg = mockValuesInsert.mock.calls[0]![0] as { timeZone: string | null }
+    expect(insertArg.timeZone).toBeNull()
   })
 
   it('leaves recurrenceGroupId null for a non-recurring single insert', async () => {

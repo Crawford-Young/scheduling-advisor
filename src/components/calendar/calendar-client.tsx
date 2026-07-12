@@ -23,6 +23,13 @@ import { createTask, deleteTask, updateTask } from '@/server/actions/tasks'
 import { deleteSeries, updateSeries } from '@/server/actions/series-mutations'
 import { DAY_TOKENS } from '@/lib/series-generation'
 
+// The browser's IANA zone, stamped on series-creating/pattern-editing payloads so
+// server-side weekly-days generation lands occurrences on the correct LOCAL
+// weekday/wall-clock (wave 2.6 S12).
+function resolvedTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface AppCalendarEvent {
@@ -239,6 +246,7 @@ export function CalendarClient({
               allDay: libEvent.allDay ?? false,
               recurrence: isSeriesFrequency(freq) ? freq : null,
               recurrenceDays: emittedDays.length > 0 ? emittedDays : undefined,
+              timeZone: resolvedTimeZone(),
             })
           : await updateTask({
               id: libEvent.id,
@@ -314,8 +322,11 @@ export function CalendarClient({
           newEndAt: endAt,
         })
       } else {
-        const oldDow = new Date(original.start).getUTCDay()
-        const newDow = new Date(libEvent.start).getUTCDay()
+        // LOCAL getDay (matches the grid's local rendering, per the 0.19.0
+        // local-wall-clock invariant): an evening chip's UTC day is the next day,
+        // so getUTCDay would swap the wrong token.
+        const oldDow = new Date(original.start).getDay()
+        const newDow = new Date(libEvent.start).getDay()
         const persistedDays = original.recurrenceDays ?? []
         result =
           oldDow !== newDow && persistedDays.length > 0
@@ -330,8 +341,14 @@ export function CalendarClient({
                     DAY_TOKENS[newDow],
                   ]),
                 ),
+                timeZone: resolvedTimeZone(),
               })
-            : await updateSeries({ taskId: libEvent.id, startAt, endAt })
+            : await updateSeries({
+                taskId: libEvent.id,
+                startAt,
+                endAt,
+                timeZone: resolvedTimeZone(),
+              })
       }
 
       if ('error' in result) {
@@ -416,6 +433,7 @@ export function CalendarClient({
         // Repeat count from the create popover (0.18.0): fans the weekly pattern
         // over N weeks (weeks × selected weekdays).
         recurrenceCount: payload.recurrenceCount,
+        timeZone: resolvedTimeZone(),
       })
       if ('error' in result) toast.error('Could not create event — calendar restored')
       refreshAndResync()
