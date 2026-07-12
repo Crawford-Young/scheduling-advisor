@@ -10,6 +10,7 @@ const mockRecordCompletion = vi.hoisted(() => vi.fn().mockResolvedValue({ data: 
 const mockDeleteTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { success: true } }))
 const mockUpdateTask = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e1' } }))
 const mockUpdateSeries = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e5' } }))
+const mockDeleteSeries = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { success: true } }))
 const mockToastError = vi.hoisted(() => vi.fn())
 const mockRefresh = vi.hoisted(() => vi.fn())
 const mountCount = vi.hoisted(() => ({ value: 0 }))
@@ -28,6 +29,7 @@ vi.mock('@/server/actions/tasks', () => ({
 }))
 vi.mock('@/server/actions/series-mutations', () => ({
   updateSeries: mockUpdateSeries,
+  deleteSeries: mockDeleteSeries,
 }))
 const mockReplace = vi.hoisted(() => vi.fn())
 vi.mock('next/navigation', () => ({
@@ -563,6 +565,83 @@ describe('CalendarClient', () => {
       await vi.waitFor(() => expect(capturedProps.resyncToken).toBe(initialToken + 1))
       expect(mockRefresh).toHaveBeenCalled()
       expect(mountCount.value).toBe(initialMountCount)
+    })
+
+    // S11: a grouped occurrence (e8, recurrenceGroupId 'grp-1') offers a 3-way
+    // scope choice instead of the plain 2-way confirm.
+    it('offers a 3-way scope choice for a grouped occurrence', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
+      onEventDelete({ id: 'e8', title: 'Grouped event' })
+      expect(await screen.findByText(/delete "Grouped event"/i)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /^this event only$/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /^entire series$/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument()
+    })
+
+    it('"This event only" deletes the single occurrence via deleteTask', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
+      onEventDelete({ id: 'e8', title: 'Grouped event' })
+      await userEvent.click(await screen.findByRole('button', { name: /^this event only$/i }))
+      await vi.waitFor(() => expect(mockDeleteTask).toHaveBeenCalledWith({ id: 'e8' }))
+      expect(mockDeleteSeries).not.toHaveBeenCalled()
+      expect(mockRefresh).toHaveBeenCalled()
+    })
+
+    it('"Entire series" deletes the whole group via deleteSeries', async () => {
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
+      onEventDelete({ id: 'e8', title: 'Grouped event' })
+      await userEvent.click(await screen.findByRole('button', { name: /^entire series$/i }))
+      await vi.waitFor(() => expect(mockDeleteSeries).toHaveBeenCalledWith({ groupId: 'grp-1' }))
+      expect(mockDeleteTask).not.toHaveBeenCalled()
+      expect(mockRefresh).toHaveBeenCalled()
+    })
+
+    it('shows toast on "Entire series" delete error', async () => {
+      mockDeleteSeries.mockResolvedValueOnce({ error: 'Not found' })
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
+      onEventDelete({ id: 'e8', title: 'Grouped event' })
+      await userEvent.click(await screen.findByRole('button', { name: /^entire series$/i }))
+      await vi.waitFor(() => expect(mockToastError).toHaveBeenCalledWith('Could not delete series'))
     })
   })
 

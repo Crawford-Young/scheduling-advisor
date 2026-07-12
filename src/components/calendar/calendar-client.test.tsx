@@ -14,6 +14,7 @@ const rescheduleTaskMock = vi.fn()
 const recordCompletionMock = vi.fn()
 const updateTaskMock = vi.fn()
 const updateSeriesMock = vi.fn()
+const deleteSeriesMock = vi.fn()
 const toastErrorMock = vi.fn()
 
 // AlertDialog stores a wrapper around its onOpenChange here so the Cancel and
@@ -40,6 +41,7 @@ vi.mock('@/server/actions/tasks', () => ({
 
 vi.mock('@/server/actions/series-mutations', () => ({
   updateSeries: (input: unknown) => updateSeriesMock(input),
+  deleteSeries: (input: unknown) => deleteSeriesMock(input),
 }))
 
 vi.mock('@/server/actions/consistency', () => ({
@@ -218,6 +220,21 @@ vi.mock('@/lib/ui', () => ({
     >
       <button type="button" onClick={() => props.onEventDelete?.(STUB_LIB_EVENT)}>
         trigger-delete
+      </button>
+      {/* S11: a GROUPED row's delete target (evt-grouped, recurrenceGroupId
+          'grp-1') exercises the 3-way scope dialog. */}
+      <button
+        type="button"
+        onClick={() =>
+          props.onEventDelete?.({
+            id: 'evt-grouped',
+            title: 'Grouped event',
+            start: '2026-01-06T09:00:00.000Z',
+            end: '2026-01-06T10:00:00.000Z',
+          })
+        }
+      >
+        trigger-delete-grouped
       </button>
       <button type="button" onClick={() => props.onEventMove?.(STUB_LIB_EVENT)}>
         trigger-move
@@ -770,6 +787,8 @@ describe('CalendarClient — resync machinery', () => {
     replaceMock.mockClear()
     deleteTaskMock.mockClear()
     deleteTaskMock.mockResolvedValue({})
+    deleteSeriesMock.mockClear()
+    deleteSeriesMock.mockResolvedValue({})
     rescheduleTaskMock.mockClear()
     rescheduleTaskMock.mockResolvedValue({})
     toastErrorMock.mockClear()
@@ -2352,5 +2371,151 @@ describe('CalendarClient — recurrenceEditMode pass-through (0.21.0)', () => {
 
     const view = screen.getByTestId('week-calendar-view')
     expect(view.dataset.recurrenceEditMode).toBe('server')
+  })
+})
+
+// S11: a grouped occurrence's delete offers a 3-way scope choice; an ungrouped
+// row keeps the existing 2-way confirm exactly as-is.
+describe('CalendarClient — delete scope dialog (S11)', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    deleteTaskMock.mockClear()
+    deleteTaskMock.mockResolvedValue({})
+    deleteSeriesMock.mockClear()
+    deleteSeriesMock.mockResolvedValue({})
+    toastErrorMock.mockClear()
+  })
+
+  it('ungrouped delete keeps the single "Delete" action, no scope buttons', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-delete' }))
+
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'This event only' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Entire series' })).not.toBeInTheDocument()
+  })
+
+  it('grouped delete offers "This event only" and "Entire series" instead of a single Delete', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-delete-grouped' }))
+
+    expect(screen.getByRole('button', { name: 'This event only' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Entire series' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+  })
+
+  it('"This event only" deletes the single occurrence via deleteTask and resyncs', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+    const beforeNode = screen.getByTestId('week-calendar-view')
+
+    await user.click(screen.getByRole('button', { name: 'trigger-delete-grouped' }))
+    await user.click(screen.getByRole('button', { name: 'This event only' }))
+
+    await waitFor(() => expect(deleteTaskMock).toHaveBeenCalledWith({ id: 'evt-grouped' }))
+    expect(deleteSeriesMock).not.toHaveBeenCalled()
+    await waitFor(() => expect(refreshMock).toHaveBeenCalled())
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
+    expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
+  })
+
+  it('"Entire series" deletes the whole group via deleteSeries and resyncs', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+    const beforeNode = screen.getByTestId('week-calendar-view')
+
+    await user.click(screen.getByRole('button', { name: 'trigger-delete-grouped' }))
+    await user.click(screen.getByRole('button', { name: 'Entire series' }))
+
+    await waitFor(() => expect(deleteSeriesMock).toHaveBeenCalledWith({ groupId: 'grp-1' }))
+    expect(deleteTaskMock).not.toHaveBeenCalled()
+    await waitFor(() => expect(refreshMock).toHaveBeenCalled())
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
+    expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
+  })
+
+  it('toasts and resyncs in place when "Entire series" fails to persist', async () => {
+    deleteSeriesMock.mockResolvedValueOnce({ error: 'Not found' })
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+    const beforeNode = screen.getByTestId('week-calendar-view')
+
+    await user.click(screen.getByRole('button', { name: 'trigger-delete-grouped' }))
+    await user.click(screen.getByRole('button', { name: 'Entire series' }))
+
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not delete series'))
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
+  })
+
+  it('cancelling a grouped delete dialog bumps the token immediately with no server call', async () => {
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+    const beforeNode = screen.getByTestId('week-calendar-view')
+
+    await user.click(screen.getByRole('button', { name: 'trigger-delete-grouped' }))
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
+    expect(refreshMock).not.toHaveBeenCalled()
+    expect(deleteTaskMock).not.toHaveBeenCalled()
+    expect(deleteSeriesMock).not.toHaveBeenCalled()
   })
 })

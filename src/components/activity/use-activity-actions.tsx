@@ -18,7 +18,7 @@ import {
   type DayOfWeek,
 } from '@/lib/ui'
 import { updateTask, deleteTask } from '@/server/actions/tasks'
-import { updateSeries } from '@/server/actions/series-mutations'
+import { deleteSeries, updateSeries } from '@/server/actions/series-mutations'
 import { recordCompletion } from '@/server/actions/consistency'
 
 const TARGET_DATE_TIME_SUFFIX = 'T12:00:00.000Z'
@@ -192,6 +192,19 @@ export function useActivityActions({
     })
   }
 
+  // Wave 2.6 S11: "Entire series" scope of the grouped delete dialog — removes
+  // every occurrence row of the group plus its slot tombstones.
+  function handleConfirmDeleteSeries(groupId: string): void {
+    startTransition(async () => {
+      const result = await deleteSeries({ groupId })
+      if ('error' in result) {
+        toast.error('Could not delete series')
+        return
+      }
+      router.refresh()
+    })
+  }
+
   const dialogs = (
     <>
       <ActivityFormDialog
@@ -223,13 +236,34 @@ export function useActivityActions({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this {type}?</AlertDialogTitle>
-            <AlertDialogDescription>This cannot be undone.</AlertDialogDescription>
+            <AlertDialogDescription>
+              {recurrenceGroupId != null
+                ? 'Choose whether to remove just this occurrence or the entire series.'
+                : 'This cannot be undone.'}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction aria-label="Confirm delete" onClick={handleConfirmDelete}>
-              Confirm
-            </AlertDialogAction>
+            {recurrenceGroupId != null ? (
+              <>
+                <AlertDialogAction
+                  aria-label="Confirm delete this event only"
+                  onClick={handleConfirmDelete}
+                >
+                  This event only
+                </AlertDialogAction>
+                <AlertDialogAction
+                  aria-label="Confirm delete entire series"
+                  onClick={() => recurrenceGroupId && handleConfirmDeleteSeries(recurrenceGroupId)}
+                >
+                  Entire series
+                </AlertDialogAction>
+              </>
+            ) : (
+              <AlertDialogAction aria-label="Confirm delete" onClick={handleConfirmDelete}>
+                Confirm
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

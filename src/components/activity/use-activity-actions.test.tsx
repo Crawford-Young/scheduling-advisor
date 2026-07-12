@@ -8,6 +8,7 @@ const refreshMock = vi.fn()
 const updateTaskMock = vi.fn().mockResolvedValue({ data: {} })
 const updateSeriesMock = vi.fn().mockResolvedValue({ data: {} })
 const deleteTaskMock = vi.fn().mockResolvedValue({ data: { success: true } })
+const deleteSeriesMock = vi.fn().mockResolvedValue({ data: { success: true } })
 const recordCompletionMock = vi.fn().mockResolvedValue({ data: {} })
 const toastErrorMock = vi.fn()
 
@@ -22,6 +23,7 @@ vi.mock('@/server/actions/tasks', () => ({
 
 vi.mock('@/server/actions/series-mutations', () => ({
   updateSeries: (input: unknown) => updateSeriesMock(input),
+  deleteSeries: (input: unknown) => deleteSeriesMock(input),
 }))
 
 vi.mock('@/server/actions/consistency', () => ({
@@ -250,6 +252,8 @@ describe('useActivityActions', () => {
     updateTaskMock.mockClear()
     updateSeriesMock.mockClear()
     deleteTaskMock.mockClear()
+    deleteSeriesMock.mockClear()
+    deleteSeriesMock.mockResolvedValue({ data: { success: true } })
     recordCompletionMock.mockClear()
     toastErrorMock.mockClear()
   })
@@ -686,5 +690,55 @@ describe('useActivityActions', () => {
     await user.click(screen.getByRole('button', { name: /confirm delete/i }))
     await waitFor(() => expect(deleteTaskMock).toHaveBeenCalledWith({ id: 'goal-1' }))
     expect(refreshMock).toHaveBeenCalled()
+  })
+
+  // S11: a grouped occurrence's delete offers a 3-way scope choice; an
+  // ungrouped target (goalProps above) keeps the existing 2-way confirm.
+  it('ungrouped delete keeps the single "Confirm delete" action, no scope buttons', async () => {
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...goalProps} />)
+    await user.click(screen.getByRole('button', { name: /delete goal/i }))
+    expect(screen.getByRole('button', { name: /^confirm delete$/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /this event only/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /entire series/i })).not.toBeInTheDocument()
+  })
+
+  it('grouped delete offers "This event only" and "Entire series" instead of a single confirm', async () => {
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...groupedSeriesProps} />)
+    await user.click(screen.getByRole('button', { name: /delete task/i }))
+    expect(screen.getByRole('button', { name: /this event only/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /entire series/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^confirm delete$/i })).not.toBeInTheDocument()
+  })
+
+  it('"This event only" deletes the single occurrence via deleteTask', async () => {
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...groupedSeriesProps} />)
+    await user.click(screen.getByRole('button', { name: /delete task/i }))
+    await user.click(screen.getByRole('button', { name: /this event only/i }))
+    await waitFor(() => expect(deleteTaskMock).toHaveBeenCalledWith({ id: 'task-grouped-1' }))
+    expect(deleteSeriesMock).not.toHaveBeenCalled()
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('"Entire series" deletes the whole group via deleteSeries', async () => {
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...groupedSeriesProps} />)
+    await user.click(screen.getByRole('button', { name: /delete task/i }))
+    await user.click(screen.getByRole('button', { name: /entire series/i }))
+    await waitFor(() => expect(deleteSeriesMock).toHaveBeenCalledWith({ groupId: 'group-1' }))
+    expect(deleteTaskMock).not.toHaveBeenCalled()
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('shows toast.error when "Entire series" delete fails (no refresh)', async () => {
+    deleteSeriesMock.mockResolvedValueOnce({ error: 'Not found' })
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...groupedSeriesProps} />)
+    await user.click(screen.getByRole('button', { name: /delete task/i }))
+    await user.click(screen.getByRole('button', { name: /entire series/i }))
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not delete series'))
+    expect(refreshMock).not.toHaveBeenCalled()
   })
 })

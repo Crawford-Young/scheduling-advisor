@@ -20,7 +20,7 @@ import {
 } from '@/lib/ui'
 import { rescheduleTask, recordCompletion } from '@/server/actions/consistency'
 import { createTask, deleteTask, updateTask } from '@/server/actions/tasks'
-import { updateSeries } from '@/server/actions/series-mutations'
+import { deleteSeries, updateSeries } from '@/server/actions/series-mutations'
 import { DAY_TOKENS } from '@/lib/series-generation'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -270,6 +270,20 @@ export function CalendarClient({
     })
   }
 
+  // Wave 2.6 S11: "Entire series" scope of the grouped delete dialog — removes
+  // every occurrence row of the group plus its slot tombstones.
+  function handleConfirmDeleteSeries(groupId: string): void {
+    confirmedRef.current = true
+    setDeleteTarget(null)
+    startTransition(async () => {
+      const result = await deleteSeries({ groupId })
+      if ('error' in result) {
+        toast.error('Could not delete series')
+      }
+      refreshAndResync()
+    })
+  }
+
   function handleDeleteOpenChange(open: boolean): void {
     if (!open) {
       setDeleteTarget(null)
@@ -376,6 +390,14 @@ export function CalendarClient({
     })
   }
 
+  // Wave 2.6 S11: a delete target that belongs to a recurrence group offers a
+  // 3-way scope choice ("This event only" / "Entire series"); an ungrouped
+  // target keeps the plain 2-way confirm. Looked up from the events prop (the
+  // library's delete-target event carries no recurrenceGroupId of its own).
+  const deleteTargetGroupId = deleteTarget
+    ? (events.find((e) => e.id === deleteTarget.id)?.recurrenceGroupId ?? null)
+    : null
+
   function handleEventCreate(payload: Omit<LibraryCalendarEvent, 'id'>): void {
     startTransition(async () => {
       const result = await createTask({
@@ -439,14 +461,33 @@ export function CalendarClient({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete event</AlertDialogTitle>
             <AlertDialogDescription>
-              Delete &quot;{deleteTarget?.title ?? ''}&quot;? This removes the task and its history.
+              {deleteTargetGroupId !== null
+                ? `Delete "${deleteTarget?.title ?? ''}"? Choose whether to remove just this occurrence or the entire series.`
+                : `Delete "${deleteTarget?.title ?? ''}"? This removes the task and its history.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleteTarget && handleConfirmDelete(deleteTarget)}>
-              Delete
-            </AlertDialogAction>
+            {deleteTargetGroupId !== null ? (
+              <>
+                <AlertDialogAction
+                  onClick={() => deleteTarget && handleConfirmDelete(deleteTarget)}
+                >
+                  This event only
+                </AlertDialogAction>
+                <AlertDialogAction
+                  onClick={() =>
+                    deleteTargetGroupId && handleConfirmDeleteSeries(deleteTargetGroupId)
+                  }
+                >
+                  Entire series
+                </AlertDialogAction>
+              </>
+            ) : (
+              <AlertDialogAction onClick={() => deleteTarget && handleConfirmDelete(deleteTarget)}>
+                Delete
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
