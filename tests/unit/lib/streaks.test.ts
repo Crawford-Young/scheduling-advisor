@@ -2,10 +2,11 @@ import { computeGroupStreak, computePerOccurrenceStreaks } from '@/lib/streaks'
 
 const NOW = new Date('2026-07-08T20:00:00Z') // Wed
 const occ = (iso: string, status: string) => ({ startAt: new Date(iso), status })
-const idOcc = (id: string, iso: string | null, status: string) => ({
+const idOcc = (id: string, iso: string | null, status: string, timeZone: string | null = null) => ({
   id,
   startAt: iso === null ? null : new Date(iso),
   status,
+  timeZone,
 })
 
 describe('computeGroupStreak', () => {
@@ -110,17 +111,18 @@ describe('computePerOccurrenceStreaks', () => {
     expect(computePerOccurrenceStreaks(occs, NOW)).toEqual({ a: 1, b: 0, c: 1 })
   })
 
-  it("today's pending after 3 completed shows 4 (grace + projection)", () => {
+  it("today's pending after 3 completed emits 0 without breaking the run (not done yet ≠ broken)", () => {
     const occs = [
       idOcc('a', '2026-07-05T10:00:00Z', 'completed'),
       idOcc('b', '2026-07-06T10:00:00Z', 'completed'),
       idOcc('c', '2026-07-07T10:00:00Z', 'completed'),
-      idOcc('d', '2026-07-08T10:00:00Z', 'pending'),
+      idOcc('d', '2026-07-08T10:00:00Z', 'pending'), // today
+      idOcc('e', '2026-07-09T10:00:00Z', 'completed'), // proves run wasn't reset by d
     ]
-    expect(computePerOccurrenceStreaks(occs, NOW)).toEqual({ a: 1, b: 2, c: 3, d: 4 })
+    expect(computePerOccurrenceStreaks(occs, NOW)).toEqual({ a: 1, b: 2, c: 3, d: 0, e: 4 })
   })
 
-  it('future pendings after 3 completed project 4,5,6', () => {
+  it('future pendings after 3 completed all emit 0; a later completed continues the run undisturbed', () => {
     const occs = [
       idOcc('a', '2026-07-05T10:00:00Z', 'completed'),
       idOcc('b', '2026-07-06T10:00:00Z', 'completed'),
@@ -128,31 +130,16 @@ describe('computePerOccurrenceStreaks', () => {
       idOcc('d', '2026-07-09T10:00:00Z', 'pending'),
       idOcc('e', '2026-07-10T10:00:00Z', 'pending'),
       idOcc('f', '2026-07-11T10:00:00Z', 'pending'),
+      idOcc('g', '2026-07-12T10:00:00Z', 'completed'),
     ]
     expect(computePerOccurrenceStreaks(occs, NOW)).toEqual({
       a: 1,
       b: 2,
       c: 3,
-      d: 4,
-      e: 5,
-      f: 6,
-    })
-  })
-
-  it('completed occurrence dated after a future pending continues the projected run', () => {
-    const occs = [
-      idOcc('a', '2026-07-05T10:00:00Z', 'completed'),
-      idOcc('b', '2026-07-06T10:00:00Z', 'completed'),
-      idOcc('c', '2026-07-07T10:00:00Z', 'completed'),
-      idOcc('d', '2026-07-09T10:00:00Z', 'pending'),
-      idOcc('e', '2026-07-10T10:00:00Z', 'completed'),
-    ]
-    expect(computePerOccurrenceStreaks(occs, NOW)).toEqual({
-      a: 1,
-      b: 2,
-      c: 3,
-      d: 4,
-      e: 5,
+      d: 0,
+      e: 0,
+      f: 0,
+      g: 4,
     })
   })
 
@@ -172,5 +159,46 @@ describe('computePerOccurrenceStreaks', () => {
       idOcc('c', '2026-07-07T10:00:00Z', 'completed'),
     ]
     expect(computePerOccurrenceStreaks(occs, NOW)).toEqual({ a: 1, b: 0, c: 1 })
+  })
+
+  describe('TZ-aware day boundary (series time_zone, wave 2.6 S13)', () => {
+    const TZ = 'America/New_York' // UTC-4 (EDT) in July
+
+    it('an evening-Eastern occurrence whose UTC day equals "now"\'s UTC day but whose LOCAL day is yesterday resets the run', () => {
+      // now: 2026-07-09T14:00:00Z = 10:00 AM Eastern, local day Jul 9.
+      const zonedNow = new Date('2026-07-09T14:00:00Z')
+      const occs = [
+        idOcc('a', '2026-07-07T20:00:00Z', 'completed', TZ), // 4:00 PM Eastern, local Jul 7
+        idOcc('b', '2026-07-08T20:00:00Z', 'completed', TZ), // 4:00 PM Eastern, local Jul 8
+        // 00:30 UTC Jul 9 = 8:30 PM Eastern Jul 8 — UTC day is "today" (Jul 9),
+        // but the LOCAL (series TZ) day is Jul 8, i.e. already past.
+        idOcc('c', '2026-07-09T00:30:00Z', 'pending', TZ),
+        idOcc('d', '2026-07-10T20:00:00Z', 'completed', TZ), // local Jul 10 — proves reset happened
+      ]
+      expect(computePerOccurrenceStreaks(occs, zonedNow)).toEqual({ a: 1, b: 2, c: 0, d: 1 })
+    })
+
+    it('the same UTC-day-boundary case does NOT reset under UTC fallback (null time_zone)', () => {
+      const zonedNow = new Date('2026-07-09T14:00:00Z')
+      const occs = [
+        idOcc('a', '2026-07-07T20:00:00Z', 'completed'),
+        idOcc('b', '2026-07-08T20:00:00Z', 'completed'),
+        idOcc('c', '2026-07-09T00:30:00Z', 'pending'), // same UTC day as now → not past
+        idOcc('d', '2026-07-10T20:00:00Z', 'completed'),
+      ]
+      expect(computePerOccurrenceStreaks(occs, zonedNow)).toEqual({ a: 1, b: 2, c: 0, d: 3 })
+    })
+
+    it('a same-local-day-as-now pending in the series TZ emits 0 without resetting the run', () => {
+      // now local (Eastern): Jul 9, 10:00 AM.
+      const zonedNow = new Date('2026-07-09T14:00:00Z')
+      const occs = [
+        idOcc('a', '2026-07-08T20:00:00Z', 'completed', TZ), // local Jul 8
+        // 12:30 PM Eastern Jul 9 — same local day as now, i.e. "today", not past.
+        idOcc('b', '2026-07-09T16:30:00Z', 'pending', TZ),
+        idOcc('c', '2026-07-10T20:00:00Z', 'completed', TZ), // proves run survived b
+      ]
+      expect(computePerOccurrenceStreaks(occs, zonedNow)).toEqual({ a: 1, b: 0, c: 2 })
+    })
   })
 })

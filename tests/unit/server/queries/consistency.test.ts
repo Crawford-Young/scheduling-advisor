@@ -108,4 +108,29 @@ describe('getTaskStreaks', () => {
     expect(result).toEqual({ a: 2 })
     expect(result).not.toHaveProperty('c')
   })
+
+  it("passes each row's persisted time_zone through to computePerOccurrenceStreaks (wave 2.6 S13)", async () => {
+    vi.mocked(computePerOccurrenceStreaks).mockReturnValue({ a: 1 })
+    mockRows.mockResolvedValueOnce([{ id: 'a', groupId: 'g1' }]).mockResolvedValueOnce([
+      {
+        id: 'a',
+        groupId: 'g1',
+        startAt: new Date('2026-07-06T10:00:00Z'),
+        status: 'completed',
+        timeZone: 'America/New_York',
+      },
+    ])
+    await getTaskStreaks('user-1', ['a'])
+    expect(computePerOccurrenceStreaks).toHaveBeenCalledWith(
+      [
+        {
+          id: 'a',
+          startAt: new Date('2026-07-06T10:00:00Z'),
+          status: 'completed',
+          timeZone: 'America/New_York',
+        },
+      ],
+      expect.any(Date),
+    )
+  })
 })

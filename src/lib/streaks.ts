@@ -1,3 +1,5 @@
+import { zonedWallClock } from '@/lib/series-generation'
+
 const MS_PER_DAY = 86_400_000
 
 export interface StreakResult {
@@ -12,6 +14,25 @@ interface Occurrence {
 
 function utcDayIndex(d: Date): number {
   return Math.floor(d.getTime() / MS_PER_DAY)
+}
+
+// Calendar-day index (days since UTC epoch) of `d`'s LOCAL wall-clock date in
+// `timeZone` — the TZ-aware counterpart to utcDayIndex, comparable the same
+// way. Reuses series-generation's zonedWallClock rather than duplicating the
+// Intl offset math (wave 2.6 S13).
+function zonedDayIndex(timeZone: string, d: Date): number {
+  const wc = zonedWallClock(timeZone, d)
+  return Date.UTC(wc.year, wc.month, wc.day) / MS_PER_DAY
+}
+
+// "Past" relative to `now`, in the occurrence's own series time zone when
+// present (S12's persisted tasks.time_zone), else the existing UTC day
+// boundary (legacy rows / null fallback).
+function isPastDay(startAt: Date, now: Date, timeZone: string | null): boolean {
+  if (timeZone !== null) {
+    return zonedDayIndex(timeZone, startAt) < zonedDayIndex(timeZone, now)
+  }
+  return utcDayIndex(startAt) < utcDayIndex(now)
 }
 
 /**
@@ -57,21 +78,28 @@ export interface IdOccurrence {
   readonly id: string
   readonly startAt: Date | null
   readonly status: string
+  /** Series' persisted IANA zone (S12); null → legacy UTC day-boundary fallback. */
+  readonly timeZone: string | null
 }
 
 interface DatedIdOccurrence {
   readonly id: string
   readonly startAt: Date
   readonly status: string
+  readonly timeZone: string | null
 }
 
 /**
- * Progressive per-occurrence streak over one recurrence group. Occurrences
- * with a null startAt are excluded from the chronological walk and reported
- * as 0. Walking ascending by startAt: a completed occurrence extends the
- * run; a non-completed occurrence dated before today breaks it back to 0; a
- * non-completed occurrence dated today or later extends the run as a
- * projection ("complete me for N+1").
+ * Completed-only per-occurrence streak over one recurrence group (wave 2.6
+ * S13 — supersedes the earlier projection design). Occurrences with a null
+ * startAt are excluded from the chronological walk and reported as 0.
+ * Walking ascending by startAt: a completed occurrence extends the run and
+ * emits it; a non-completed occurrence dated before today (in the
+ * occurrence's own series time zone, UTC fallback when null) emits 0 AND
+ * resets the run to 0; a non-completed occurrence dated today or later
+ * emits 0 without touching the run — it hasn't happened yet, so it can't
+ * show a flame, but a today/future gap does not break a live run the way a
+ * past miss does.
  */
 export function computePerOccurrenceStreaks(
   occurrences: readonly IdOccurrence[],
@@ -83,23 +111,21 @@ export function computePerOccurrenceStreaks(
     if (o.startAt === null) {
       result[o.id] = 0
     } else {
-      dated.push({ id: o.id, startAt: o.startAt, status: o.status })
+      dated.push({ id: o.id, startAt: o.startAt, status: o.status, timeZone: o.timeZone })
     }
   }
   dated.sort((a, b) => a.startAt.getTime() - b.startAt.getTime())
 
-  const today = utcDayIndex(now)
   let run = 0
   for (const o of dated) {
     if (o.status === 'completed') {
       run += 1
       result[o.id] = run
-    } else if (utcDayIndex(o.startAt) < today) {
+    } else if (isPastDay(o.startAt, now, o.timeZone)) {
       result[o.id] = 0
       run = 0
     } else {
-      run += 1
-      result[o.id] = run
+      result[o.id] = 0
     }
   }
   return result

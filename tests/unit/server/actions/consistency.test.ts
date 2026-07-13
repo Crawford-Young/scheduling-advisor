@@ -110,6 +110,23 @@ describe('recordCompletion', () => {
     expect(result).toMatchObject({ data: { currentStreak: 0, bestStreak: 6 } })
   })
 
+  it("passes the group's persisted time_zone through to computePerOccurrenceStreaks (wave 2.6 S13)", async () => {
+    mockGroupRows.mockResolvedValueOnce([{ groupId: 'g1' }])
+    const occ = [
+      {
+        id: UUID,
+        startAt: new Date('2026-07-06T10:00:00Z'),
+        status: 'completed',
+        timeZone: 'America/New_York',
+      },
+    ]
+    mockOccurrences.mockResolvedValue(occ)
+    vi.mocked(computePerOccurrenceStreaks).mockReturnValueOnce({ [UUID]: 4 })
+    vi.mocked(computeGroupStreak).mockReturnValueOnce({ current: 999, best: 6 })
+    await recordCompletion({ taskId: UUID })
+    expect(computePerOccurrenceStreaks).toHaveBeenCalledWith(occ, expect.any(Date))
+  })
+
   it('returns a zero streak for a non-recurring (null group) task without computing', async () => {
     mockGroupRows.mockResolvedValueOnce([{ groupId: null }])
     const result = await recordCompletion({ taskId: UUID })

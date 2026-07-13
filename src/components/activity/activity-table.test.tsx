@@ -228,6 +228,11 @@ describe('ActivityTable', () => {
     expect(screen.queryByText(/🔥/)).not.toBeInTheDocument()
   })
 
+  it('does not show a flame for a recurring row with a 0 streak (not completed, wave 2.6 S13)', () => {
+    render(<ActivityTable items={[makeRow({ type: 'task', recurrence: 'daily', streak: 0 })]} />)
+    expect(screen.queryByText(/🔥/)).not.toBeInTheDocument()
+  })
+
   it('shows a muted recurrence suffix in the When column for recurring rows', () => {
     render(
       <ActivityTable items={[makeRow({ dateLabel: 'Jul 3, 5:00 AM', recurrence: 'daily' })]} />,
