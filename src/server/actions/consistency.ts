@@ -51,7 +51,12 @@ export async function recordCompletion(input: unknown): Promise<ActionResult<Com
   let bestStreak = 0
   if (row?.groupId) {
     const occurrences = await db
-      .select({ id: tasks.id, startAt: tasks.startAt, status: tasks.status })
+      .select({
+        id: tasks.id,
+        startAt: tasks.startAt,
+        status: tasks.status,
+        timeZone: tasks.timeZone,
+      })
       .from(tasks)
       .where(and(eq(tasks.userId, userId), eq(tasks.recurrenceGroupId, row.groupId)))
     currentStreak = computePerOccurrenceStreaks(occurrences, now)[taskId] ?? 0

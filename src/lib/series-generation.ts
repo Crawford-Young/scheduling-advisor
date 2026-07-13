@@ -101,7 +101,9 @@ interface WallClock {
 }
 
 // Local wall-clock (calendar + time-of-day) of a UTC instant in `timeZone`.
-function zonedWallClock(timeZone: string, instant: Date): WallClock {
+// Exported for reuse by consumers that need a TZ-aware calendar-day boundary
+// without duplicating the Intl math (streaks.ts wave 2.6 S13).
+export function zonedWallClock(timeZone: string, instant: Date): WallClock {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone,
     hour12: false,

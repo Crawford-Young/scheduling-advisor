@@ -178,7 +178,9 @@ function buildColumns(use24h?: boolean): ColumnDef<ActivityRow>[] {
             <Badge variant={badgeStyle.variant} className={badgeStyle.className}>
               {row.original.status}
             </Badge>
-            {row.original.recurrence !== null && <span>{`🔥 ${row.original.streak}`}</span>}
+            {row.original.recurrence !== null && row.original.streak > 0 && (
+              <span>{`🔥 ${row.original.streak}`}</span>
+            )}
           </span>
         )
       },

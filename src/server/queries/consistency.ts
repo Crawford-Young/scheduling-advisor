@@ -62,14 +62,18 @@ export async function getTaskStreaks(
       groupId: tasks.recurrenceGroupId,
       startAt: tasks.startAt,
       status: tasks.status,
+      timeZone: tasks.timeZone,
     })
     .from(tasks)
     .where(and(eq(tasks.userId, userId), inArray(tasks.recurrenceGroupId, groupIds)))
-  const byGroup = new Map<string, { id: string; startAt: Date | null; status: string }[]>()
+  const byGroup = new Map<
+    string,
+    { id: string; startAt: Date | null; status: string; timeZone: string | null }[]
+  >()
   for (const o of occurrences) {
     if (o.groupId === null) continue
     const list = byGroup.get(o.groupId) ?? []
-    list.push({ id: o.id, startAt: o.startAt, status: o.status })
+    list.push({ id: o.id, startAt: o.startAt, status: o.status, timeZone: o.timeZone })
     byGroup.set(o.groupId, list)
   }
   const now = new Date()
