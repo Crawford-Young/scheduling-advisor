@@ -11,6 +11,8 @@ vi.mock('next/navigation', () => ({
 
 const updateTaskMock = vi.fn().mockResolvedValue({ data: {} })
 const updateSeriesMock = vi.fn().mockResolvedValue({ data: {} })
+const deleteSeriesMock = vi.fn().mockResolvedValue({ data: { success: true } })
+const toastErrorMock = vi.fn()
 
 vi.mock('@/server/actions/tasks', () => ({
   updateTask: (input: unknown) => updateTaskMock(input),
@@ -19,10 +21,18 @@ vi.mock('@/server/actions/tasks', () => ({
 
 vi.mock('@/server/actions/series-mutations', () => ({
   updateSeries: (input: unknown) => updateSeriesMock(input),
+  deleteSeries: (input: unknown) => deleteSeriesMock(input),
 }))
 
 vi.mock('@/server/actions/consistency', () => ({
   recordCompletion: vi.fn().mockResolvedValue({ data: {} }),
+}))
+
+// Keep the real @/lib/ui (DataTable, AlertDialog, ActivityFormDialog) but stub
+// toast so the S14 error path is observable.
+vi.mock('@/lib/ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/ui')>()),
+  toast: { error: (...args: unknown[]) => toastErrorMock(...args) },
 }))
 
 function makeRow(over: Partial<ActivityRow> = {}): ActivityRow {
@@ -58,6 +68,9 @@ describe('ActivityTable', () => {
     refreshMock.mockClear()
     updateTaskMock.mockClear()
     updateSeriesMock.mockClear()
+    deleteSeriesMock.mockClear()
+    deleteSeriesMock.mockResolvedValue({ data: { success: true } })
+    toastErrorMock.mockClear()
   })
 
   // Prop chain (wave 2.6 S5): page toActivityRow → ActivityRow → ActivityRowActions
@@ -377,5 +390,82 @@ describe('ActivityTable', () => {
     const visibilityBadge = screen.getByText('everyone')
     expect(visibilityBadge).toHaveClass('bg-secondary')
     expect(visibilityBadge).toHaveClass('text-secondary-foreground')
+  })
+
+  // S14: confirming "Entire series" hides every row of the group instantly via a
+  // table-level hidden-group overlay (the items are filtered before DataTable),
+  // fires deleteSeries in the background, and reconciles on settle. Two rows share
+  // group 'grp-9'; a solo row must stay visible throughout.
+  describe('optimistic "Entire series" delete (S14)', () => {
+    const groupedItems = (): ActivityRow[] => [
+      makeRow({
+        id: 'grp-a',
+        title: 'Group member A',
+        recurrence: 'weekly',
+        recurrenceGroupId: 'grp-9',
+      }),
+      makeRow({
+        id: 'grp-b',
+        title: 'Group member B',
+        recurrence: 'weekly',
+        recurrenceGroupId: 'grp-9',
+      }),
+      makeRow({ id: 'solo', title: 'Solo row', recurrenceGroupId: null }),
+    ]
+
+    it('hides every row of the group synchronously on confirm, before deleteSeries resolves', async () => {
+      let resolveDelete!: (value: unknown) => void
+      deleteSeriesMock.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveDelete = resolve
+        }),
+      )
+      const user = userEvent.setup()
+      render(<ActivityTable items={groupedItems()} />)
+
+      expect(screen.getByText('Group member A')).toBeInTheDocument()
+      expect(screen.getByText('Group member B')).toBeInTheDocument()
+
+      await user.click(screen.getAllByRole('button', { name: 'Delete task' })[0]!)
+      await user.click(screen.getByRole('button', { name: /entire series/i }))
+
+      await waitFor(() => expect(screen.queryByText('Group member A')).not.toBeInTheDocument())
+      expect(screen.queryByText('Group member B')).not.toBeInTheDocument()
+      // The ungrouped row is untouched by the group overlay.
+      expect(screen.getByText('Solo row')).toBeInTheDocument()
+      expect(deleteSeriesMock).toHaveBeenCalledWith({ groupId: 'grp-9' })
+
+      resolveDelete({ data: { success: true } })
+    })
+
+    it('refreshes on a successful "Entire series" delete, then clears the overlay once it settles', async () => {
+      const user = userEvent.setup()
+      render(<ActivityTable items={groupedItems()} />)
+
+      await user.click(screen.getAllByRole('button', { name: 'Delete task' })[0]!)
+      await user.click(screen.getByRole('button', { name: /entire series/i }))
+
+      await waitFor(() => expect(deleteSeriesMock).toHaveBeenCalledWith({ groupId: 'grp-9' }))
+      await waitFor(() => expect(refreshMock).toHaveBeenCalled())
+      // The overlay drops only after the refresh transition settles. With static
+      // test items the group rows return (in production the refreshed items omit
+      // the deleted group), proving the clear fires post-refresh, not mid-flight.
+      await waitFor(() => expect(screen.getByText('Group member A')).toBeInTheDocument())
+      expect(screen.getByText('Group member B')).toBeInTheDocument()
+    })
+
+    it('reveals the whole group again when "Entire series" fails to persist', async () => {
+      deleteSeriesMock.mockResolvedValueOnce({ error: 'Not found' })
+      const user = userEvent.setup()
+      render(<ActivityTable items={groupedItems()} />)
+
+      await user.click(screen.getAllByRole('button', { name: 'Delete task' })[0]!)
+      await user.click(screen.getByRole('button', { name: /entire series/i }))
+
+      await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not delete series'))
+      expect(screen.getByText('Group member A')).toBeInTheDocument()
+      expect(screen.getByText('Group member B')).toBeInTheDocument()
+      expect(refreshMock).not.toHaveBeenCalled()
+    })
   })
 })

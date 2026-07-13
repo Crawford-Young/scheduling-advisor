@@ -62,6 +62,16 @@ export interface ActivityCardActionsProps {
   readonly social: ActivitySocial
   /** Display task times as 24-hour instead of 12-hour with AM/PM. */
   readonly use24h?: boolean
+  /**
+   * Optimistic "Entire series" delete orchestrator (wave 2.6 S14), supplied by
+   * the consuming table. When present, confirming "Entire series" delegates the
+   * whole action to it — the table hides every row of the group instantly via a
+   * client-side overlay, fires `deleteSeries` in the background, and reconciles
+   * on success/error — instead of the hook running its own inline
+   * `deleteSeries` + `router.refresh`. Absent in the (test-only) card/harness
+   * contexts, where the inline fallback below runs.
+   */
+  readonly onDeleteSeries?: (groupId: string) => void
 }
 
 /** Goal target dates are edited as date-only but persisted as full ISO datetime. */
@@ -98,6 +108,7 @@ export function useActivityActions({
   allDay,
   social,
   use24h,
+  onDeleteSeries,
 }: ActivityCardActionsProps): UseActivityActionsResult {
   const router = useRouter()
   const [editOpen, setEditOpen] = useState(false)
@@ -195,7 +206,15 @@ export function useActivityActions({
 
   // Wave 2.6 S11: "Entire series" scope of the grouped delete dialog — removes
   // every occurrence row of the group plus its slot tombstones.
+  // S14: when the table supplies an optimistic orchestrator, delegate the whole
+  // action to it (instant hide + background delete + reconcile) and close the
+  // dialog; otherwise fall back to the inline delete + refresh.
   function handleConfirmDeleteSeries(groupId: string): void {
+    if (onDeleteSeries) {
+      setDeleteOpen(false)
+      onDeleteSeries(groupId)
+      return
+    }
     startTransition(async () => {
       const result = await deleteSeries({ groupId })
       if ('error' in result) {

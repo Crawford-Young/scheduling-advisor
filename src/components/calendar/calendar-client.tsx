@@ -179,6 +179,11 @@ export function CalendarClient({
   // delete dialog from firing a second (immediate) bump on top of the confirm
   // path's refresh-then-settle bump.
   const [resyncToken, setResyncToken] = useState(0)
+  // S14: recurrence-group ids optimistically hidden while an "Entire series"
+  // delete is in flight. Their chips are filtered out of the events prop the
+  // instant the user confirms, so the whole group vanishes without waiting for
+  // the deleteSeries round-trip + refresh.
+  const [hiddenGroupIds, setHiddenGroupIds] = useState<ReadonlySet<string>>(() => new Set())
   const router = useRouter()
   const [, startTransition] = useTransition()
   // Tracks the router.refresh transition so the token bump waits until the fresh
@@ -187,13 +192,28 @@ export function CalendarClient({
   const [isRefreshing, startRefreshTransition] = useTransition()
   const refreshQueuedRef = React.useRef(false)
   const confirmedRef = React.useRef(false)
+  // S14: groups whose optimistic overlay must be dropped ONCE the refresh
+  // settles — clearing before the fresh (group-free) events prop arrives would
+  // flash the chips back for the length of the round-trip.
+  const clearHiddenAfterRefreshRef = React.useRef<Set<string>>(new Set())
 
   // When the refresh transition settles, isRefreshing drops to false — bump the
-  // token so WeekCalendarView re-seeds from the freshly-arrived events prop.
+  // token so WeekCalendarView re-seeds from the freshly-arrived events prop, and
+  // drop any optimistic hidden-group overlay now that the deleted rows are gone
+  // from the fresh events prop (so the chips never flash back mid-refresh).
   React.useEffect(() => {
     if (!isRefreshing && refreshQueuedRef.current) {
       refreshQueuedRef.current = false
       setResyncToken((t) => t + 1)
+      if (clearHiddenAfterRefreshRef.current.size > 0) {
+        const toClear = clearHiddenAfterRefreshRef.current
+        clearHiddenAfterRefreshRef.current = new Set()
+        setHiddenGroupIds((prev) => {
+          const next = new Set(prev)
+          for (const id of toClear) next.delete(id)
+          return next
+        })
+      }
     }
   }, [isRefreshing])
 
@@ -280,14 +300,29 @@ export function CalendarClient({
 
   // Wave 2.6 S11: "Entire series" scope of the grouped delete dialog — removes
   // every occurrence row of the group plus its slot tombstones.
+  // S14: optimistic — hide the whole group's chips the instant the user
+  // confirms (before the deleteSeries round-trip), then reconcile:
+  //   • success → refresh, and clear the overlay ONLY after the fresh events
+  //     prop (now group-free) arrives, so the chips never flash back;
+  //   • error   → reveal the group again (its rows still exist) + toast +
+  //     the standard refresh/resync error path.
   function handleConfirmDeleteSeries(groupId: string): void {
     confirmedRef.current = true
     setDeleteTarget(null)
+    setHiddenGroupIds((prev) => new Set(prev).add(groupId))
     startTransition(async () => {
       const result = await deleteSeries({ groupId })
       if ('error' in result) {
+        setHiddenGroupIds((prev) => {
+          const next = new Set(prev)
+          next.delete(groupId)
+          return next
+        })
         toast.error('Could not delete series')
+        refreshAndResync()
+        return
       }
+      clearHiddenAfterRefreshRef.current.add(groupId)
       refreshAndResync()
     })
   }
@@ -415,6 +450,16 @@ export function CalendarClient({
     ? (events.find((e) => e.id === deleteTarget.id)?.recurrenceGroupId ?? null)
     : null
 
+  // S14: drop every occurrence of an optimistically-deleted series before the
+  // events reach the library, so the whole group's chips disappear at once.
+  const visibleEvents = React.useMemo(
+    () =>
+      events.filter(
+        (e) => e.recurrenceGroupId === null || !hiddenGroupIds.has(e.recurrenceGroupId),
+      ),
+    [events, hiddenGroupIds],
+  )
+
   function handleEventCreate(payload: Omit<LibraryCalendarEvent, 'id'>): void {
     startTransition(async () => {
       const result = await createTask({
@@ -450,7 +495,7 @@ export function CalendarClient({
         <WeekCalendarView
           defaultWeekStart={weekStart}
           resyncToken={resyncToken}
-          events={events.map(toLibraryEvent)}
+          events={visibleEvents.map(toLibraryEvent)}
           onWeekChange={(week) => {
             const params = new URLSearchParams(window.location.search)
             params.set('week', week)

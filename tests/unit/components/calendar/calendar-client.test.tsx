@@ -212,6 +212,21 @@ const events = [
     recurrence: 'daily',
     recurrenceGroupId: 'grp-3',
   },
+  // S14: a sibling of e8 in group 'grp-1' — proves the optimistic "Entire
+  // series" overlay hides every occurrence of the group, not just the clicked one.
+  {
+    id: 'e11',
+    title: 'Grouped event sibling',
+    start: '2026-01-13T09:00:00.000Z',
+    end: '2026-01-13T10:00:00.000Z',
+    type: 'task' as const,
+    status: 'pending' as const,
+    streak: 0,
+    activityType: 'solo',
+    visibility: 'only_me',
+    recurrence: 'weekly',
+    recurrenceGroupId: 'grp-1',
+  },
 ]
 
 describe('CalendarClient', () => {
@@ -642,6 +657,61 @@ describe('CalendarClient', () => {
       onEventDelete({ id: 'e8', title: 'Grouped event' })
       await userEvent.click(await screen.findByRole('button', { name: /^entire series$/i }))
       await vi.waitFor(() => expect(mockToastError).toHaveBeenCalledWith('Could not delete series'))
+    })
+
+    // S14: confirming "Entire series" hides every occurrence of the group
+    // instantly (client-side overlay), before deleteSeries resolves.
+    it('optimistically hides the whole group on confirm, before deleteSeries resolves', async () => {
+      let resolveDelete!: (value: unknown) => void
+      mockDeleteSeries.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveDelete = resolve
+        }),
+      )
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      // Both e8 and its sibling e11 belong to grp-1 and render before the delete.
+      expect(screen.getByText('Grouped event')).toBeInTheDocument()
+      expect(screen.getByText('Grouped event sibling')).toBeInTheDocument()
+
+      const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
+      onEventDelete({ id: 'e8', title: 'Grouped event' })
+      await userEvent.click(await screen.findByRole('button', { name: /^entire series$/i }))
+
+      // In-flight: both grouped chips vanish; an ungrouped chip stays.
+      await vi.waitFor(() => expect(screen.queryByText('Grouped event')).not.toBeInTheDocument())
+      expect(screen.queryByText('Grouped event sibling')).not.toBeInTheDocument()
+      expect(screen.getByText('Morning run')).toBeInTheDocument()
+
+      resolveDelete({ data: { success: true } })
+    })
+
+    it('reveals the whole group again when "Entire series" fails', async () => {
+      mockDeleteSeries.mockResolvedValueOnce({ error: 'Not found' })
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
+      onEventDelete({ id: 'e8', title: 'Grouped event' })
+      await userEvent.click(await screen.findByRole('button', { name: /^entire series$/i }))
+      await vi.waitFor(() => expect(mockToastError).toHaveBeenCalledWith('Could not delete series'))
+      expect(screen.getByText('Grouped event')).toBeInTheDocument()
+      expect(screen.getByText('Grouped event sibling')).toBeInTheDocument()
     })
   })
 

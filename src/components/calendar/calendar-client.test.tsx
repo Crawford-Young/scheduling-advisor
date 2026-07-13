@@ -217,6 +217,10 @@ vi.mock('@/lib/ui', () => ({
       // stored row's empty recurrenceDays instead of the library's default
       // fan-out-adopt behavior.
       data-recurrence-edit-mode={props.recurrenceEditMode ?? ''}
+      // S14: the id list of every event actually handed to the library — lets a
+      // test assert the optimistic hidden-group overlay filters a deleted
+      // series' chips out synchronously (comma-joined so membership is exact).
+      data-event-ids={(props.events ?? []).map((e) => e.id).join(',')}
     >
       <button type="button" onClick={() => props.onEventDelete?.(STUB_LIB_EVENT)}>
         trigger-delete
@@ -762,6 +766,22 @@ const EVENTS = [
     visibility: 'only_me',
     recurrence: 'daily',
     recurrenceGroupId: 'grp-3',
+  },
+  // S14: a SIBLING of evt-grouped in group 'grp-1' — proves the optimistic
+  // "Entire series" overlay hides EVERY occurrence of the group, not just the
+  // clicked chip.
+  {
+    id: 'evt-grouped-2',
+    title: 'Grouped event (sibling)',
+    start: '2026-01-13T09:00:00.000Z',
+    end: '2026-01-13T10:00:00.000Z',
+    type: 'task' as const,
+    status: 'pending' as const,
+    streak: 0,
+    activityType: 'solo',
+    visibility: 'only_me',
+    recurrence: 'weekly',
+    recurrenceGroupId: 'grp-1',
   },
 ]
 
@@ -2529,5 +2549,86 @@ describe('CalendarClient — delete scope dialog (S11)', () => {
     expect(refreshMock).not.toHaveBeenCalled()
     expect(deleteTaskMock).not.toHaveBeenCalled()
     expect(deleteSeriesMock).not.toHaveBeenCalled()
+  })
+})
+
+// S14: confirming "Entire series" hides every occurrence of the group instantly
+// via a client-side hidden-group overlay (the events passed to the library are
+// filtered synchronously on confirm), fires deleteSeries in the background, and
+// clears the overlay only after the refresh settles. A failed delete reveals the
+// group again. evt-grouped + evt-grouped-2 both belong to group 'grp-1'.
+describe('CalendarClient — optimistic "Entire series" delete (S14)', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    deleteTaskMock.mockClear()
+    deleteTaskMock.mockResolvedValue({})
+    deleteSeriesMock.mockClear()
+    deleteSeriesMock.mockResolvedValue({})
+    toastErrorMock.mockClear()
+  })
+
+  it('hides the whole group synchronously on confirm, before deleteSeries resolves', async () => {
+    let resolveDelete!: (value: unknown) => void
+    deleteSeriesMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveDelete = resolve
+      }),
+    )
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    // Both group members reach the library before the delete.
+    const idsBefore = screen.getByTestId('week-calendar-view').dataset.eventIds?.split(',') ?? []
+    expect(idsBefore).toContain('evt-grouped')
+    expect(idsBefore).toContain('evt-grouped-2')
+
+    await user.click(screen.getByRole('button', { name: 'trigger-delete-grouped' }))
+    await user.click(screen.getByRole('button', { name: 'Entire series' }))
+
+    // In-flight: every occurrence of grp-1 is filtered out of the events prop,
+    // while ungrouped chips stay put.
+    await waitFor(() => {
+      const ids = screen.getByTestId('week-calendar-view').dataset.eventIds?.split(',') ?? []
+      expect(ids).not.toContain('evt-grouped')
+      expect(ids).not.toContain('evt-grouped-2')
+    })
+    const idsDuring = screen.getByTestId('week-calendar-view').dataset.eventIds?.split(',') ?? []
+    expect(idsDuring).toContain('evt-1')
+    expect(deleteSeriesMock).toHaveBeenCalledWith({ groupId: 'grp-1' })
+
+    resolveDelete({})
+  })
+
+  it('reveals the whole group again when "Entire series" fails to persist', async () => {
+    deleteSeriesMock.mockResolvedValueOnce({ error: 'Not found' })
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-delete-grouped' }))
+    await user.click(screen.getByRole('button', { name: 'Entire series' }))
+
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not delete series'))
+
+    const ids = screen.getByTestId('week-calendar-view').dataset.eventIds?.split(',') ?? []
+    expect(ids).toContain('evt-grouped')
+    expect(ids).toContain('evt-grouped-2')
   })
 })
