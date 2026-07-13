@@ -743,4 +743,19 @@ describe('useActivityActions', () => {
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not delete series'))
     expect(refreshMock).not.toHaveBeenCalled()
   })
+
+  // S14: when the consuming table supplies an onDeleteSeries orchestrator (the
+  // optimistic hidden-group overlay), the hook delegates the whole "Entire
+  // series" action to it instead of running its own inline deleteSeries — the
+  // table owns the instant removal + refresh + error reconciliation.
+  it('delegates "Entire series" to onDeleteSeries when provided (no inline deleteSeries)', async () => {
+    const onDeleteSeries = vi.fn()
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...groupedSeriesProps} onDeleteSeries={onDeleteSeries} />)
+    await user.click(screen.getByRole('button', { name: /delete task/i }))
+    await user.click(screen.getByRole('button', { name: /entire series/i }))
+    expect(onDeleteSeries).toHaveBeenCalledWith('group-1')
+    expect(deleteSeriesMock).not.toHaveBeenCalled()
+    expect(refreshMock).not.toHaveBeenCalled()
+  })
 })

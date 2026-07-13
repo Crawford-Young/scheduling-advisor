@@ -1,16 +1,19 @@
 'use client'
 import * as React from 'react'
+import { useRouter } from 'next/navigation'
 import { Check, Pencil, Trash2 } from 'lucide-react'
 import {
   Badge,
   Button,
   DataTable,
+  toast,
   type ActivitySocial,
   type BadgeProps,
   type ColumnDef,
   type DayOfWeek,
 } from '@/lib/ui'
 import { useActivityActions, type ActivityKind } from '@/components/activity/use-activity-actions'
+import { deleteSeries } from '@/server/actions/series-mutations'
 
 const SEPARATOR = ' · '
 
@@ -72,6 +75,12 @@ export interface ActivityRow {
   readonly maxParticipants: number | null
 }
 
+// S14: the table's optimistic "Entire series" delete orchestrator, delivered to
+// each row's hook without threading it through `buildColumns` (passing a
+// ref-closing callback into a render-time function trips react-hooks/refs).
+// Defaults to `undefined` — the row hook then falls back to its inline delete.
+const DeleteSeriesContext = React.createContext<((groupId: string) => void) | undefined>(undefined)
+
 interface ActivityRowActionsProps {
   readonly row: ActivityRow
   readonly use24h?: boolean
@@ -79,6 +88,7 @@ interface ActivityRowActionsProps {
 
 /** Per-row complete/edit/delete controls, wired through the shared hook. */
 function ActivityRowActions({ row, use24h }: ActivityRowActionsProps): React.JSX.Element {
+  const onDeleteSeries = React.useContext(DeleteSeriesContext)
   const { isComplete, completeLabel, isPending, handleComplete, openEdit, openDelete, dialogs } =
     useActivityActions({
       taskId: row.id,
@@ -103,6 +113,7 @@ function ActivityRowActions({ row, use24h }: ActivityRowActionsProps): React.JSX
         maxParticipants: row.maxParticipants ?? undefined,
       },
       use24h,
+      onDeleteSeries,
     })
 
   return (
@@ -212,6 +223,66 @@ interface ActivityTableProps {
 }
 
 export function ActivityTable({ items, use24h }: ActivityTableProps): React.JSX.Element {
+  const router = useRouter()
+  // S14: recurrence-group ids whose rows are optimistically hidden while an
+  // "Entire series" delete is in flight — filtered out of `items` before
+  // DataTable so every row of the group vanishes the instant the user confirms.
+  const [hiddenGroupIds, setHiddenGroupIds] = React.useState<ReadonlySet<string>>(() => new Set())
+  const [, startTransition] = React.useTransition()
+  const [isRefreshing, startRefreshTransition] = React.useTransition()
+  // Groups whose overlay must drop ONLY after the refresh settles — clearing
+  // before the fresh (group-free) items arrive would flash the rows back.
+  const clearAfterRefreshRef = React.useRef<Set<string>>(new Set())
+
+  React.useEffect(() => {
+    if (!isRefreshing && clearAfterRefreshRef.current.size > 0) {
+      const toClear = clearAfterRefreshRef.current
+      clearAfterRefreshRef.current = new Set()
+      setHiddenGroupIds((prev) => {
+        const next = new Set(prev)
+        for (const id of toClear) next.delete(id)
+        return next
+      })
+    }
+  }, [isRefreshing])
+
+  const handleDeleteSeries = React.useCallback(
+    (groupId: string): void => {
+      setHiddenGroupIds((prev) => new Set(prev).add(groupId))
+      startTransition(async () => {
+        const result = await deleteSeries({ groupId })
+        if ('error' in result) {
+          // Delete failed — the rows still exist, so reveal the group again.
+          setHiddenGroupIds((prev) => {
+            const next = new Set(prev)
+            next.delete(groupId)
+            return next
+          })
+          toast.error('Could not delete series')
+          return
+        }
+        // Success — refresh, then drop the overlay once the fresh (group-free)
+        // items land (isRefreshing settles), so rows never flash back mid-refresh.
+        clearAfterRefreshRef.current.add(groupId)
+        startRefreshTransition(() => {
+          router.refresh()
+        })
+      })
+    },
+    [router],
+  )
+
+  const visibleItems = React.useMemo(
+    () =>
+      items.filter(
+        (item) => item.recurrenceGroupId === null || !hiddenGroupIds.has(item.recurrenceGroupId),
+      ),
+    [items, hiddenGroupIds],
+  )
   const columns = React.useMemo(() => buildColumns(use24h), [use24h])
-  return <DataTable columns={columns} data={[...items]} />
+  return (
+    <DeleteSeriesContext.Provider value={handleDeleteSeries}>
+      <DataTable columns={columns} data={[...visibleItems]} />
+    </DeleteSeriesContext.Provider>
+  )
 }
