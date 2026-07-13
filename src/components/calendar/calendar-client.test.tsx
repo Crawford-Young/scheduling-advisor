@@ -2502,7 +2502,14 @@ describe('CalendarClient — delete scope dialog (S11)', () => {
     await waitFor(() => expect(deleteSeriesMock).toHaveBeenCalledWith({ groupId: 'grp-1' }))
     expect(deleteTaskMock).not.toHaveBeenCalled()
     await waitFor(() => expect(refreshMock).toHaveBeenCalled())
-    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
+    // Two bumps land: the S14-redo synchronous resyncNow() (re-seeds the
+    // library from the already hiddenGroupIds-filtered events immediately)
+    // plus refreshAndResync's DEFERRED bump once the refresh settles (re-seeds
+    // from the truly fresh, server-confirmed events). Final settled value is
+    // therefore 0 + 2, not 1 — asserting only '1' here would silently pass
+    // even if the synchronous bump regressed away (see the dedicated
+    // synchronous-bump test below for the real regression guard).
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('2'))
     expect(screen.getByTestId('week-calendar-view')).toBe(beforeNode)
   })
 
@@ -2525,7 +2532,53 @@ describe('CalendarClient — delete scope dialog (S11)', () => {
     await user.click(screen.getByRole('button', { name: 'Entire series' }))
 
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not delete series'))
-    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('1'))
+    // Same double-bump: synchronous optimistic hide, then the deferred bump
+    // (inside refreshAndResync's settle effect) that visually restores the
+    // reverted-hiddenGroupIds chips on the error path.
+    await waitFor(() => expect(beforeNode.dataset.resyncToken).toBe('2'))
+  })
+
+  // S14 (redo) regression guard: a MOCKED WeekCalendarView renders whatever
+  // `events` prop it is handed directly, so a prop-filter-only assertion (e.g.
+  // asserting `data-event-ids` excludes the group) passes even if the
+  // production component never bumps resyncToken — the real library only
+  // re-derives its internal chip state on a token identity change, and never
+  // reads `events` directly during render (dist index.mjs ~5619-5657). This
+  // test instead asserts the SYNCHRONOUS resyncToken bump itself, in the same
+  // tick as the dialog closing — before deleteSeriesMock's promise ever
+  // resolves — which is the guard this exact class of bug (library needs a
+  // token bump to see updated props) requires.
+  it('bumps resyncToken synchronously on "Entire series" confirm, before deleteSeries resolves', async () => {
+    let resolveDelete!: (value: unknown) => void
+    deleteSeriesMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveDelete = resolve
+      }),
+    )
+    const user = userEvent.setup()
+    render(
+      <CalendarClient
+        weekStart={WEEK_START}
+        events={EVENTS}
+        wakeHour={9}
+        sleepHour={17}
+        dayWindows={DAY_WINDOWS}
+        use24h={false}
+      />,
+    )
+    const beforeNode = screen.getByTestId('week-calendar-view')
+    expect(beforeNode.dataset.resyncToken).toBe('0')
+
+    await user.click(screen.getByRole('button', { name: 'trigger-delete-grouped' }))
+    await user.click(screen.getByRole('button', { name: 'Entire series' }))
+
+    // deleteSeries has NOT resolved yet — the mock's promise is still pending —
+    // but the token must already have bumped.
+    expect(deleteSeriesMock).toHaveBeenCalledWith({ groupId: 'grp-1' })
+    expect(beforeNode.dataset.resyncToken).toBe('1')
+
+    resolveDelete({})
+    await waitFor(() => expect(refreshMock).toHaveBeenCalled())
   })
 
   it('cancelling a grouped delete dialog bumps the token immediately with no server call', async () => {
@@ -2557,6 +2610,14 @@ describe('CalendarClient — delete scope dialog (S11)', () => {
 // filtered synchronously on confirm), fires deleteSeries in the background, and
 // clears the overlay only after the refresh settles. A failed delete reveals the
 // group again. evt-grouped + evt-grouped-2 both belong to group 'grp-1'.
+//
+// MOCKED-LIB TRAP: this suite's WeekCalendarView stub renders whatever `events`
+// prop it receives directly, so these tests prove the PROP FILTER is correct
+// but cannot, by themselves, catch a regression where the real library fails
+// to pick the filtered prop up (the real component only re-derives its chip
+// state on a resyncToken bump — see the dedicated synchronous-bump test in the
+// "delete scope dialog (S11)" describe above, which is the actual regression
+// guard for that class of bug).
 describe('CalendarClient — optimistic "Entire series" delete (S14)', () => {
   beforeEach(() => {
     refreshMock.mockClear()
