@@ -300,16 +300,41 @@ export function CalendarClient({
 
   // Wave 2.6 S11: "Entire series" scope of the grouped delete dialog — removes
   // every occurrence row of the group plus its slot tombstones.
-  // S14: optimistic — hide the whole group's chips the instant the user
-  // confirms (before the deleteSeries round-trip), then reconcile:
+  // S14 (redo): optimistic — hide the whole group's chips the instant the user
+  // confirms, then reconcile:
   //   • success → refresh, and clear the overlay ONLY after the fresh events
   //     prop (now group-free) arrives, so the chips never flash back;
-  //   • error   → reveal the group again (its rows still exist) + toast +
-  //     the standard refresh/resync error path.
+  //   • error   → reveal the group again (its rows still exist) + toast; the
+  //     DEFERRED token bump inside refreshAndResync's settle effect is what
+  //     actually restores the chips visually — an accepted small delay on the
+  //     (rare) error path only.
+  //
+  // WeekCalendarView seeds its internal state once at mount and re-derives
+  // from the `events` prop ONLY on a resyncToken identity change — it never
+  // reads `events` directly during render (dist index.mjs ~5619-5657). So the
+  // hiddenGroupIds filter on `visibleEvents` below is invisible to the chip
+  // grid until a token bump. Calling ONLY refreshAndResync() here (which defers
+  // its bump until the deleteSeries round-trip + router.refresh() settle) left
+  // every OTHER occurrence of the group rendering from stale internal state
+  // for the whole round-trip — only the clicked chip vanished via the
+  // library's own single-chip delete optimism. Fix: bump resyncNow()
+  // SYNCHRONOUSLY here, in the same tick as setHiddenGroupIds/setDeleteTarget
+  // — React batches all three, so the re-seed effect that resyncToken triggers
+  // reads the already-filtered `visibleEvents` on the very next render.
+  //
+  // ACCEPTED trade-off: this synchronous re-seed replaces the library's ENTIRE
+  // internal localEvents wholesale (it is not a scoped removal), so any OTHER
+  // in-flight optimistic edit on the grid at this exact moment would
+  // transiently revert to its last-committed prop value until ITS OWN
+  // refreshAndResync bump re-applies it. The library's only re-seed guard is
+  // an active-drag (dragMode idle) check. Rare (two concurrent mutations in
+  // the same tick) and self-healing (the reverted edit's own pending refresh
+  // repairs it) — not engineered around further here.
   function handleConfirmDeleteSeries(groupId: string): void {
     confirmedRef.current = true
     setDeleteTarget(null)
     setHiddenGroupIds((prev) => new Set(prev).add(groupId))
+    resyncNow()
     startTransition(async () => {
       const result = await deleteSeries({ groupId })
       if ('error' in result) {

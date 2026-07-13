@@ -661,6 +661,15 @@ describe('CalendarClient', () => {
 
     // S14: confirming "Entire series" hides every occurrence of the group
     // instantly (client-side overlay), before deleteSeries resolves.
+    //
+    // MOCKED-LIB TRAP: this suite's WeekCalendarView stub renders whatever
+    // `events` prop it receives directly, so the prop-filter tests below prove
+    // the filter itself is correct but cannot catch a regression where the
+    // REAL library fails to pick the filtered prop up — the real component
+    // only re-derives its chip state on a resyncToken identity bump, never by
+    // reading `events` directly during render. The dedicated synchronous-bump
+    // test further down (asserting capturedProps.resyncToken) is the actual
+    // regression guard for that class of bug.
     it('optimistically hides the whole group on confirm, before deleteSeries resolves', async () => {
       let resolveDelete!: (value: unknown) => void
       mockDeleteSeries.mockReturnValueOnce(
@@ -712,6 +721,47 @@ describe('CalendarClient', () => {
       await vi.waitFor(() => expect(mockToastError).toHaveBeenCalledWith('Could not delete series'))
       expect(screen.getByText('Grouped event')).toBeInTheDocument()
       expect(screen.getByText('Grouped event sibling')).toBeInTheDocument()
+    })
+
+    // S14 (redo) regression guard: assert the resyncToken bump itself, in the
+    // SAME tick as the dialog closing — before deleteSeries's promise ever
+    // resolves. WeekCalendarView seeds its internal chip state once and only
+    // re-derives from the `events` prop on a resyncToken identity change; it
+    // never reads `events` directly during render. Calling only
+    // refreshAndResync() (which defers its bump until the deleteSeries
+    // round-trip + router.refresh() settle) left sibling chips rendering from
+    // stale internal state for the whole round-trip — a prop-filter assertion
+    // alone (as above) cannot catch that, since this suite's mock renders
+    // `events` directly regardless of resyncToken.
+    it('bumps resyncToken synchronously on "Entire series" confirm, before deleteSeries resolves', async () => {
+      let resolveDelete!: (value: unknown) => void
+      mockDeleteSeries.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveDelete = resolve
+        }),
+      )
+      render(
+        <CalendarClient
+          weekStart="2026-05-25"
+          events={events}
+          wakeHour={9}
+          sleepHour={17}
+          dayWindows={DAY_WINDOWS}
+          use24h={false}
+        />,
+      )
+      const initialToken = capturedProps.resyncToken as number
+      const onEventDelete = capturedProps.onEventDelete as (e: unknown) => void
+      onEventDelete({ id: 'e8', title: 'Grouped event' })
+      await userEvent.click(await screen.findByRole('button', { name: /^entire series$/i }))
+
+      // deleteSeries has NOT resolved yet — the mock's promise is still
+      // pending — but the token must already have bumped.
+      expect(mockDeleteSeries).toHaveBeenCalledWith({ groupId: 'grp-1' })
+      expect(capturedProps.resyncToken).toBe(initialToken + 1)
+
+      resolveDelete({ data: { success: true } })
+      await vi.waitFor(() => expect(mockRefresh).toHaveBeenCalled())
     })
   })
 
