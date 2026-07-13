@@ -226,8 +226,10 @@ export function CalendarClient({
     })
   }
 
-  // Guard/cancel paths make no server call — props already hold truth, so re-seed
-  // the library immediately with no refresh round-trip.
+  // Immediate token bump, no refresh round-trip. Two callers: delete-cancel
+  // (props already hold truth) and series-delete confirm (props already filtered
+  // by hiddenGroupIds — the bump makes the library re-seed and drop the group's
+  // chips instantly; server truth lands via the follow-up refreshAndResync).
   function resyncNow(): void {
     setResyncToken((t) => t + 1)
   }
