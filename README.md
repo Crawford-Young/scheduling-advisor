@@ -17,7 +17,8 @@ Consistency-first scheduling app. The week calendar is home: plan tasks and goal
 - **Ask Cybond** — "Ask Cybond" on a check-in opens the chat panel pre-filled with a reschedule request; the assistant proposes times via tools you confirm or deny
 - **Streaks + consistency** — streak badges and a weekly consistency bar; a recurring series keeps one shared streak across its occurrences (derived on read from the group's completion history — no stored counter), while completion itself is always per-occurrence. A pending occurrence dated today doesn't break the streak (the day isn't over); any older missed occurrence resets it
 - **Activity settings** — visibility and joinability per activity; wake/sleep hours under Settings → Calendar
-- **Tokens** — the app is free to use; tokens purchase AI assistance (Cy chat, AI reflections). Buy a monthly subscription (Starter/Growth/Pro) or one-off token packs at `/tokens`
+- **Quick add** — a one-line topbar input ("dinner Fri 7pm") that creates a single event or task through a fast, ephemeral AI lane: nothing lands in chat history, and you confirm before anything is created
+- **Tokens** — the app is free to use; tokens purchase AI assistance (Cy chat, quick add, AI reflections). Buy a monthly subscription (Starter/Growth/Pro) or one-off token packs at `/tokens`; cached prompt input is billed at a discount
 
 ## Stack
 
