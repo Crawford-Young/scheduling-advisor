@@ -218,7 +218,8 @@ describe('POST /api/chat', () => {
       usage: { promptTokens: 1000, completionTokens: 200 },
       providerMetadata: { anthropic: { cacheReadInputTokens: 800 } },
     } as never)
-    expect(deductTokens).toHaveBeenCalledWith('u1', 480)
+    // promptTokens is net of cache tokens: 1000 + 200 + 800 * 0.1 = 1280
+    expect(deductTokens).toHaveBeenCalledWith('u1', 1280)
   })
 
   it('persists incoming user message before streaming', async () => {
