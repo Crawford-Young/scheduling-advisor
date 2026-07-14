@@ -15,7 +15,7 @@ export interface SchedulePanelProps {
 
 function SchedulePanelEmptyState(): React.JSX.Element {
   return (
-    <div className="border-border flex h-full flex-col items-center justify-center gap-3 border-l p-6 text-center">
+    <div className="border-border flex h-full w-full flex-col items-center justify-center gap-3 border-l p-6 text-center">
       <CalendarDays className="text-muted-foreground h-8 w-8" aria-hidden />
       <h2 className="text-foreground text-sm font-medium">Schedule preview</h2>
       <p className="text-muted-foreground max-w-xs text-sm">
