@@ -48,12 +48,81 @@ describe('buildContextBlock', () => {
     expect(ctx).toContain('847')
   })
 
-  it('lists planned items with IDs', async () => {
+  it('lists only items scheduled or due today', async () => {
     const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
     expect(ctx).toContain('[habit:task-1]')
     expect(ctx).toContain('Morning Run')
-    expect(ctx).toContain('[goal:goal-1]')
-    expect(ctx).toContain('Finish proposal')
+    expect(ctx).not.toContain('[goal:goal-1]') // due 2026-06-15, not today
+    expect(ctx).not.toContain('Finish proposal')
+  })
+
+  it('excludes tasks scheduled on another day', async () => {
+    const { getUserTasks } = await import('@/server/queries/tasks')
+    vi.mocked(getUserTasks).mockResolvedValueOnce([
+      {
+        id: 'task-tomorrow',
+        title: 'Tomorrow thing',
+        type: 'task',
+        status: 'pending',
+        startAt: new Date('2026-06-02T07:00:00Z'),
+        targetDate: null,
+      },
+    ] as never)
+    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
+    expect(ctx).not.toContain('Tomorrow thing')
+    expect(ctx).toContain('(none)')
+  })
+
+  it('includes date-only items due today', async () => {
+    const { getUserTasks } = await import('@/server/queries/tasks')
+    vi.mocked(getUserTasks).mockResolvedValueOnce([
+      {
+        id: 'goal-today',
+        title: 'Due today goal',
+        type: 'goal',
+        status: 'pending',
+        startAt: null,
+        targetDate: new Date('2026-06-01T12:00:00Z'),
+      },
+    ] as never)
+    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
+    expect(ctx).toContain('[goal:goal-today] Due today goal')
+    expect(ctx).toContain('due 2026-06-01')
+  })
+
+  it('renders times as user-timezone wall-clock, not UTC', async () => {
+    const { getUserTasks } = await import('@/server/queries/tasks')
+    vi.mocked(getUserTasks).mockResolvedValueOnce([
+      {
+        id: 'task-evening',
+        title: 'Evening thing',
+        type: 'task',
+        status: 'pending',
+        startAt: new Date('2026-06-01T23:30:00Z'), // 19:30 EDT same local day
+        targetDate: null,
+      },
+    ] as never)
+    const ctx = await buildContextBlock('America/New_York', new Date('2026-06-01T12:00:00Z'))
+    expect(ctx).toContain('19:30')
+    expect(ctx).not.toContain('23:30')
+    expect(ctx).not.toContain('UTC')
+  })
+
+  it('judges "today" in the user timezone, not UTC date', async () => {
+    const { getUserTasks } = await import('@/server/queries/tasks')
+    vi.mocked(getUserTasks).mockResolvedValueOnce([
+      {
+        id: 'task-late',
+        title: 'Late tonight',
+        type: 'task',
+        status: 'pending',
+        startAt: new Date('2026-06-02T01:00:00Z'), // 21:00 EDT 2026-06-01 — today locally
+        targetDate: null,
+      },
+    ] as never)
+    const ctx = await buildContextBlock('America/New_York', new Date('2026-06-01T12:00:00Z'))
+    expect(ctx).toContain('Late tonight')
+    expect(ctx).toContain('21:00')
   })
 
   it('marks completed items as done', async () => {
@@ -63,6 +132,17 @@ describe('buildContextBlock', () => {
   })
 
   it('marks uncompleted items as pending', async () => {
+    const { getUserTasks } = await import('@/server/queries/tasks')
+    vi.mocked(getUserTasks).mockResolvedValueOnce([
+      {
+        id: 'goal-1',
+        title: 'Finish proposal',
+        type: 'goal',
+        status: 'pending',
+        startAt: null,
+        targetDate: new Date('2026-06-01T12:00:00Z'),
+      },
+    ] as never)
     const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
     expect(ctx).toContain('Finish proposal')
     expect(ctx).toContain('pending')
