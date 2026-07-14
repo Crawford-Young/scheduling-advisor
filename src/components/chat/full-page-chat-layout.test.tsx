@@ -8,27 +8,6 @@ import type { AppEvent } from './tool-result-renderer'
 
 const pushMock = vi.fn()
 
-let capturedOnFinish: (() => Promise<void>) | undefined
-let useChatMessages: unknown[] = []
-let useChatError: Error | undefined
-const reloadMock = vi.fn()
-
-vi.mock('ai/react', () => ({
-  useChat: ({ onFinish }: { onFinish?: () => Promise<void> }) => {
-    capturedOnFinish = onFinish
-    return {
-      messages: useChatMessages,
-      input: '',
-      setInput: vi.fn(),
-      handleSubmit: vi.fn(),
-      isLoading: false,
-      append: vi.fn(),
-      error: useChatError,
-      reload: reloadMock,
-    }
-  },
-}))
-
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
 }))
@@ -50,19 +29,24 @@ vi.mock('@/components/chat/chat-header', () => ({
   ),
 }))
 
+let capturedInitialBalance: number | undefined
+let capturedInitialMessages: readonly ConversationMessage[] | undefined
 let capturedOnScheduleUpdate: ((weekStart: string, events: readonly AppEvent[]) => void) | undefined
 let capturedOnItemConfirmed:
   | ((action: string, entityType: 'habit' | 'goal' | 'event', date?: string, time?: string) => void)
   | undefined
 
-vi.mock('@/components/chat/chat-messages-panel', () => ({
-  ChatMessagesPanel: ({
+vi.mock('@/components/chat/chat-surface', () => ({
+  ChatSurface: ({
+    conversation,
+    initialMessages,
+    initialTokenBalance,
     onScheduleUpdate,
     onItemConfirmed,
-    inputReplacement,
-    error,
-    onRetry,
   }: {
+    conversation: { id: string; title: string | null } | null
+    initialMessages: readonly ConversationMessage[]
+    initialTokenBalance: number
     onScheduleUpdate?: (weekStart: string, events: readonly AppEvent[]) => void
     onItemConfirmed?: (
       action: string,
@@ -70,22 +54,19 @@ vi.mock('@/components/chat/chat-messages-panel', () => ({
       date?: string,
       time?: string,
     ) => void
-    inputReplacement?: React.ReactNode
-    error?: Error
-    onRetry?: () => void
   }) => {
+    capturedInitialBalance = initialTokenBalance
+    capturedInitialMessages = initialMessages
     capturedOnScheduleUpdate = onScheduleUpdate
     capturedOnItemConfirmed = onItemConfirmed
     return (
-      <div data-testid="messages-panel">
-        {error && (
-          <div data-testid="panel-error">
-            <span data-testid="panel-error-message">{error.message}</span>
-            <button onClick={onRetry}>panel-retry</button>
-          </div>
-        )}
-        {inputReplacement ?? <textarea aria-label="chat input" />}
-      </div>
+      <div
+        data-testid="chat-surface"
+        data-conversation-id={conversation?.id ?? 'null'}
+        data-conversation-title={conversation?.title ?? 'null'}
+        data-balance={initialTokenBalance}
+        data-message-count={initialMessages.length}
+      />
     )
   },
 }))
@@ -104,10 +85,6 @@ vi.mock('@/server/actions/tokens', () => ({
   getTokenBalanceAction: vi.fn().mockResolvedValue(50),
 }))
 
-vi.mock('@/server/actions/conversations', () => ({
-  setConversationTitle: vi.fn(),
-}))
-
 vi.mock('react-resizable-panels', () => ({
   Panel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   Group: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -123,12 +100,15 @@ const conversation: ConversationRow = {
   lastMessagePreview: '',
 }
 
-const initialMessages: ConversationMessage[] = []
+const initialMessages: ConversationMessage[] = [{ id: 'm1', role: 'user', content: 'Hi' }]
 
 describe('FullPageChatLayout', () => {
   beforeEach(() => {
-    useChatError = undefined
-    reloadMock.mockClear()
+    pushMock.mockClear()
+    capturedInitialBalance = undefined
+    capturedInitialMessages = undefined
+    capturedOnScheduleUpdate = undefined
+    capturedOnItemConfirmed = undefined
   })
 
   it('renders chat header with title', () => {
@@ -142,15 +122,31 @@ describe('FullPageChatLayout', () => {
     expect(screen.getByTestId('chat-header')).toHaveTextContent('Test chat')
   })
 
-  it('renders messages panel', () => {
-    render(
-      <FullPageChatLayout
-        conversation={conversation}
-        initialMessages={initialMessages}
-        tokenBalance={42}
-      />,
-    )
-    expect(screen.getByTestId('messages-panel')).toBeInTheDocument()
+  describe('composition', () => {
+    it('passes the conversation id and title to ChatSurface as data', () => {
+      render(
+        <FullPageChatLayout
+          conversation={conversation}
+          initialMessages={initialMessages}
+          tokenBalance={42}
+        />,
+      )
+      const surface = screen.getByTestId('chat-surface')
+      expect(surface).toHaveAttribute('data-conversation-id', 'conv-1')
+      expect(surface).toHaveAttribute('data-conversation-title', 'Test chat')
+    })
+
+    it('seeds ChatSurface with the initial balance and messages', () => {
+      render(
+        <FullPageChatLayout
+          conversation={conversation}
+          initialMessages={initialMessages}
+          tokenBalance={42}
+        />,
+      )
+      expect(capturedInitialBalance).toBe(42)
+      expect(capturedInitialMessages).toBe(initialMessages)
+    })
   })
 
   it('schedule panel starts not visible', () => {
@@ -165,7 +161,6 @@ describe('FullPageChatLayout', () => {
   })
 
   it('back button navigates to /reflections', () => {
-    pushMock.mockClear()
     render(
       <FullPageChatLayout
         conversation={conversation}
@@ -177,7 +172,7 @@ describe('FullPageChatLayout', () => {
     expect(pushMock).toHaveBeenCalledWith('/reflections')
   })
 
-  it('onScheduleUpdate makes schedule panel visible', () => {
+  it('onScheduleUpdate from ChatSurface makes schedule panel visible', () => {
     render(
       <FullPageChatLayout
         conversation={conversation}
@@ -200,7 +195,7 @@ describe('FullPageChatLayout', () => {
     expect(screen.getByTestId('schedule-panel')).toHaveAttribute('data-event-count', '1')
   })
 
-  it('onItemConfirmed adds an event to schedule', () => {
+  it('onItemConfirmed from ChatSurface adds an event to schedule', () => {
     render(
       <FullPageChatLayout
         conversation={conversation}
@@ -212,42 +207,6 @@ describe('FullPageChatLayout', () => {
       capturedOnItemConfirmed?.('Morning Run', 'habit', '2026-06-02', '07:00')
     })
     expect(screen.getByTestId('schedule-panel')).toHaveAttribute('data-event-count', '1')
-  })
-
-  it('sets conversation title when title is null and 2+ messages', async () => {
-    const { setConversationTitle } = await import('@/server/actions/conversations')
-    useChatMessages = [
-      { id: '1', role: 'user', content: 'Tell me about scheduling' },
-      { id: '2', role: 'assistant', content: 'Sure!' },
-    ]
-    const nullTitleConversation = { ...conversation, title: null }
-    render(
-      <FullPageChatLayout
-        conversation={nullTitleConversation}
-        initialMessages={initialMessages}
-        tokenBalance={42}
-      />,
-    )
-    await vi.waitFor(() => {
-      expect(setConversationTitle).toHaveBeenCalledWith('conv-1', expect.any(String))
-    })
-    useChatMessages = []
-  })
-
-  it('onFinish refreshes token balance', async () => {
-    const { getTokenBalanceAction } = await import('@/server/actions/tokens')
-    vi.mocked(getTokenBalanceAction).mockResolvedValueOnce(99)
-    render(
-      <FullPageChatLayout
-        conversation={conversation}
-        initialMessages={initialMessages}
-        tokenBalance={42}
-      />,
-    )
-    await act(async () => {
-      await capturedOnFinish?.()
-    })
-    expect(getTokenBalanceAction).toHaveBeenCalled()
   })
 
   it('onItemConfirmed with no date/time uses defaults', () => {
@@ -264,9 +223,8 @@ describe('FullPageChatLayout', () => {
     expect(screen.getByTestId('schedule-panel')).toHaveAttribute('data-event-count', '1')
   })
 
-  describe('error state', () => {
-    it('passes the useChat error through to the messages panel', () => {
-      useChatError = new Error('boom')
+  describe('header token balance', () => {
+    it('starts at the initial balance', () => {
       render(
         <FullPageChatLayout
           conversation={conversation}
@@ -274,11 +232,12 @@ describe('FullPageChatLayout', () => {
           tokenBalance={42}
         />,
       )
-      expect(screen.getByTestId('panel-error-message')).toHaveTextContent('boom')
+      expect(screen.getByTestId('chat-header')).toHaveAttribute('data-balance', '42')
     })
 
-    it('calls reload once when the panel retry is triggered', () => {
-      useChatError = new Error('boom')
+    it('refreshes the header balance when a token-balance-changed event fires', async () => {
+      const { getTokenBalanceAction } = await import('@/server/actions/tokens')
+      vi.mocked(getTokenBalanceAction).mockResolvedValueOnce(7)
       render(
         <FullPageChatLayout
           conversation={conversation}
@@ -286,11 +245,17 @@ describe('FullPageChatLayout', () => {
           tokenBalance={42}
         />,
       )
-      fireEvent.click(screen.getByRole('button', { name: 'panel-retry' }))
-      expect(reloadMock).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('token-balance-changed'))
+      })
+      await vi.waitFor(() => {
+        expect(screen.getByTestId('chat-header')).toHaveAttribute('data-balance', '7')
+      })
     })
 
-    it('does not pass an error to the panel when useChat has none', () => {
+    it('keeps the stale balance when the refresh fails', async () => {
+      const { getTokenBalanceAction } = await import('@/server/actions/tokens')
+      vi.mocked(getTokenBalanceAction).mockRejectedValueOnce(new Error('offline'))
       render(
         <FullPageChatLayout
           conversation={conversation}
@@ -298,78 +263,10 @@ describe('FullPageChatLayout', () => {
           tokenBalance={42}
         />,
       )
-      expect(screen.queryByTestId('panel-error')).not.toBeInTheDocument()
-    })
-  })
-
-  describe('zero token balance', () => {
-    it('shows a "Get tokens" link pointing to /tokens', () => {
-      render(
-        <FullPageChatLayout
-          conversation={conversation}
-          initialMessages={initialMessages}
-          tokenBalance={0}
-        />,
-      )
-      const link = screen.getByRole('link', { name: /get tokens/i })
-      expect(link).toBeInTheDocument()
-      expect(link).toHaveAttribute('href', '/tokens')
-    })
-
-    it('does not render the message input when balance is zero', () => {
-      render(
-        <FullPageChatLayout
-          conversation={conversation}
-          initialMessages={initialMessages}
-          tokenBalance={0}
-        />,
-      )
-      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: /send/i })).not.toBeInTheDocument()
-    })
-
-    it('describes the assistant value with planning/scheduling copy', () => {
-      render(
-        <FullPageChatLayout
-          conversation={conversation}
-          initialMessages={initialMessages}
-          tokenBalance={0}
-        />,
-      )
-      expect(screen.getByText(/plans your schedule/i)).toBeInTheDocument()
-    })
-
-    it('shows "out of tokens" heading', () => {
-      render(
-        <FullPageChatLayout
-          conversation={conversation}
-          initialMessages={initialMessages}
-          tokenBalance={0}
-        />,
-      )
-      expect(screen.getByText(/out of tokens/i)).toBeInTheDocument()
-    })
-
-    it('still renders the chat header with correct balance', () => {
-      render(
-        <FullPageChatLayout
-          conversation={conversation}
-          initialMessages={initialMessages}
-          tokenBalance={0}
-        />,
-      )
-      expect(screen.getByTestId('chat-header')).toHaveAttribute('data-balance', '0')
-    })
-
-    it('renders messages panel when balance is zero', () => {
-      render(
-        <FullPageChatLayout
-          conversation={conversation}
-          initialMessages={initialMessages}
-          tokenBalance={0}
-        />,
-      )
-      expect(screen.getByTestId('messages-panel')).toBeInTheDocument()
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent('token-balance-changed'))
+      })
+      expect(screen.getByTestId('chat-header')).toHaveAttribute('data-balance', '42')
     })
   })
 })
