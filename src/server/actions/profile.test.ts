@@ -33,3 +33,30 @@ describe('setUsername', () => {
     expect(set).toHaveBeenCalledWith({ username: 'crawford_young' })
   })
 })
+
+describe('updateProfile', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('rejects when unauthenticated', async () => {
+    vi.mocked(auth).mockResolvedValueOnce(null as never)
+    const { updateProfile } = await import('./profile')
+    await expect(updateProfile({ name: 'Crawford', bio: 'hi' })).rejects.toThrow('Unauthorized')
+  })
+
+  it('rejects invalid input without touching db', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ user: { id: 'u1' } } as never)
+    const { updateProfile } = await import('./profile')
+    await expect(updateProfile({ name: '', bio: '' })).rejects.toThrow()
+    expect(db.update).not.toHaveBeenCalled()
+  })
+
+  it('updates name and bio for the session user', async () => {
+    vi.mocked(auth).mockResolvedValueOnce({ user: { id: 'u1' } } as never)
+    const where = vi.fn()
+    const set = vi.fn(() => ({ where }))
+    vi.mocked(db.update).mockReturnValueOnce({ set } as never)
+    const { updateProfile } = await import('./profile')
+    await updateProfile({ name: 'Crawford', bio: 'hello there' })
+    expect(set).toHaveBeenCalledWith({ name: 'Crawford', bio: 'hello there' })
+  })
+})

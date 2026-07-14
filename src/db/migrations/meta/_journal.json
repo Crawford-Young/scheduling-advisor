@@ -120,6 +120,13 @@
       "when": 1784001600000,
       "tag": "0016_flat_kingpin",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1784066397125,
+      "tag": "0017_illegal_avengers",
+      "breakpoints": true
     }
   ]
 }
