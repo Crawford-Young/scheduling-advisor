@@ -9,6 +9,8 @@ const mockUpdateWhere = vi.hoisted(() => vi.fn())
 const mockUpdateSet = vi.hoisted(() => vi.fn(() => ({ where: mockUpdateWhere })))
 const mockUpdate = vi.hoisted(() => vi.fn(() => ({ set: mockUpdateSet })))
 
+const mockLimit = vi.hoisted(() => vi.fn())
+const mockOrderBy = vi.hoisted(() => vi.fn(() => ({ limit: mockLimit })))
 const mockSelectWhere = vi.hoisted(() => vi.fn())
 const mockSelectFrom = vi.hoisted(() => vi.fn(() => ({ where: mockSelectWhere })))
 const mockSelect = vi.hoisted(() => vi.fn(() => ({ from: mockSelectFrom })))
@@ -19,13 +21,26 @@ vi.mock('@/db', () => ({
 vi.mock('@/auth', () => ({
   auth: vi.fn().mockResolvedValue({ user: { id: 'user-1' } }),
 }))
+vi.mock('@/server/queries/conversations', () => ({
+  getConversationMessages: vi.fn(),
+}))
 
 import {
   createConversation,
   deleteConversation,
   setConversationTitle,
   bumpConversationExpiry,
+  getLatestConversation,
+  getConversationMessagesAction,
 } from '@/server/actions/conversations'
+import { getConversationMessages } from '@/server/queries/conversations'
+
+// Helper: wires the select().from().where().orderBy().limit() chain used by
+// getLatestConversation to resolve with the given rows.
+function mockDbSelectReturning(rows: ReadonlyArray<{ id: string; title: string | null }>): void {
+  mockSelectWhere.mockReturnValue({ orderBy: mockOrderBy })
+  mockLimit.mockResolvedValue(rows)
+}
 
 // ── createConversation ────────────────────────────────────────────────────────
 describe('createConversation', () => {
@@ -186,5 +201,67 @@ describe('bumpConversationExpiry', () => {
     mockSelectWhere.mockResolvedValueOnce([{ id: 'conv-1', userId: 'other-user' }])
     await bumpConversationExpiry('conv-1')
     expect(mockUpdate).not.toHaveBeenCalled()
+  })
+})
+
+// ── getLatestConversation ─────────────────────────────────────────────────────
+describe('getLatestConversation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns newest non-expired conversation', async () => {
+    mockDbSelectReturning([{ id: 'c1', title: 'Newest' }])
+    await expect(getLatestConversation()).resolves.toEqual({ id: 'c1', title: 'Newest' })
+  })
+
+  it('returns null when none', async () => {
+    mockDbSelectReturning([])
+    await expect(getLatestConversation()).resolves.toBeNull()
+  })
+
+  it('orders by updatedAt desc and limits to 1', async () => {
+    mockDbSelectReturning([{ id: 'c1', title: 'Newest' }])
+    await getLatestConversation()
+    expect(mockOrderBy).toHaveBeenCalledOnce()
+    expect(mockLimit).toHaveBeenCalledWith(1)
+  })
+
+  it('throws Unauthorized if unauthenticated', async () => {
+    const { auth } = await import('@/auth')
+    vi.mocked(auth).mockResolvedValueOnce(null as never)
+    await expect(getLatestConversation()).rejects.toThrow('Unauthorized')
+  })
+})
+
+// ── getConversationMessagesAction ─────────────────────────────────────────────
+describe('getConversationMessagesAction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSelectWhere.mockResolvedValue([{ id: 'c1', userId: 'user-1' }])
+  })
+
+  it('delegates to getConversationMessages after verifying ownership', async () => {
+    vi.mocked(getConversationMessages).mockResolvedValue([
+      { id: 'm1', role: 'user', content: 'hi' },
+    ])
+    await expect(getConversationMessagesAction('c1')).resolves.toHaveLength(1)
+    expect(getConversationMessages).toHaveBeenCalledWith('c1')
+  })
+
+  it('throws Unauthorized if unauthenticated', async () => {
+    const { auth } = await import('@/auth')
+    vi.mocked(auth).mockResolvedValueOnce(null as never)
+    await expect(getConversationMessagesAction('c1')).rejects.toThrow('Unauthorized')
+  })
+
+  it('throws NotFound if conversation does not exist', async () => {
+    mockSelectWhere.mockResolvedValueOnce([])
+    await expect(getConversationMessagesAction('c1')).rejects.toThrow('NotFound')
+  })
+
+  it('throws Forbidden if user does not own conversation', async () => {
+    mockSelectWhere.mockResolvedValueOnce([{ id: 'c1', userId: 'other-user' }])
+    await expect(getConversationMessagesAction('c1')).rejects.toThrow('Forbidden')
   })
 })

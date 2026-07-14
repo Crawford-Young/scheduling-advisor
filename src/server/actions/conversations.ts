@@ -2,7 +2,8 @@
 import { auth } from '@/auth'
 import { db } from '@/db'
 import { conversations } from '@/db/schema'
-import { eq } from 'drizzle-orm'
+import { eq, and, isNull, gt, desc } from 'drizzle-orm'
+import { getConversationMessages, type ConversationMessage } from '@/server/queries/conversations'
 
 export type ConversationType = 'check_in' | 'general'
 
@@ -84,4 +85,44 @@ export async function bumpConversationExpiry(conversationId: string): Promise<vo
     .update(conversations)
     .set({ expiresAt: thirtyDaysFromNow(), updatedAt: new Date() })
     .where(eq(conversations.id, conversationId))
+}
+
+export async function getLatestConversation(): Promise<{
+  id: string
+  title: string | null
+} | null> {
+  const session = await auth()
+  if (!session?.user?.id) throw new Error('Unauthorized')
+
+  const rows = await db
+    .select({ id: conversations.id, title: conversations.title })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.userId, session.user.id),
+        isNull(conversations.deletedAt),
+        gt(conversations.expiresAt, new Date()),
+      ),
+    )
+    .orderBy(desc(conversations.updatedAt))
+    .limit(1)
+
+  return rows[0] ?? null
+}
+
+// getConversationMessages (src/server/queries/conversations.ts) performs no
+// auth or ownership check itself, so this wrapper enforces both before
+// delegating — mirrors the guard pattern used by deleteConversation above.
+export async function getConversationMessagesAction(
+  conversationId: string,
+): Promise<ConversationMessage[]> {
+  const session = await auth()
+  if (!session?.user?.id) throw new Error('Unauthorized')
+
+  const [row] = await db.select().from(conversations).where(eq(conversations.id, conversationId))
+
+  if (!row) throw new Error('NotFound')
+  if (row.userId !== session.user.id) throw new Error('Forbidden')
+
+  return getConversationMessages(conversationId)
 }
