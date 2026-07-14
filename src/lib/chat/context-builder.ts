@@ -40,13 +40,25 @@ export async function buildContextBlock(timezone: string, now: Date = new Date()
       .map((c) => [c.taskId, c.completedAt ? 'done' : c.skippedAt ? 'skipped' : 'pending']),
   )
 
+  const timeFormatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+
   const itemLines = tasks
+    .filter((t) => {
+      if (t.startAt) return formatter.format(t.startAt) === todayStr
+      if (t.targetDate) return formatter.format(t.targetDate) === todayStr
+      return true // dateless backlog items stay visible
+    })
     .map((t) => {
       const status = checkInMap.get(t.id) ?? 'pending'
       const timeStr = t.startAt
-        ? ` · ${t.startAt.toISOString().slice(11, 16)} UTC`
+        ? ` · ${timeFormatter.format(t.startAt)}`
         : t.targetDate
-          ? ` · due ${new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(t.targetDate)}`
+          ? ` · due ${formatter.format(t.targetDate)}`
           : ''
       return `  [${t.type}:${t.id}] ${t.title}${timeStr} — ${status}`
     })
