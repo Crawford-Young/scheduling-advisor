@@ -41,6 +41,13 @@ describe('mode registry', () => {
     expect(m).toMatchObject({ persisted: false, historyLimit: 0, maxSteps: 2 })
   })
 
+  it('quick-schedule system prompt steers proposeAction to the valid entityType enum', () => {
+    const sys = getMode('quick-schedule').buildSystem()
+    expect(sys).toContain("entityType must be 'habit', 'goal', or 'event'")
+    expect(sys).toContain("date-only tasks propose as 'event'")
+    expect(sys).not.toContain("entityType: 'task'")
+  })
+
   it('every mode system prompt is stable (no dates) and mentions only allowlisted tools', () => {
     for (const name of ['advisor', 'quick-schedule'] as const) {
       const m = getMode(name)
