@@ -1,17 +1,14 @@
 'use client'
 import * as React from 'react'
-import Link from 'next/link'
 import { Panel, Group, Separator } from 'react-resizable-panels'
-import { useChat } from 'ai/react'
 import { useRouter } from 'next/navigation'
 import { ChatHeader } from '@/components/chat/chat-header'
-import { ChatMessagesPanel } from '@/components/chat/chat-messages-panel'
+import { ChatSurface } from '@/components/chat/chat-surface'
 import { SchedulePanel, type ScheduleState } from '@/components/chat/schedule-panel'
 import type { AppEvent } from '@/components/chat/tool-result-renderer'
 import type { ConversationRow } from '@/server/queries/conversations'
 import type { ConversationMessage } from '@/server/queries/conversations'
 import { getTokenBalanceAction } from '@/server/actions/tokens'
-import { setConversationTitle } from '@/server/actions/conversations'
 import type { CalendarEvent } from '@/lib/ui'
 
 const ENTITY_COLOR: Record<'habit' | 'goal' | 'event', CalendarEvent['color']> = {
@@ -49,29 +46,20 @@ export function FullPageChatLayout({
     events: [],
   })
 
-  const { messages, input, setInput, handleSubmit, isLoading, append, error, reload } = useChat({
-    api: '/api/chat',
-    initialMessages: initialMessages.map((m) => ({ id: m.id, role: m.role, content: m.content })),
-    body: { conversationId: conversation.id },
-    onFinish: async () => {
+  React.useEffect(() => {
+    async function refresh(): Promise<void> {
       try {
-        const balance = await getTokenBalanceAction()
-        setTokenBalance(balance)
-        window.dispatchEvent(new CustomEvent('token-balance-changed'))
+        setTokenBalance(await getTokenBalanceAction())
       } catch {
         // non-fatal — stale balance ok
       }
-    },
-  })
-
-  React.useEffect(() => {
-    if (conversation.title !== null) return
-    if (messages.length < 2) return
-    const firstUser = messages.find((m) => m.role === 'user')
-    if (!firstUser) return
-    const title = (firstUser.content as string).slice(0, 60)
-    void setConversationTitle(conversation.id, title)
-  }, [messages, conversation.id, conversation.title])
+    }
+    function handleChanged(): void {
+      void refresh()
+    }
+    window.addEventListener('token-balance-changed', handleChanged)
+    return () => window.removeEventListener('token-balance-changed', handleChanged)
+  }, [])
 
   function handleScheduleUpdate(weekStart: string, events: readonly AppEvent[]): void {
     const calEvents: CalendarEvent[] = events.map((e) => ({
@@ -108,22 +96,6 @@ export function FullPageChatLayout({
     setScheduleState((prev) => ({ ...prev, events: [...prev.events, event] }))
   }
 
-  const zeroBalanceCta = (
-    <div className="border-border bg-background flex flex-col items-center gap-3 border-t p-6 text-center">
-      <h2 className="text-foreground text-sm font-semibold">You&apos;re out of tokens</h2>
-      <p className="text-muted-foreground max-w-sm text-sm">
-        Cy plans your schedule, reschedules what slipped, and reflects on your day with you. Top up
-        to keep going.
-      </p>
-      <Link
-        href="/tokens"
-        className="bg-primary text-primary-foreground inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all hover:opacity-90 active:scale-[0.98]"
-      >
-        Get tokens
-      </Link>
-    </div>
-  )
-
   return (
     <div className="flex h-full flex-col">
       <ChatHeader
@@ -134,18 +106,12 @@ export function FullPageChatLayout({
       <Group orientation="horizontal" className="flex-1">
         <Panel defaultSize={60} minSize={35}>
           <div className="flex h-full flex-col overflow-hidden">
-            <ChatMessagesPanel
-              messages={messages}
-              input={input}
-              setInput={setInput}
-              handleSubmit={handleSubmit}
-              isLoading={isLoading}
-              append={append}
+            <ChatSurface
+              conversation={{ id: conversation.id, title: conversation.title }}
+              initialMessages={initialMessages}
+              initialTokenBalance={initialBalance}
               onScheduleUpdate={handleScheduleUpdate}
               onItemConfirmed={handleItemConfirmed}
-              inputReplacement={tokenBalance < 1 ? zeroBalanceCta : undefined}
-              error={error}
-              onRetry={reload}
             />
           </div>
         </Panel>
