@@ -4,6 +4,11 @@ const mockLimit = vi.fn()
 const mockWhere = vi.fn()
 const mockFrom = vi.fn()
 const mockSelect = vi.fn()
+// Backs `.where(...)` calls that are awaited directly (no `.limit()`) —
+// mirrors real drizzle query builders being thenables. Kept separate from
+// mockLimit so a function that issues two queries (one `.limit()`-terminated,
+// one not) can control each resolution independently.
+const mockWhereResolve = vi.fn()
 
 vi.mock('@/db', () => ({
   db: {
@@ -19,6 +24,16 @@ vi.mock('@/db/schema', () => ({
     image: Symbol('users.image'),
     bio: Symbol('users.bio'),
     createdAt: Symbol('users.createdAt'),
+    timezone: Symbol('users.timezone'),
+  },
+  tasks: {
+    id: Symbol('tasks.id'),
+    userId: Symbol('tasks.userId'),
+    title: Symbol('tasks.title'),
+    status: Symbol('tasks.status'),
+    startAt: Symbol('tasks.startAt'),
+    visibility: Symbol('tasks.visibility'),
+    recurrenceGroupId: Symbol('tasks.recurrenceGroupId'),
   },
 }))
 
@@ -33,7 +48,12 @@ vi.mock('drizzle-orm', () => ({
 beforeEach(() => {
   vi.clearAllMocks()
   mockLimit.mockResolvedValue([])
-  mockWhere.mockReturnValue({ limit: mockLimit })
+  mockWhereResolve.mockResolvedValue([])
+  mockWhere.mockReturnValue({
+    limit: mockLimit,
+    then: (resolve: (value: unknown) => void, reject: (reason: unknown) => void) =>
+      mockWhereResolve().then(resolve, reject),
+  })
   mockFrom.mockReturnValue({ where: mockWhere })
   mockSelect.mockReturnValue({ from: mockFrom })
 })
@@ -220,5 +240,339 @@ describe('escapeLikePattern', () => {
     const { escapeLikePattern } = await import('./profile')
 
     expect(escapeLikePattern('hello world')).toBe('hello world')
+  })
+})
+
+describe('getProfileStreaks', () => {
+  const NOW = new Date('2026-07-10T12:00:00.000Z')
+
+  beforeEach(() => {
+    vi.useFakeTimers({ now: NOW })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('exports PROFILE_STREAK_LIMIT as 3', async () => {
+    const { PROFILE_STREAK_LIMIT } = await import('./profile')
+
+    expect(PROFILE_STREAK_LIMIT).toBe(3)
+  })
+
+  it('queries tasks for the owner’s grouped rows only', async () => {
+    const { tasks } = await import('@/db/schema')
+    const { eq, and, isNotNull } = await import('drizzle-orm')
+    const { getProfileStreaks } = await import('./profile')
+
+    await getProfileStreaks('viewer-1', 'owner-1')
+
+    expect(vi.mocked(eq)).toHaveBeenCalledWith(tasks.userId, 'owner-1')
+    expect(vi.mocked(isNotNull)).toHaveBeenCalledWith(tasks.recurrenceGroupId)
+    expect(vi.mocked(and)).toHaveBeenCalled()
+  })
+
+  it('keeps a group visible to a stranger when every row is visibility=everyone', async () => {
+    mockWhereResolve.mockResolvedValueOnce([
+      {
+        recurrenceGroupId: 'g-everyone',
+        title: 'Morning Run',
+        startAt: new Date('2026-07-08T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+      {
+        recurrenceGroupId: 'g-everyone',
+        title: 'Morning Run Latest',
+        startAt: new Date('2026-07-09T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+    ])
+    const { getProfileStreaks } = await import('./profile')
+
+    const result = await getProfileStreaks('stranger-1', 'owner-1')
+
+    expect(result).toEqual([{ title: 'Morning Run Latest', current: 2, best: 2 }])
+  })
+
+  it('hides a group with any non-everyone row from a stranger but shows it to the owner', async () => {
+    const mixedRows = [
+      {
+        recurrenceGroupId: 'g-mixed',
+        title: 'Yoga',
+        startAt: new Date('2026-07-07T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'only_me',
+      },
+      {
+        recurrenceGroupId: 'g-mixed',
+        title: 'Yoga Latest',
+        startAt: new Date('2026-07-09T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+    ]
+    mockWhereResolve.mockResolvedValue(mixedRows)
+    const { getProfileStreaks } = await import('./profile')
+
+    const strangerResult = await getProfileStreaks('stranger-1', 'owner-1')
+    const ownerResult = await getProfileStreaks('owner-1', 'owner-1')
+
+    expect(strangerResult).toEqual([])
+    expect(ownerResult).toEqual([{ title: 'Yoga Latest', current: 2, best: 2 }])
+  })
+
+  it('sorts by current desc then best desc and limits to PROFILE_STREAK_LIMIT', async () => {
+    mockWhereResolve.mockResolvedValueOnce([
+      // g1: current 2, best 2
+      {
+        recurrenceGroupId: 'g1',
+        title: 'G1 Oldest',
+        startAt: new Date('2026-07-08T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+      {
+        recurrenceGroupId: 'g1',
+        title: 'G1 Latest',
+        startAt: new Date('2026-07-09T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+      // g2: current 1, best 3 (best run broken by a past-due pending row)
+      {
+        recurrenceGroupId: 'g2',
+        title: 'G2 A',
+        startAt: new Date('2026-07-04T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+      {
+        recurrenceGroupId: 'g2',
+        title: 'G2 B',
+        startAt: new Date('2026-07-05T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+      {
+        recurrenceGroupId: 'g2',
+        title: 'G2 C',
+        startAt: new Date('2026-07-06T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+      {
+        recurrenceGroupId: 'g2',
+        title: 'G2 D',
+        startAt: new Date('2026-07-07T10:00:00.000Z'),
+        status: 'pending',
+        visibility: 'everyone',
+      },
+      {
+        recurrenceGroupId: 'g2',
+        title: 'G2 Latest',
+        startAt: new Date('2026-07-08T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+      // g3: current 1, best 1
+      {
+        recurrenceGroupId: 'g3',
+        title: 'G3 Only',
+        startAt: new Date('2026-07-09T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+      // g4: current 0, best 0 — should be dropped by the top-3 limit
+      {
+        recurrenceGroupId: 'g4',
+        title: 'G4 Only',
+        startAt: new Date('2026-07-09T11:00:00.000Z'),
+        status: 'pending',
+        visibility: 'everyone',
+      },
+    ])
+    const { getProfileStreaks } = await import('./profile')
+
+    const result = await getProfileStreaks('owner-1', 'owner-1')
+
+    expect(result).toEqual([
+      { title: 'G1 Latest', current: 2, best: 2 },
+      { title: 'G2 Latest', current: 1, best: 3 },
+      { title: 'G3 Only', current: 1, best: 1 },
+    ])
+  })
+
+  it('uses the title of the row with the latest startAt, treating null startAt as earliest', async () => {
+    mockWhereResolve.mockResolvedValueOnce([
+      {
+        recurrenceGroupId: 'g-title',
+        title: 'NullRow',
+        startAt: null,
+        status: 'pending',
+        visibility: 'everyone',
+      },
+      {
+        recurrenceGroupId: 'g-title',
+        title: 'Oldest',
+        startAt: new Date('2026-07-05T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+      {
+        recurrenceGroupId: 'g-title',
+        title: 'Newest',
+        startAt: new Date('2026-07-09T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+    ])
+    const { getProfileStreaks } = await import('./profile')
+
+    const result = await getProfileStreaks('owner-1', 'owner-1')
+
+    expect(result[0]?.title).toBe('Newest')
+  })
+
+  it('keeps the current latest when a later-iterated row (including a null startAt) is not actually newer', async () => {
+    mockWhereResolve.mockResolvedValueOnce([
+      {
+        recurrenceGroupId: 'g-order',
+        title: 'First',
+        startAt: new Date('2026-07-05T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+      {
+        recurrenceGroupId: 'g-order',
+        title: 'NullMiddle',
+        startAt: null,
+        status: 'pending',
+        visibility: 'everyone',
+      },
+      {
+        recurrenceGroupId: 'g-order',
+        title: 'EarlierStill',
+        startAt: new Date('2026-07-03T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+      {
+        recurrenceGroupId: 'g-order',
+        title: 'ActualLatest',
+        startAt: new Date('2026-07-09T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+    ])
+    const { getProfileStreaks } = await import('./profile')
+
+    const result = await getProfileStreaks('owner-1', 'owner-1')
+
+    expect(result[0]?.title).toBe('ActualLatest')
+  })
+
+  it('returns fewer than PROFILE_STREAK_LIMIT entries when the owner has fewer groups', async () => {
+    mockWhereResolve.mockResolvedValueOnce([
+      {
+        recurrenceGroupId: 'g-solo',
+        title: 'Solo',
+        startAt: new Date('2026-07-09T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+    ])
+    const { getProfileStreaks } = await import('./profile')
+
+    const result = await getProfileStreaks('owner-1', 'owner-1')
+
+    expect(result).toHaveLength(1)
+  })
+})
+
+describe('getProfileStats', () => {
+  describe('visibility filtering', () => {
+    const NOW = new Date('2026-07-10T12:00:00.000Z')
+
+    beforeEach(() => {
+      vi.useFakeTimers({ now: NOW })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('excludes non-everyone completions for a stranger but includes them for the owner', async () => {
+      mockLimit.mockResolvedValue([{ timezone: 'UTC' }])
+      mockWhereResolve.mockResolvedValue([
+        { id: 't1', startAt: NOW, visibility: 'everyone' },
+        { id: 't2', startAt: NOW, visibility: 'only_me' },
+      ])
+      const { getProfileStats } = await import('./profile')
+
+      const strangerResult = await getProfileStats('stranger-1', 'owner-1')
+      const ownerResult = await getProfileStats('owner-1', 'owner-1')
+
+      expect(strangerResult).toEqual({
+        completionsThisWeek: 1,
+        completionsThisMonth: 1,
+        completionsAllTime: 1,
+      })
+      expect(ownerResult).toEqual({
+        completionsThisWeek: 2,
+        completionsThisMonth: 2,
+        completionsAllTime: 2,
+      })
+    })
+
+    it('defaults to UTC when the owner row is missing', async () => {
+      mockLimit.mockResolvedValueOnce([])
+      mockWhereResolve.mockResolvedValueOnce([{ id: 't1', startAt: NOW, visibility: 'everyone' }])
+      const { getProfileStats } = await import('./profile')
+
+      const result = await getProfileStats('owner-1', 'owner-1')
+
+      expect(result).toEqual({
+        completionsThisWeek: 1,
+        completionsThisMonth: 1,
+        completionsAllTime: 1,
+      })
+    })
+  })
+
+  describe('timezone window boundaries (America/New_York)', () => {
+    const NOW = new Date('2026-07-12T15:00:00.000Z') // Sunday 11:00 ET
+
+    beforeEach(() => {
+      vi.useFakeTimers({ now: NOW })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('excludes a completion whose owner-TZ date falls in the previous week/month, includes those in range, and counts all-time regardless', async () => {
+      mockLimit.mockResolvedValueOnce([{ timezone: 'America/New_York' }])
+      mockWhereResolve.mockResolvedValueOnce([
+        // Sunday 03:00 UTC = Saturday 23:00 ET — previous week, same month
+        { id: 't1', startAt: new Date('2026-07-12T03:00:00.000Z'), visibility: 'everyone' },
+        // Sunday 15:30 UTC = Sunday 11:30 ET — this week, this month
+        { id: 't2', startAt: new Date('2026-07-12T15:30:00.000Z'), visibility: 'everyone' },
+        // 1st of month 02:00 UTC = prior month (June 30) ET
+        { id: 't3', startAt: new Date('2026-07-01T02:00:00.000Z'), visibility: 'everyone' },
+        // null startAt: counts toward all-time only
+        { id: 't4', startAt: null, visibility: 'everyone' },
+      ])
+      const { getProfileStats } = await import('./profile')
+
+      const result = await getProfileStats('owner-1', 'owner-1')
+
+      expect(result).toEqual({
+        completionsThisWeek: 1,
+        completionsThisMonth: 2,
+        completionsAllTime: 4,
+      })
+    })
   })
 })
