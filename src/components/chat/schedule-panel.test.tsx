@@ -30,6 +30,14 @@ describe('SchedulePanel', () => {
     ).toBeInTheDocument()
   })
 
+  it('centers the empty state within the resizable panel width', () => {
+    render(<SchedulePanel state={{ ...baseState, visible: false }} />)
+    const heading = screen.getByText('Schedule preview')
+    const root = heading.parentElement
+    expect(root).toHaveClass('w-full')
+    expect(root).toHaveClass('items-center', 'justify-center')
+  })
+
   it('passes events to WeekCalendarView', () => {
     const events = [
       {
