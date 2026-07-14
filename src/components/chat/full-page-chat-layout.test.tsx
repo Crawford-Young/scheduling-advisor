@@ -13,16 +13,8 @@ vi.mock('next/navigation', () => ({
 }))
 
 vi.mock('@/components/chat/chat-header', () => ({
-  ChatHeader: ({
-    title,
-    tokenBalance,
-    onBack,
-  }: {
-    title: string | null
-    tokenBalance: number
-    onBack: () => void
-  }) => (
-    <div data-testid="chat-header" data-balance={tokenBalance}>
+  ChatHeader: ({ title, onBack }: { title: string | null; onBack: () => void }) => (
+    <div data-testid="chat-header">
       <button onClick={onBack}>back</button>
       {title}
     </div>
@@ -79,10 +71,6 @@ vi.mock('@/components/chat/schedule-panel', () => ({
       data-event-count={state.events.length}
     />
   ),
-}))
-
-vi.mock('@/server/actions/tokens', () => ({
-  getTokenBalanceAction: vi.fn().mockResolvedValue(50),
 }))
 
 vi.mock('react-resizable-panels', () => ({
@@ -221,52 +209,5 @@ describe('FullPageChatLayout', () => {
       capturedOnItemConfirmed?.('Team standup', 'event')
     })
     expect(screen.getByTestId('schedule-panel')).toHaveAttribute('data-event-count', '1')
-  })
-
-  describe('header token balance', () => {
-    it('starts at the initial balance', () => {
-      render(
-        <FullPageChatLayout
-          conversation={conversation}
-          initialMessages={initialMessages}
-          tokenBalance={42}
-        />,
-      )
-      expect(screen.getByTestId('chat-header')).toHaveAttribute('data-balance', '42')
-    })
-
-    it('refreshes the header balance when a token-balance-changed event fires', async () => {
-      const { getTokenBalanceAction } = await import('@/server/actions/tokens')
-      vi.mocked(getTokenBalanceAction).mockResolvedValueOnce(7)
-      render(
-        <FullPageChatLayout
-          conversation={conversation}
-          initialMessages={initialMessages}
-          tokenBalance={42}
-        />,
-      )
-      await act(async () => {
-        window.dispatchEvent(new CustomEvent('token-balance-changed'))
-      })
-      await vi.waitFor(() => {
-        expect(screen.getByTestId('chat-header')).toHaveAttribute('data-balance', '7')
-      })
-    })
-
-    it('keeps the stale balance when the refresh fails', async () => {
-      const { getTokenBalanceAction } = await import('@/server/actions/tokens')
-      vi.mocked(getTokenBalanceAction).mockRejectedValueOnce(new Error('offline'))
-      render(
-        <FullPageChatLayout
-          conversation={conversation}
-          initialMessages={initialMessages}
-          tokenBalance={42}
-        />,
-      )
-      await act(async () => {
-        window.dispatchEvent(new CustomEvent('token-balance-changed'))
-      })
-      expect(screen.getByTestId('chat-header')).toHaveAttribute('data-balance', '42')
-    })
   })
 })

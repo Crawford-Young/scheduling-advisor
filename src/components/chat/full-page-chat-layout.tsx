@@ -8,7 +8,6 @@ import { SchedulePanel, type ScheduleState } from '@/components/chat/schedule-pa
 import type { AppEvent } from '@/components/chat/tool-result-renderer'
 import type { ConversationRow } from '@/server/queries/conversations'
 import type { ConversationMessage } from '@/server/queries/conversations'
-import { getTokenBalanceAction } from '@/server/actions/tokens'
 import type { CalendarEvent } from '@/lib/ui'
 
 const ENTITY_COLOR: Record<'habit' | 'goal' | 'event', CalendarEvent['color']> = {
@@ -39,27 +38,11 @@ export function FullPageChatLayout({
   tokenBalance: initialBalance,
 }: FullPageChatLayoutProps): React.JSX.Element {
   const router = useRouter()
-  const [tokenBalance, setTokenBalance] = React.useState(initialBalance)
   const [scheduleState, setScheduleState] = React.useState<ScheduleState>({
     visible: false,
     weekStart: new Date().toISOString().slice(0, 10),
     events: [],
   })
-
-  React.useEffect(() => {
-    async function refresh(): Promise<void> {
-      try {
-        setTokenBalance(await getTokenBalanceAction())
-      } catch {
-        // non-fatal — stale balance ok
-      }
-    }
-    function handleChanged(): void {
-      void refresh()
-    }
-    window.addEventListener('token-balance-changed', handleChanged)
-    return () => window.removeEventListener('token-balance-changed', handleChanged)
-  }, [])
 
   function handleScheduleUpdate(weekStart: string, events: readonly AppEvent[]): void {
     const calEvents: CalendarEvent[] = events.map((e) => ({
@@ -98,11 +81,7 @@ export function FullPageChatLayout({
 
   return (
     <div className="flex h-full flex-col">
-      <ChatHeader
-        title={conversation.title}
-        tokenBalance={tokenBalance}
-        onBack={() => router.push('/reflections')}
-      />
+      <ChatHeader title={conversation.title} onBack={() => router.push('/reflections')} />
       <Group orientation="horizontal" className="flex-1">
         <Panel defaultSize={60} minSize={35}>
           <div className="flex h-full flex-col overflow-hidden">
