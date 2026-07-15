@@ -43,6 +43,9 @@ vi.mock('drizzle-orm', () => ({
   or: vi.fn((...args: unknown[]) => ({ op: 'or', args })),
   ilike: vi.fn((col: unknown, val: unknown) => ({ op: 'ilike', col, val })),
   isNotNull: vi.fn((col: unknown) => ({ op: 'isNotNull', col })),
+  gte: vi.fn((col: unknown, val: unknown) => ({ op: 'gte', col, val })),
+  lte: vi.fn((col: unknown, val: unknown) => ({ op: 'lte', col, val })),
+  ne: vi.fn((col: unknown, val: unknown) => ({ op: 'ne', col, val })),
 }))
 
 beforeEach(() => {
@@ -573,6 +576,211 @@ describe('getProfileStats', () => {
         completionsThisMonth: 2,
         completionsAllTime: 4,
       })
+    })
+  })
+})
+
+describe('getProfileWeekEvents', () => {
+  const everyoneRow = {
+    id: 'e-1',
+    title: 'Standup',
+    startAt: new Date('2026-07-13T14:00:00.000Z'),
+    endAt: new Date('2026-07-13T14:30:00.000Z'),
+    color: '#fff',
+    allDay: false,
+    location: 'Room 1',
+    description: 'Daily sync',
+    visibility: 'everyone',
+  }
+  const busyRow = {
+    id: 'e-2',
+    title: 'Secret Meeting',
+    startAt: new Date('2026-07-14T10:00:00.000Z'),
+    endAt: new Date('2026-07-14T11:00:00.000Z'),
+    color: '#000',
+    allDay: false,
+    location: 'HQ',
+    description: 'confidential',
+    visibility: 'busy',
+  }
+  const friendsRow = {
+    id: 'e-3',
+    title: 'Dinner',
+    startAt: new Date('2026-07-15T18:00:00.000Z'),
+    endAt: new Date('2026-07-15T19:00:00.000Z'),
+    color: '#abc',
+    allDay: false,
+    location: 'Restaurant',
+    description: 'with friends',
+    visibility: 'friends',
+  }
+  const onlyMeRow = {
+    id: 'e-4',
+    title: 'Therapy',
+    startAt: new Date('2026-07-16T09:00:00.000Z'),
+    endAt: new Date('2026-07-16T10:00:00.000Z'),
+    color: null,
+    allDay: false,
+    location: null,
+    description: null,
+    visibility: 'only_me',
+  }
+
+  it('masks a busy row to the exact leak-safe shape for a stranger', async () => {
+    mockWhereResolve.mockResolvedValueOnce([busyRow])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    const result = await getProfileWeekEvents('stranger-1', 'owner-1', '2026-07-13')
+
+    expect(result).toEqual([
+      {
+        id: 'e-2',
+        title: 'Busy',
+        start: busyRow.startAt.toISOString(),
+        end: busyRow.endAt.toISOString(),
+        color: null,
+        allDay: false,
+        location: null,
+        description: null,
+        masked: true,
+      },
+    ])
+  })
+
+  it('masks a friends row to the exact leak-safe shape for a stranger', async () => {
+    mockWhereResolve.mockResolvedValueOnce([friendsRow])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    const result = await getProfileWeekEvents('stranger-1', 'owner-1', '2026-07-13')
+
+    expect(result).toEqual([
+      {
+        id: 'e-3',
+        title: 'Busy',
+        start: friendsRow.startAt.toISOString(),
+        end: friendsRow.endAt.toISOString(),
+        color: null,
+        allDay: false,
+        location: null,
+        description: null,
+        masked: true,
+      },
+    ])
+  })
+
+  it('excludes only_me rows at the SQL layer for a stranger', async () => {
+    const { tasks } = await import('@/db/schema')
+    const { ne } = await import('drizzle-orm')
+    mockWhereResolve.mockResolvedValueOnce([])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    await getProfileWeekEvents('stranger-1', 'owner-1', '2026-07-13')
+
+    expect(vi.mocked(ne)).toHaveBeenCalledWith(tasks.visibility, 'only_me')
+  })
+
+  it('does not filter by visibility for the owner', async () => {
+    const { ne } = await import('drizzle-orm')
+    mockWhereResolve.mockResolvedValueOnce([])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    await getProfileWeekEvents('owner-1', 'owner-1', '2026-07-13')
+
+    expect(vi.mocked(ne)).not.toHaveBeenCalled()
+  })
+
+  it('returns an only_me row full-detail unmasked for the owner, alongside a full-detail busy row', async () => {
+    mockWhereResolve.mockResolvedValueOnce([onlyMeRow, busyRow])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    const result = await getProfileWeekEvents('owner-1', 'owner-1', '2026-07-13')
+
+    expect(result).toEqual([
+      {
+        id: 'e-4',
+        title: 'Therapy',
+        start: onlyMeRow.startAt.toISOString(),
+        end: onlyMeRow.endAt.toISOString(),
+        color: null,
+        allDay: false,
+        location: null,
+        description: null,
+        masked: false,
+      },
+      {
+        id: 'e-2',
+        title: 'Secret Meeting',
+        start: busyRow.startAt.toISOString(),
+        end: busyRow.endAt.toISOString(),
+        color: '#000',
+        allDay: false,
+        location: 'HQ',
+        description: 'confidential',
+        masked: false,
+      },
+    ])
+  })
+
+  it('carries the padded date range in the where clause', async () => {
+    const { tasks } = await import('@/db/schema')
+    const { gte, lte } = await import('drizzle-orm')
+    mockWhereResolve.mockResolvedValueOnce([])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    await getProfileWeekEvents('owner-1', 'owner-1', '2026-07-13')
+
+    const weekStartDate = new Date('2026-07-13T00:00:00')
+    const expectedStart = new Date(weekStartDate.getTime() - 1 * 86_400_000)
+    const expectedEnd = new Date(weekStartDate.getTime() + 8 * 86_400_000)
+
+    expect(vi.mocked(gte)).toHaveBeenCalledWith(tasks.startAt, expectedStart)
+    expect(vi.mocked(lte)).toHaveBeenCalledWith(tasks.startAt, expectedEnd)
+  })
+
+  it('maps an everyone row to full fields with masked:false', async () => {
+    mockWhereResolve.mockResolvedValueOnce([everyoneRow])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    const result = await getProfileWeekEvents('stranger-1', 'owner-1', '2026-07-13')
+
+    expect(result).toEqual([
+      {
+        id: 'e-1',
+        title: 'Standup',
+        start: everyoneRow.startAt.toISOString(),
+        end: everyoneRow.endAt.toISOString(),
+        color: '#fff',
+        allDay: false,
+        location: 'Room 1',
+        description: 'Daily sync',
+        masked: false,
+      },
+    ])
+  })
+
+  it('passes null color/location/description through unchanged for an everyone row', async () => {
+    const nullFieldsRow = {
+      ...everyoneRow,
+      id: 'e-5',
+      color: null,
+      location: null,
+      description: null,
+    }
+    mockWhereResolve.mockResolvedValueOnce([nullFieldsRow])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    const result = await getProfileWeekEvents('stranger-1', 'owner-1', '2026-07-13')
+
+    expect(result[0]).toEqual({
+      id: 'e-5',
+      title: 'Standup',
+      start: nullFieldsRow.startAt.toISOString(),
+      end: nullFieldsRow.endAt.toISOString(),
+      color: null,
+      allDay: false,
+      location: null,
+      description: null,
+      masked: false,
     })
   })
 })
