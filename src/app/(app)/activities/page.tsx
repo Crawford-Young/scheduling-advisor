@@ -2,7 +2,6 @@ import * as React from 'react'
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { getUserTasks } from '@/server/queries/tasks'
-import { getTaskStreaks } from '@/server/queries/consistency'
 import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
 import { safeDeleteExpiredEvents } from '@/server/actions/event-ttl'
 import { safeExtendSeries } from '@/server/actions/series-mutations'
@@ -11,6 +10,7 @@ import { OpenChatButton } from '@/components/chat/open-chat-button'
 import { ActivityFilters } from '@/components/activity/activity-filters'
 import { ActivityCreateButton } from '@/components/activity/activity-create-button'
 import { ActivityTable, type ActivityRow } from '@/components/activity/activity-table'
+import { collapseSeries, type SeriesGroup } from '@/lib/activity-grouping'
 
 type ActivityType = 'task' | 'goal'
 type ActivityFilter = ActivityType | 'all'
@@ -77,6 +77,25 @@ function toActivityRow(task: UserTask, streak: number): ActivityRow {
     visibility: task.visibility,
     joinability: task.joinability ?? null,
     maxParticipants: task.maxParticipants ?? null,
+    isSeries: false,
+    todayOccurrenceId: null,
+    todayOccurrenceStatus: null,
+  }
+}
+
+function toSeriesRow(group: SeriesGroup<UserTask>): ActivityRow {
+  const rep = group.representative
+  const dateLabel =
+    group.nextDueIso !== null
+      ? `${group.patternLabel} · next ${formatDateTime(rep.startAt)}`
+      : `${group.patternLabel} · Ended`
+  return {
+    ...toActivityRow(rep, group.groupStreak),
+    dateIso: group.nextDueIso,
+    dateLabel,
+    isSeries: true,
+    todayOccurrenceId: group.todayOccurrenceId,
+    todayOccurrenceStatus: group.todayOccurrenceStatus,
   }
 }
 
@@ -98,20 +117,18 @@ export default async function ActivitiesPage({
   const prefs = await getCalendarPrefs()
   const use24h = prefs?.use24h ?? false
   const allTasks = await getUserTasks()
-  const items = allTasks
-    .filter((t) => filter === 'all' || t.type === filter)
-    .filter((t) => !status || t.status === status)
-    .filter((t) => (recurring === RECURRING_PARAM_TRUE ? t.recurrence !== null : true))
-    .filter((t) => !q || t.title.toLowerCase().includes(q.toLowerCase()))
-
-  const streakMap = await getTaskStreaks(
-    session.user.id,
-    items.map((t) => t.id),
+  const collapsed = collapseSeries(
+    allTasks
+      .filter((t) => filter === 'all' || t.type === filter)
+      .filter((t) => !q || t.title.toLowerCase().includes(q.toLowerCase())),
+    new Date(),
   )
-
-  const rows = items.map((task) =>
-    toActivityRow(task, task.type === 'goal' ? 0 : (streakMap[task.id] ?? 0)),
-  )
+  const rows = collapsed
+    .map((entry) =>
+      entry.kind === 'series' ? toSeriesRow(entry.group) : toActivityRow(entry.task, 0),
+    )
+    .filter((r) => !status || r.status === status)
+    .filter((r) => (recurring === RECURRING_PARAM_TRUE ? r.recurrence !== null : true))
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -122,7 +139,7 @@ export default async function ActivitiesPage({
         <ActivityCreateButton use24h={use24h} />
       </div>
 
-      {items.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="flex flex-col items-center gap-4">
           <EmptyState message="No activities yet. Add one or ask the AI to plan your week." />
           <OpenChatButton label="Plan with AI" />

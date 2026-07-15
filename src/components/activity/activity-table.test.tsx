@@ -12,6 +12,7 @@ vi.mock('next/navigation', () => ({
 const updateTaskMock = vi.fn().mockResolvedValue({ data: {} })
 const updateSeriesMock = vi.fn().mockResolvedValue({ data: {} })
 const deleteSeriesMock = vi.fn().mockResolvedValue({ data: { success: true } })
+const recordCompletionMock = vi.fn().mockResolvedValue({ data: {} })
 const toastErrorMock = vi.fn()
 
 vi.mock('@/server/actions/tasks', () => ({
@@ -25,7 +26,7 @@ vi.mock('@/server/actions/series-mutations', () => ({
 }))
 
 vi.mock('@/server/actions/consistency', () => ({
-  recordCompletion: vi.fn().mockResolvedValue({ data: {} }),
+  recordCompletion: (input: unknown) => recordCompletionMock(input),
 }))
 
 // Keep the real @/lib/ui (DataTable, AlertDialog, ActivityFormDialog) but stub
@@ -59,6 +60,9 @@ function makeRow(over: Partial<ActivityRow> = {}): ActivityRow {
     visibility: 'only_me',
     joinability: null,
     maxParticipants: null,
+    isSeries: false,
+    todayOccurrenceId: null,
+    todayOccurrenceStatus: null,
     ...over,
   }
 }
@@ -70,6 +74,7 @@ describe('ActivityTable', () => {
     updateSeriesMock.mockClear()
     deleteSeriesMock.mockClear()
     deleteSeriesMock.mockResolvedValue({ data: { success: true } })
+    recordCompletionMock.mockClear()
     toastErrorMock.mockClear()
   })
 
@@ -466,6 +471,109 @@ describe('ActivityTable', () => {
       expect(screen.getByText('Group member A')).toBeInTheDocument()
       expect(screen.getByText('Group member B')).toBeInTheDocument()
       expect(refreshMock).not.toHaveBeenCalled()
+    })
+  })
+
+  // Task 3 (activities-series-grouping): collapsed series rows carry a
+  // representative id (`id`) plus a today-occurrence anchor
+  // (`todayOccurrenceId`/`todayOccurrenceStatus`) that the ✓ control and
+  // recordCompletion call target instead of the representative id.
+  describe('series row rendering (activities-series-grouping)', () => {
+    it('shows ✓ on a series row with a pending today occurrence', () => {
+      render(
+        <ActivityTable
+          items={[
+            makeRow({
+              isSeries: true,
+              todayOccurrenceId: 'occ-1',
+              todayOccurrenceStatus: 'pending',
+              recurrence: 'daily',
+            }),
+          ]}
+        />,
+      )
+      expect(screen.getByRole('button', { name: 'Log today' })).toBeInTheDocument()
+    })
+
+    it('hides ✓ on a series row whose today occurrence is completed', () => {
+      render(
+        <ActivityTable
+          items={[
+            makeRow({
+              isSeries: true,
+              todayOccurrenceId: 'occ-1',
+              todayOccurrenceStatus: 'completed',
+              recurrence: 'daily',
+            }),
+          ]}
+        />,
+      )
+      expect(screen.queryByRole('button', { name: 'Log today' })).not.toBeInTheDocument()
+    })
+
+    it('hides ✓ on a series row with nothing due today', () => {
+      render(
+        <ActivityTable
+          items={[
+            makeRow({
+              isSeries: true,
+              todayOccurrenceId: null,
+              todayOccurrenceStatus: 'pending',
+              recurrence: 'daily',
+            }),
+          ]}
+        />,
+      )
+      expect(screen.queryByRole('button', { name: 'Log today' })).not.toBeInTheDocument()
+    })
+
+    it('does not append the recurrence suffix to a series row When cell', () => {
+      const dateLabel = 'Weekly · Mon/Wed · next Jul 20, 9:00 AM'
+      render(
+        <ActivityTable items={[makeRow({ isSeries: true, dateLabel, recurrence: 'weekly' })]} />,
+      )
+      expect(screen.getByText(dateLabel)).toBeInTheDocument()
+      expect(screen.queryByText('· weekly', { exact: false })).not.toBeInTheDocument()
+    })
+
+    it('keeps the recurrence suffix on one-off recurring rows (regression)', () => {
+      render(
+        <ActivityTable
+          items={[makeRow({ isSeries: false, recurrence: 'yearly', dateLabel: 'Jul 3, 5:00 AM' })]}
+        />,
+      )
+      expect(screen.getByText('· yearly', { exact: false })).toBeInTheDocument()
+    })
+
+    it('series row delete goes straight to the series-only dialog', async () => {
+      const user = userEvent.setup()
+      render(<ActivityTable items={[makeRow({ isSeries: true, recurrenceGroupId: 'g1' })]} />)
+      await user.click(screen.getByRole('button', { name: 'Delete task' }))
+      expect(
+        screen.getByRole('button', { name: 'Confirm delete entire series' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Confirm delete this event only' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('series row ✓ targets the today occurrence id', async () => {
+      const user = userEvent.setup()
+      render(
+        <ActivityTable
+          items={[
+            makeRow({
+              id: 'rep-1',
+              isSeries: true,
+              todayOccurrenceId: 'occ-1',
+              todayOccurrenceStatus: 'pending',
+              recurrence: 'daily',
+            }),
+          ]}
+        />,
+      )
+      await user.click(screen.getByRole('button', { name: 'Log today' }))
+      await waitFor(() => expect(recordCompletionMock).toHaveBeenCalledWith({ taskId: 'occ-1' }))
     })
   })
 })

@@ -73,6 +73,11 @@ export interface ActivityRow {
   readonly visibility: ActivitySocial['visibility']
   readonly joinability: ActivitySocial['joinability'] | null
   readonly maxParticipants: number | null
+  /** True when this row is a collapsed recurrence series (one row per group). */
+  readonly isSeries: boolean
+  /** Occurrence due today (series TZ day) — anchors ✓ on series rows. */
+  readonly todayOccurrenceId: string | null
+  readonly todayOccurrenceStatus: 'pending' | 'in_progress' | 'completed' | null
 }
 
 // S14: the table's optimistic "Entire series" delete orchestrator, delivered to
@@ -114,11 +119,17 @@ function ActivityRowActions({ row, use24h }: ActivityRowActionsProps): React.JSX
       },
       use24h,
       onDeleteSeries,
+      completionTaskId: row.todayOccurrenceId,
+      seriesDeleteOnly: row.isSeries,
     })
+
+  const showComplete = row.isSeries
+    ? row.todayOccurrenceId !== null && row.todayOccurrenceStatus !== 'completed'
+    : !isComplete
 
   return (
     <div className="flex items-center gap-1 whitespace-nowrap">
-      {!isComplete && (
+      {showComplete && (
         <Button
           variant="ghost"
           size="icon"
@@ -173,7 +184,7 @@ function buildColumns(use24h?: boolean): ColumnDef<ActivityRow>[] {
       cell: ({ row }) => (
         <span className="whitespace-nowrap">
           {row.original.dateLabel}
-          {row.original.recurrence !== null && (
+          {!row.original.isSeries && row.original.recurrence !== null && (
             <span className="text-muted-foreground">{`${SEPARATOR}${row.original.recurrence}`}</span>
           )}
         </span>
