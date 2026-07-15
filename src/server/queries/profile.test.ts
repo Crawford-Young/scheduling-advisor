@@ -30,6 +30,8 @@ vi.mock('@/db/schema', () => ({
     id: Symbol('tasks.id'),
     userId: Symbol('tasks.userId'),
     title: Symbol('tasks.title'),
+    type: Symbol('tasks.type'),
+    recurrence: Symbol('tasks.recurrence'),
     status: Symbol('tasks.status'),
     startAt: Symbol('tasks.startAt'),
     visibility: Symbol('tasks.visibility'),
@@ -782,5 +784,268 @@ describe('getProfileWeekEvents', () => {
       description: null,
       masked: false,
     })
+  })
+})
+
+describe('getProfileActivities', () => {
+  const NOW = new Date('2026-07-10T12:00:00.000Z')
+
+  beforeEach(() => {
+    vi.useFakeTimers({ now: NOW })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('queries tasks for the owner’s rows only', async () => {
+    const { tasks } = await import('@/db/schema')
+    const { eq } = await import('drizzle-orm')
+    const { getProfileActivities } = await import('./profile')
+
+    await getProfileActivities('viewer-1', 'owner-1')
+
+    expect(vi.mocked(eq)).toHaveBeenCalledWith(tasks.userId, 'owner-1')
+  })
+
+  it('hides a group with any non-everyone row from a stranger but includes it for the owner', async () => {
+    mockWhereResolve.mockResolvedValue([
+      {
+        id: 'm1',
+        title: 'Yoga',
+        type: 'task',
+        recurrence: 'weekly',
+        recurrenceGroupId: 'g-mixed',
+        startAt: new Date('2026-07-07T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'only_me',
+      },
+      {
+        id: 'm2',
+        title: 'Yoga Latest',
+        type: 'task',
+        recurrence: 'weekly',
+        recurrenceGroupId: 'g-mixed',
+        startAt: new Date('2026-07-09T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+    ])
+    const { getProfileActivities } = await import('./profile')
+
+    const strangerResult = await getProfileActivities('stranger-1', 'owner-1')
+    const ownerResult = await getProfileActivities('owner-1', 'owner-1')
+
+    expect(strangerResult).toEqual([])
+    expect(ownerResult).toEqual([
+      {
+        id: 'm2',
+        title: 'Yoga Latest',
+        type: 'task',
+        recurrence: 'weekly',
+        streak: 2,
+        lastStartAt: new Date('2026-07-09T10:00:00.000Z'),
+      },
+    ])
+  })
+
+  it('hides an only_me ungrouped row from a stranger but includes it for the owner', async () => {
+    mockWhereResolve.mockResolvedValue([
+      {
+        id: 'u1',
+        title: 'Private Task',
+        type: 'task',
+        recurrence: null,
+        recurrenceGroupId: null,
+        startAt: new Date('2026-07-06T10:00:00.000Z'),
+        status: 'pending',
+        visibility: 'only_me',
+      },
+      {
+        id: 'u2',
+        title: 'Public Task',
+        type: 'task',
+        recurrence: null,
+        recurrenceGroupId: null,
+        startAt: new Date('2026-07-05T10:00:00.000Z'),
+        status: 'pending',
+        visibility: 'everyone',
+      },
+    ])
+    const { getProfileActivities } = await import('./profile')
+
+    const strangerResult = await getProfileActivities('stranger-1', 'owner-1')
+    const ownerResult = await getProfileActivities('owner-1', 'owner-1')
+
+    expect(strangerResult).toEqual([
+      {
+        id: 'u2',
+        title: 'Public Task',
+        type: 'task',
+        recurrence: null,
+        streak: 0,
+        lastStartAt: new Date('2026-07-05T10:00:00.000Z'),
+      },
+    ])
+    expect(ownerResult).toEqual([
+      {
+        id: 'u1',
+        title: 'Private Task',
+        type: 'task',
+        recurrence: null,
+        streak: 0,
+        lastStartAt: new Date('2026-07-06T10:00:00.000Z'),
+      },
+      {
+        id: 'u2',
+        title: 'Public Task',
+        type: 'task',
+        recurrence: null,
+        streak: 0,
+        lastStartAt: new Date('2026-07-05T10:00:00.000Z'),
+      },
+    ])
+  })
+
+  it('collapses a recurrence group into one entry using the latest row’s title/type/recurrence and lastStartAt', async () => {
+    mockWhereResolve.mockResolvedValueOnce([
+      {
+        id: 'g1a',
+        title: 'G1 Oldest',
+        type: 'task',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g1',
+        startAt: new Date('2026-07-08T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+      {
+        id: 'g1b',
+        title: 'G1 Newest',
+        type: 'task',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g1',
+        startAt: new Date('2026-07-09T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+    ])
+    const { getProfileActivities } = await import('./profile')
+
+    const result = await getProfileActivities('owner-1', 'owner-1')
+
+    expect(result).toEqual([
+      {
+        id: 'g1b',
+        title: 'G1 Newest',
+        type: 'task',
+        recurrence: 'daily',
+        streak: 2,
+        lastStartAt: new Date('2026-07-09T10:00:00.000Z'),
+      },
+    ])
+  })
+
+  it('treats a null startAt as earliest when picking a group’s representative row, regardless of iteration order', async () => {
+    mockWhereResolve.mockResolvedValueOnce([
+      {
+        id: 'g-null-first',
+        title: 'NullRow',
+        type: 'task',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g-title-1',
+        startAt: null,
+        status: 'pending',
+        visibility: 'everyone',
+      },
+      {
+        id: 'g-newest-1',
+        title: 'Newest',
+        type: 'task',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g-title-1',
+        startAt: new Date('2026-07-09T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+      {
+        id: 'g-mid',
+        title: 'Mid',
+        type: 'task',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g-title-2',
+        startAt: new Date('2026-07-05T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+      {
+        id: 'g-null-middle',
+        title: 'NullMiddle',
+        type: 'task',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g-title-2',
+        startAt: null,
+        status: 'pending',
+        visibility: 'everyone',
+      },
+      {
+        id: 'g-newest-2',
+        title: 'Newest2',
+        type: 'task',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g-title-2',
+        startAt: new Date('2026-07-09T10:00:00.000Z'),
+        status: 'completed',
+        visibility: 'everyone',
+      },
+    ])
+    const { getProfileActivities } = await import('./profile')
+
+    const result = await getProfileActivities('owner-1', 'owner-1')
+
+    expect(result).toHaveLength(2)
+    expect(result.some((r) => r.id === 'g-newest-1')).toBe(true)
+    expect(result.some((r) => r.id === 'g-newest-2')).toBe(true)
+  })
+
+  it('orders entries by lastStartAt desc, with a null lastStartAt sorted last, and gives ungrouped entries streak 0', async () => {
+    mockWhereResolve.mockResolvedValueOnce([
+      {
+        id: 'a',
+        title: 'A',
+        type: 'task',
+        recurrence: null,
+        recurrenceGroupId: null,
+        startAt: new Date('2026-07-05T10:00:00.000Z'),
+        status: 'pending',
+        visibility: 'everyone',
+      },
+      {
+        id: 'b',
+        title: 'B',
+        type: 'task',
+        recurrence: null,
+        recurrenceGroupId: null,
+        startAt: null,
+        status: 'pending',
+        visibility: 'everyone',
+      },
+      {
+        id: 'c',
+        title: 'C',
+        type: 'task',
+        recurrence: null,
+        recurrenceGroupId: null,
+        startAt: new Date('2026-07-09T10:00:00.000Z'),
+        status: 'pending',
+        visibility: 'everyone',
+      },
+    ])
+    const { getProfileActivities } = await import('./profile')
+
+    const result = await getProfileActivities('owner-1', 'owner-1')
+
+    expect(result.map((r) => r.id)).toEqual(['c', 'a', 'b'])
+    expect(result.every((r) => r.streak === 0)).toBe(true)
   })
 })
