@@ -19,6 +19,7 @@ Consistency-first scheduling app. The week calendar is home: plan tasks and goal
 - **Activity settings** — visibility and joinability per activity; wake/sleep hours under Settings → Calendar
 - **Quick add** — a one-line topbar input ("dinner Fri 7pm") that creates a single event or task through a fast, ephemeral AI lane: nothing lands in chat history, and you confirm before anything is created
 - **Tokens** — the app is free to use; tokens purchase AI assistance (Cy chat, quick add, AI reflections). Buy a monthly subscription (Starter/Growth/Pro) or one-off token packs at `/tokens`; cached prompt input is billed at a discount
+- **Public profiles** — every user gets a profile at `/u/[username]`: streak showcase, completion stats, an activity list, and a read-only week view honoring each event's per-event visibility (a stranger sees `everyone` events full-detail, `busy`/`friends` events masked to a "Busy" time block, `only_me` events excluded entirely). Find people via search on `/feed`; edit your own name, bio, and username from Settings
 
 ## Stack
 
