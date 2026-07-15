@@ -7,6 +7,7 @@ const getProfileByUsernameMock = vi.fn()
 const getProfileStreaksMock = vi.fn()
 const getProfileStatsMock = vi.fn()
 const getProfileActivitiesMock = vi.fn()
+const getProfileWeekEventsMock = vi.fn()
 const notFoundMock = vi.fn(() => {
   throw new Error('NOT_FOUND')
 })
@@ -25,6 +26,7 @@ vi.mock('@/server/queries/profile', () => ({
   getProfileStreaks: (...args: unknown[]) => getProfileStreaksMock(...args),
   getProfileStats: (...args: unknown[]) => getProfileStatsMock(...args),
   getProfileActivities: (...args: unknown[]) => getProfileActivitiesMock(...args),
+  getProfileWeekEvents: (...args: unknown[]) => getProfileWeekEventsMock(...args),
 }))
 
 vi.mock('@/components/profile/profile-header', () => ({
@@ -47,6 +49,22 @@ vi.mock('@/components/profile/profile-stats', () => ({
   ),
 }))
 
+vi.mock('@/components/profile/profile-week-view', () => ({
+  ProfileWeekView: ({
+    events,
+    weekStart,
+  }: {
+    events: readonly { id: string }[]
+    weekStart: string
+  }) => (
+    <div
+      data-testid="profile-week-view"
+      data-week-start={weekStart}
+      data-event-count={events.length}
+    />
+  ),
+}))
+
 vi.mock('@/lib/ui', () => ({
   EmptyState: ({ message }: { message: string }) => <p>{message}</p>,
   StreakBadge: ({ streak }: { streak: number }) => <span data-testid="streak-badge">{streak}</span>,
@@ -65,6 +83,24 @@ function makeIdentity(overrides: Record<string, unknown> = {}) {
   }
 }
 
+/** Builds the two-Promise call args ProfilePage expects. */
+function pageArgs(username: string, week?: string) {
+  return {
+    params: Promise.resolve({ username }),
+    searchParams: Promise.resolve(week === undefined ? {} : { week }),
+  }
+}
+
+/** Mirrors resolveWeekStart's own Monday-of-current-week fallback, in local time. */
+function expectedFallbackWeekStart(): string {
+  const now = new Date()
+  const day = now.getDay()
+  const monday = new Date(now)
+  monday.setDate(now.getDate() - ((day + 6) % 7))
+  monday.setHours(0, 0, 0, 0)
+  return monday.toISOString().slice(0, 10)
+}
+
 describe('ProfilePage', () => {
   beforeEach(() => {
     authMock.mockReset()
@@ -74,36 +110,38 @@ describe('ProfilePage', () => {
       .mockReset()
       .mockResolvedValue({ completionsThisWeek: 0, completionsThisMonth: 0, completionsAllTime: 0 })
     getProfileActivitiesMock.mockReset().mockResolvedValue([])
+    getProfileWeekEventsMock.mockReset().mockResolvedValue([])
     notFoundMock.mockClear()
   })
 
   it('redirects to /login when unauthenticated', async () => {
     authMock.mockResolvedValue(null)
 
-    await expect(ProfilePage({ params: Promise.resolve({ username: 'ada' }) })).rejects.toThrow(
-      'REDIRECT',
-    )
+    await expect(ProfilePage(pageArgs('ada'))).rejects.toThrow('REDIRECT')
   })
 
   it('calls notFound() when the identity lookup returns null', async () => {
     authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
     getProfileByUsernameMock.mockResolvedValue(null)
 
-    await expect(ProfilePage({ params: Promise.resolve({ username: 'ghost' }) })).rejects.toThrow(
-      'NOT_FOUND',
-    )
+    await expect(ProfilePage(pageArgs('ghost'))).rejects.toThrow('NOT_FOUND')
     expect(notFoundMock).toHaveBeenCalled()
   })
 
-  it('fetches streaks/stats/activities scoped to the resolved owner id', async () => {
+  it('fetches streaks/stats/activities/week-events scoped to the resolved owner id', async () => {
     authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
     getProfileByUsernameMock.mockResolvedValue(makeIdentity({ id: 'owner-1' }))
 
-    await ProfilePage({ params: Promise.resolve({ username: 'ada' }) })
+    await ProfilePage(pageArgs('ada'))
 
     expect(getProfileStreaksMock).toHaveBeenCalledWith('viewer-1', 'owner-1')
     expect(getProfileStatsMock).toHaveBeenCalledWith('viewer-1', 'owner-1')
     expect(getProfileActivitiesMock).toHaveBeenCalledWith('viewer-1', 'owner-1')
+    expect(getProfileWeekEventsMock).toHaveBeenCalledWith(
+      'viewer-1',
+      'owner-1',
+      expectedFallbackWeekStart(),
+    )
   })
 
   it('renders the header, streak titles, stat counts, and activity titles from fetched data', async () => {
@@ -126,7 +164,7 @@ describe('ProfilePage', () => {
       },
     ])
 
-    render(await ProfilePage({ params: Promise.resolve({ username: 'ada' }) }))
+    render(await ProfilePage(pageArgs('ada')))
 
     expect(screen.getByTestId('profile-header')).toHaveTextContent('Ada Lovelace')
     expect(screen.getByText('Morning Run')).toBeInTheDocument()
@@ -142,7 +180,7 @@ describe('ProfilePage', () => {
     getProfileByUsernameMock.mockResolvedValue(makeIdentity())
     getProfileStreaksMock.mockResolvedValue([])
 
-    render(await ProfilePage({ params: Promise.resolve({ username: 'ada' }) }))
+    render(await ProfilePage(pageArgs('ada')))
 
     expect(screen.getByText(/no streaks yet/i)).toBeInTheDocument()
   })
@@ -152,7 +190,7 @@ describe('ProfilePage', () => {
     getProfileByUsernameMock.mockResolvedValue(makeIdentity())
     getProfileActivitiesMock.mockResolvedValue([])
 
-    render(await ProfilePage({ params: Promise.resolve({ username: 'ada' }) }))
+    render(await ProfilePage(pageArgs('ada')))
 
     expect(screen.getByText(/no visible activities yet/i)).toBeInTheDocument()
   })
@@ -171,9 +209,40 @@ describe('ProfilePage', () => {
       },
     ])
 
-    render(await ProfilePage({ params: Promise.resolve({ username: 'ada' }) }))
+    render(await ProfilePage(pageArgs('ada')))
 
     expect(screen.getByText('One-off Task')).toBeInTheDocument()
     expect(screen.queryByTestId('streak-badge')).not.toBeInTheDocument()
+  })
+
+  it('passes a valid ?week= value through to getProfileWeekEvents and the week section', async () => {
+    authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
+    getProfileByUsernameMock.mockResolvedValue(makeIdentity({ id: 'owner-1' }))
+    getProfileWeekEventsMock.mockResolvedValue([{ id: 'e1' }, { id: 'e2' }])
+
+    render(await ProfilePage(pageArgs('ada', '2026-06-01')))
+
+    expect(getProfileWeekEventsMock).toHaveBeenCalledWith('viewer-1', 'owner-1', '2026-06-01')
+    expect(screen.getByTestId('profile-week-view')).toHaveAttribute('data-week-start', '2026-06-01')
+    expect(screen.getByTestId('profile-week-view')).toHaveAttribute('data-event-count', '2')
+  })
+
+  it('falls back to the current week and still renders the week section for a malformed ?week= value', async () => {
+    authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
+    getProfileByUsernameMock.mockResolvedValue(makeIdentity({ id: 'owner-1' }))
+    getProfileWeekEventsMock.mockResolvedValue([{ id: 'e1' }])
+
+    render(await ProfilePage(pageArgs('ada', 'garbage')))
+
+    expect(getProfileWeekEventsMock).toHaveBeenCalledWith(
+      'viewer-1',
+      'owner-1',
+      expectedFallbackWeekStart(),
+    )
+    expect(screen.getByTestId('profile-week-view')).toHaveAttribute(
+      'data-week-start',
+      expectedFallbackWeekStart(),
+    )
+    expect(screen.getByTestId('profile-week-view')).toHaveAttribute('data-event-count', '1')
   })
 })

@@ -7,16 +7,21 @@ import {
   getProfileStreaks,
   getProfileStats,
   getProfileActivities,
+  getProfileWeekEvents,
 } from '@/server/queries/profile'
 import { ProfileHeader } from '@/components/profile/profile-header'
 import { ProfileStats } from '@/components/profile/profile-stats'
+import { ProfileWeekView } from '@/components/profile/profile-week-view'
+import { resolveWeekStart } from '@/lib/calendar-week-param'
 
 interface ProfilePageProps {
   readonly params: Promise<{ username: string }>
+  readonly searchParams: Promise<{ week?: string }>
 }
 
 export default async function ProfilePage({
   params,
+  searchParams,
 }: ProfilePageProps): Promise<React.JSX.Element> {
   const session = await auth()
   if (!session?.user?.id) redirect('/login')
@@ -25,10 +30,14 @@ export default async function ProfilePage({
   const identity = await getProfileByUsername(session.user.id, username)
   if (identity === null) notFound()
 
-  const [streaks, stats, activities] = await Promise.all([
+  const { week } = await searchParams
+  const weekStart = resolveWeekStart(week)
+
+  const [streaks, stats, activities, weekEvents] = await Promise.all([
     getProfileStreaks(session.user.id, identity.id),
     getProfileStats(session.user.id, identity.id),
     getProfileActivities(session.user.id, identity.id),
+    getProfileWeekEvents(session.user.id, identity.id, weekStart),
   ])
 
   return (
@@ -89,6 +98,16 @@ export default async function ProfilePage({
               ))}
             </ul>
           )}
+        </section>
+
+        <section aria-labelledby="week-heading" className="space-y-4">
+          <h2 id="week-heading" className="text-foreground text-lg font-semibold">
+            Week
+          </h2>
+          {/* Keyed by weekStart: forces a full remount on every ?week= nav
+              instead of a prop update, which WeekCalendarView would otherwise
+              ignore (resyncToken trap — see ProfileWeekView's doc comment). */}
+          <ProfileWeekView key={weekStart} events={weekEvents} weekStart={weekStart} />
         </section>
       </div>
     </div>
