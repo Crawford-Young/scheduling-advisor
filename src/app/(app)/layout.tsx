@@ -4,7 +4,7 @@ import { AppShell, Avatar, AvatarFallback, AvatarImage, Sidebar, Toaster } from 
 import { ActiveSidebarItem } from '@/components/layout/active-sidebar-item'
 import { TokenChipLive } from '@/components/layout/token-chip-live'
 import { QuickScheduleInput } from '@/components/chat/quick-schedule-input'
-import { ChatFab } from '@/components/chat/chat-fab'
+import { ChatPopup } from '@/components/chat/chat-popup'
 import { getTokenBalance } from '@/server/queries/tokens'
 import { Calendar, Coins, ListChecks, LogOut, MessageSquare, Rss, Settings } from 'lucide-react'
 import Image from 'next/image'
@@ -108,7 +108,7 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
       >
         <div className="h-full p-6">{children}</div>
       </AppShell>
-      <ChatFab />
+      <ChatPopup />
       <Toaster />
     </>
   )
