@@ -1,12 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { render, screen, within } from '@testing-library/react'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import ActivitiesPage from './page'
 
 const authMock = vi.fn()
 const getUserTasksMock = vi.fn()
-const getTaskStreaksMock = vi.fn()
 const safeDeleteExpiredEventsMock = vi.fn()
 const safeExtendSeriesMock = vi.fn()
 const getCalendarPrefsMock = vi.fn()
@@ -21,10 +20,6 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/server/queries/tasks', () => ({
   getUserTasks: () => getUserTasksMock(),
-}))
-
-vi.mock('@/server/queries/consistency', () => ({
-  getTaskStreaks: () => getTaskStreaksMock(),
 }))
 
 vi.mock('@/server/actions/event-ttl', () => ({
@@ -72,6 +67,9 @@ interface MockActivityRow {
   visibility: string
   joinability: string | null
   maxParticipants: number | null
+  isSeries: boolean
+  todayOccurrenceId: string | null
+  todayOccurrenceStatus: string | null
 }
 
 // Render each row's data props so page-side row-building contract bugs surface.
@@ -96,6 +94,9 @@ vi.mock('@/components/activity/activity-table', () => ({
           data-all-day={String(row.allDay)}
           data-activity-type={row.activityType}
           data-visibility={row.visibility}
+          data-is-series={String(row.isSeries)}
+          data-today-occurrence-id={row.todayOccurrenceId ?? ''}
+          data-today-occurrence-status={row.todayOccurrenceStatus ?? ''}
         >
           <span>{row.title}</span>
           <span data-testid="row-date-label">{row.dateLabel}</span>
@@ -128,6 +129,7 @@ interface TaskOverrides {
   location?: string | null
   description?: string | null
   allDay?: boolean
+  timeZone?: string | null
 }
 
 function makeTask(over: TaskOverrides = {}) {
@@ -151,6 +153,7 @@ function makeTask(over: TaskOverrides = {}) {
     visibility: 'only_me',
     joinability: null,
     maxParticipants: null,
+    timeZone: null,
     ...over,
   }
 }
@@ -163,10 +166,13 @@ describe('ActivitiesPage', () => {
   beforeEach(() => {
     authMock.mockReset()
     getUserTasksMock.mockReset()
-    getTaskStreaksMock.mockReset().mockResolvedValue({})
     safeDeleteExpiredEventsMock.mockReset().mockResolvedValue(undefined)
     safeExtendSeriesMock.mockReset().mockResolvedValue(undefined)
     getCalendarPrefsMock.mockReset().mockResolvedValue(null)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('sweeps safeExtendSeries after safeDeleteExpiredEvents and before getUserTasks', async () => {
@@ -299,7 +305,6 @@ describe('ActivitiesPage', () => {
       makeTask({ id: 'r1', type: 'task', recurrence: 'weekly' }),
       makeTask({ id: 't1', type: 'task', startAt: null }),
     ])
-    getTaskStreaksMock.mockResolvedValue({ r1: 3 })
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
 
     const rows = screen.getAllByTestId('activity-row')
@@ -311,8 +316,8 @@ describe('ActivitiesPage', () => {
     expect(goal).toHaveAttribute('data-target-date', '2026-08-01')
     expect(goal).toHaveAttribute('data-streak', '0')
 
-    // Recurring task: streak wired in from the streak map
-    expect(byId('r1')).toHaveAttribute('data-streak', '3')
+    // Recurring one-off (no group id) task: streak always 0 post-collapse
+    expect(byId('r1')).toHaveAttribute('data-streak', '0')
 
     // Non-recurring task with no start time falls back to "No time set"
     expect(within(byId('t1')).getByTestId('row-date-label')).toHaveTextContent('No time set')
@@ -400,5 +405,206 @@ describe('ActivitiesPage', () => {
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
     expect(screen.getByText(/no activities yet/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /plan with ai/i })).toBeInTheDocument()
+  })
+
+  it('collapses a recurrence group to one series row', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-20T12:00:00.000Z'))
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([
+      makeTask({
+        id: 'g-yesterday',
+        title: 'Series',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g1',
+        startAt: new Date('2026-06-19T09:00:00.000Z'),
+        status: 'completed',
+      }),
+      makeTask({
+        id: 'g-today',
+        title: 'Series',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g1',
+        startAt: new Date('2026-06-20T09:00:00.000Z'),
+      }),
+      makeTask({
+        id: 'g-tomorrow',
+        title: 'Series',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g1',
+        startAt: new Date('2026-06-21T09:00:00.000Z'),
+      }),
+      makeTask({ id: 'one-off', title: 'Solo task', recurrenceGroupId: null }),
+    ])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
+
+    const rows = screen.getAllByTestId('activity-row')
+    expect(rows).toHaveLength(2)
+    const seriesRow = rows.find((r) => r.dataset.isSeries === 'true')!
+    expect(seriesRow).toHaveAttribute('data-today-occurrence-id', 'g-today')
+    expect(within(seriesRow).getByTestId('row-date-label')).toHaveTextContent(/^Daily · next /)
+  })
+
+  it('labels an ended series and nulls its sort key', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-20T12:00:00.000Z'))
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([
+      makeTask({
+        id: 'g-3',
+        title: 'Series',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g1',
+        startAt: new Date('2026-06-17T09:00:00.000Z'),
+        status: 'completed',
+      }),
+      makeTask({
+        id: 'g-2',
+        title: 'Series',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g1',
+        startAt: new Date('2026-06-18T09:00:00.000Z'),
+        status: 'completed',
+      }),
+      makeTask({
+        id: 'g-1',
+        title: 'Series',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g1',
+        startAt: new Date('2026-06-19T09:00:00.000Z'),
+        status: 'completed',
+      }),
+    ])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
+
+    const row = screen.getByTestId('activity-row')
+    expect(within(row).getByTestId('row-date-label')).toHaveTextContent('Daily · Ended')
+    expect(row).toHaveAttribute('data-date-iso', '')
+  })
+
+  it('applies the status filter to the series representative status', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-20T12:00:00.000Z'))
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([
+      makeTask({
+        id: 'g-today',
+        title: 'Series',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g1',
+        startAt: new Date('2026-06-20T09:00:00.000Z'),
+        status: 'pending',
+      }),
+      makeTask({
+        id: 'solo-completed',
+        title: 'Done solo',
+        recurrenceGroupId: null,
+        status: 'completed',
+      }),
+    ])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({ status: 'completed' }) }))
+
+    const rows = screen.getAllByTestId('activity-row')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toHaveAttribute('data-task-id', 'solo-completed')
+  })
+
+  it('recurring filter keeps series rows and recurring one-offs only', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-20T12:00:00.000Z'))
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([
+      makeTask({
+        id: 'g-today',
+        title: 'Series',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g1',
+        startAt: new Date('2026-06-20T09:00:00.000Z'),
+      }),
+      makeTask({
+        id: 'solo-none',
+        title: 'No recurrence solo',
+        recurrenceGroupId: null,
+        recurrence: null,
+      }),
+      makeTask({
+        id: 'solo-yearly',
+        title: 'Yearly solo',
+        recurrenceGroupId: null,
+        recurrence: 'yearly',
+      }),
+    ])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({ recurring: '1' }) }))
+
+    const rows = screen.getAllByTestId('activity-row')
+    const ids = rows.map((r) => r.dataset.taskId)
+    expect(ids).toHaveLength(2)
+    expect(ids).toContain('g-today')
+    expect(ids).toContain('solo-yearly')
+    expect(ids).not.toContain('solo-none')
+  })
+
+  it('series row streak is the group current streak', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-20T12:00:00.000Z'))
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([
+      makeTask({
+        id: 'g-2days-ago',
+        title: 'Series',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g1',
+        startAt: new Date('2026-06-18T09:00:00.000Z'),
+        status: 'completed',
+      }),
+      makeTask({
+        id: 'g-yesterday',
+        title: 'Series',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g1',
+        startAt: new Date('2026-06-19T09:00:00.000Z'),
+        status: 'completed',
+      }),
+      makeTask({
+        id: 'g-today',
+        title: 'Series',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g1',
+        startAt: new Date('2026-06-20T09:00:00.000Z'),
+        status: 'pending',
+      }),
+    ])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
+
+    const row = screen.getByTestId('activity-row')
+    expect(row).toHaveAttribute('data-streak', '2')
+  })
+
+  it('q filter matches series title before collapse', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-20T12:00:00.000Z'))
+    authMock.mockResolvedValue(makeSession())
+    getUserTasksMock.mockResolvedValue([
+      makeTask({
+        id: 'g-today',
+        title: 'Special series run',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g1',
+        startAt: new Date('2026-06-20T09:00:00.000Z'),
+      }),
+      makeTask({
+        id: 'g-tomorrow',
+        title: 'Special series run',
+        recurrence: 'daily',
+        recurrenceGroupId: 'g1',
+        startAt: new Date('2026-06-21T09:00:00.000Z'),
+      }),
+      makeTask({ id: 'other', title: 'Unrelated errand', recurrenceGroupId: null }),
+    ])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({ q: 'special' }) }))
+
+    const rows = screen.getAllByTestId('activity-row')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toHaveAttribute('data-is-series', 'true')
   })
 })

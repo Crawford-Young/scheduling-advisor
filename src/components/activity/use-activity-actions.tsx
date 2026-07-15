@@ -72,6 +72,42 @@ export interface ActivityCardActionsProps {
    * contexts, where the inline fallback below runs.
    */
   readonly onDeleteSeries?: (groupId: string) => void
+  /**
+   * Series-row ✓ target (activities grouping): the occurrence id
+   * `recordCompletion` should act on instead of `taskId` — on a collapsed
+   * series row, `taskId` is the representative, not today's occurrence.
+   */
+  readonly completionTaskId?: string | null
+  /**
+   * Series-row delete (activities grouping): the delete dialog offers ONLY
+   * "Entire series" — per-occurrence delete lives on calendar chips.
+   */
+  readonly seriesDeleteOnly?: boolean
+}
+
+interface DeleteDialogCopy {
+  readonly title: string
+  readonly description: string
+}
+
+function deleteDialogCopy(
+  grouped: boolean,
+  seriesOnly: boolean,
+  type: ActivityKind,
+): DeleteDialogCopy {
+  if (grouped && seriesOnly) {
+    return {
+      title: 'Delete this series?',
+      description: 'This removes every occurrence of the series. This cannot be undone.',
+    }
+  }
+  if (grouped) {
+    return {
+      title: `Delete this ${type}?`,
+      description: 'Choose whether to remove just this occurrence or the entire series.',
+    }
+  }
+  return { title: `Delete this ${type}?`, description: 'This cannot be undone.' }
 }
 
 /** Goal target dates are edited as date-only but persisted as full ISO datetime. */
@@ -109,6 +145,8 @@ export function useActivityActions({
   social,
   use24h,
   onDeleteSeries,
+  completionTaskId,
+  seriesDeleteOnly,
 }: ActivityCardActionsProps): UseActivityActionsResult {
   const router = useRouter()
   const [editOpen, setEditOpen] = useState(false)
@@ -122,7 +160,7 @@ export function useActivityActions({
     startTransition(async () => {
       const result =
         recurrence != null
-          ? await recordCompletion({ taskId })
+          ? await recordCompletion({ taskId: completionTaskId ?? taskId })
           : await updateTask({ id: taskId, status: 'completed' })
       if ('error' in result) {
         toast.error(recurrence != null ? 'Could not log completion' : 'Could not mark complete')
@@ -225,6 +263,8 @@ export function useActivityActions({
     })
   }
 
+  const deleteCopy = deleteDialogCopy(recurrenceGroupId != null, seriesDeleteOnly === true, type)
+
   const dialogs = (
     <>
       <ActivityFormDialog
@@ -255,16 +295,19 @@ export function useActivityActions({
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this {type}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {recurrenceGroupId != null
-                ? 'Choose whether to remove just this occurrence or the entire series.'
-                : 'This cannot be undone.'}
-            </AlertDialogDescription>
+            <AlertDialogTitle>{deleteCopy.title}</AlertDialogTitle>
+            <AlertDialogDescription>{deleteCopy.description}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            {recurrenceGroupId != null ? (
+            {recurrenceGroupId != null && seriesDeleteOnly ? (
+              <AlertDialogAction
+                aria-label="Confirm delete entire series"
+                onClick={() => handleConfirmDeleteSeries(recurrenceGroupId)}
+              >
+                Entire series
+              </AlertDialogAction>
+            ) : recurrenceGroupId != null ? (
               <>
                 <AlertDialogAction
                   aria-label="Confirm delete this event only"

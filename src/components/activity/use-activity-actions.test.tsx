@@ -758,4 +758,81 @@ describe('useActivityActions', () => {
     expect(deleteSeriesMock).not.toHaveBeenCalled()
     expect(refreshMock).not.toHaveBeenCalled()
   })
+
+  // Task 2 (activities-series-grouping): collapsed series row props —
+  // completionTaskId (✓ target override) and seriesDeleteOnly (delete dialog
+  // offers only "Entire series"). Copy constants are the INTENDED wording
+  // from the brief, not derived from render output.
+  const SERIES_DELETE_TITLE = 'Delete this series?'
+  const SERIES_DELETE_DESCRIPTION =
+    'This removes every occurrence of the series. This cannot be undone.'
+
+  it('routes ✓ to recordCompletion with completionTaskId when provided', async () => {
+    const user = userEvent.setup()
+    render(
+      <ActivityActionsHarness
+        taskId="rep-1"
+        type="task"
+        title="Meditate"
+        status="pending"
+        recurrence="daily"
+        completionTaskId="today-1"
+        social={{ activityType: 'solo', visibility: 'only_me' }}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /log today/i }))
+    await waitFor(() => expect(recordCompletionMock).toHaveBeenCalledWith({ taskId: 'today-1' }))
+  })
+
+  it('falls back to taskId for ✓ when completionTaskId is absent', async () => {
+    const user = userEvent.setup()
+    render(
+      <ActivityActionsHarness
+        taskId="rep-1"
+        type="task"
+        title="Meditate"
+        status="pending"
+        recurrence="daily"
+        social={{ activityType: 'solo', visibility: 'only_me' }}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /log today/i }))
+    await waitFor(() => expect(recordCompletionMock).toHaveBeenCalledWith({ taskId: 'rep-1' }))
+  })
+
+  it('seriesDeleteOnly delete dialog offers only Entire series with series copy', async () => {
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...groupedSeriesProps} seriesDeleteOnly />)
+    await user.click(screen.getByRole('button', { name: /delete task/i }))
+    expect(screen.getByText(SERIES_DELETE_TITLE)).toBeInTheDocument()
+    expect(screen.getByText(SERIES_DELETE_DESCRIPTION)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm delete entire series' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Confirm delete this event only' })).toBeNull()
+  })
+
+  it('seriesDeleteOnly Entire series confirm delegates to onDeleteSeries with the group id', async () => {
+    const onDeleteSeries = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ActivityActionsHarness
+        {...groupedSeriesProps}
+        seriesDeleteOnly
+        onDeleteSeries={onDeleteSeries}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /delete task/i }))
+    await user.click(screen.getByRole('button', { name: 'Confirm delete entire series' }))
+    expect(onDeleteSeries).toHaveBeenCalledWith('group-1')
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
+
+  it('grouped delete without seriesDeleteOnly keeps both choices (regression)', async () => {
+    const user = userEvent.setup()
+    render(<ActivityActionsHarness {...groupedSeriesProps} />)
+    await user.click(screen.getByRole('button', { name: /delete task/i }))
+    expect(
+      screen.getByRole('button', { name: 'Confirm delete this event only' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm delete entire series' })).toBeInTheDocument()
+  })
 })
