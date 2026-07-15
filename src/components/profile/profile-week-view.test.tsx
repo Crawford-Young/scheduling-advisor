@@ -127,11 +127,14 @@ describe('ProfileWeekView', () => {
 
     const forbiddenKeys = [
       'onEventCreate',
-      'onEventUpdate',
+      'onEventEdit',
       'onEventDelete',
       'onEventMove',
       'onEventResize',
       'onEventToggleLock',
+      'onEventClick',
+      'onEventRestore',
+      'onEventToggleComplete',
     ]
     for (const key of forbiddenKeys) {
       expect(Object.keys(props())).not.toContain(key)
