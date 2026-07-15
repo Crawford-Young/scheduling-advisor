@@ -30,7 +30,6 @@ export function ChatPopup(): React.JSX.Element | null {
 
   const [isOpen, setIsOpen] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(false)
-  const hasLoadedRef = React.useRef(false)
   const [conversation, setConversation] = React.useState<PopupConversation | null>(null)
   const [messages, setMessages] = React.useState<readonly ConversationMessage[]>([])
   const [tokenBalance, setTokenBalance] = React.useState(0)
@@ -55,19 +54,16 @@ export function ChatPopup(): React.JSX.Element | null {
       }
     } finally {
       setIsLoading(false)
-      hasLoadedRef.current = true
     }
   }, [])
 
   const openPanel = React.useCallback(
     (detail?: OpenChatEventDetail) => {
+      if (!isOpen) void loadLatest()
       setIsOpen(true)
       setPrefill(detail?.prefill)
-      if (!hasLoadedRef.current) {
-        void loadLatest()
-      }
     },
-    [loadLatest],
+    [isOpen, loadLatest],
   )
 
   React.useEffect(() => {
