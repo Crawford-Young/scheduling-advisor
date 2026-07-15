@@ -9,10 +9,18 @@ import {
   getProfileActivities,
   getProfileWeekEvents,
 } from '@/server/queries/profile'
+import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
 import { ProfileHeader } from '@/components/profile/profile-header'
 import { ProfileStats } from '@/components/profile/profile-stats'
 import { ProfileWeekView } from '@/components/profile/profile-week-view'
 import { resolveWeekStart } from '@/lib/calendar-week-param'
+import {
+  DEFAULT_WAKE_MINUTES,
+  DEFAULT_SLEEP_MINUTES,
+  resolveDayWindows,
+} from '@/lib/calendar-windows'
+
+const MINUTES_PER_HOUR = 60
 
 interface ProfilePageProps {
   readonly params: Promise<{ username: string }>
@@ -33,12 +41,24 @@ export default async function ProfilePage({
   const { week } = await searchParams
   const weekStart = resolveWeekStart(week)
 
-  const [streaks, stats, activities, weekEvents] = await Promise.all([
+  const [streaks, stats, activities, weekEvents, prefs] = await Promise.all([
     getProfileStreaks(session.user.id, identity.id),
     getProfileStats(session.user.id, identity.id),
     getProfileActivities(session.user.id, identity.id),
     getProfileWeekEvents(session.user.id, identity.id, weekStart),
+    getCalendarPrefs(),
   ])
+
+  // Windowing is the VIEWER's own calendarPrefs (the SESSION user, read by
+  // getCalendarPrefs()) — never the profile owner's, which would leak the
+  // owner's private sleep schedule. Derivation mirrors calendar/page.tsx
+  // exactly (AGENTS.md "Calendar wake→sleep window semantics" trap).
+  const wakeHour = Math.floor((prefs?.workingHoursStart ?? DEFAULT_WAKE_MINUTES) / MINUTES_PER_HOUR)
+  const sleepHour = Math.ceil((prefs?.workingHoursEnd ?? DEFAULT_SLEEP_MINUTES) / MINUTES_PER_HOUR)
+  const dayWindows = resolveDayWindows(prefs).map((w) => ({
+    wake: w.wake / MINUTES_PER_HOUR,
+    sleep: w.sleep / MINUTES_PER_HOUR,
+  }))
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -107,7 +127,14 @@ export default async function ProfilePage({
           {/* Keyed by weekStart: forces a full remount on every ?week= nav
               instead of a prop update, which WeekCalendarView would otherwise
               ignore (resyncToken trap — see ProfileWeekView's doc comment). */}
-          <ProfileWeekView key={weekStart} events={weekEvents} weekStart={weekStart} />
+          <ProfileWeekView
+            key={weekStart}
+            events={weekEvents}
+            weekStart={weekStart}
+            wakeHour={wakeHour}
+            sleepHour={sleepHour}
+            dayWindows={dayWindows}
+          />
         </section>
       </div>
     </div>

@@ -8,6 +8,7 @@ const getProfileStreaksMock = vi.fn()
 const getProfileStatsMock = vi.fn()
 const getProfileActivitiesMock = vi.fn()
 const getProfileWeekEventsMock = vi.fn()
+const getCalendarPrefsMock = vi.fn()
 const notFoundMock = vi.fn(() => {
   throw new Error('NOT_FOUND')
 })
@@ -27,6 +28,10 @@ vi.mock('@/server/queries/profile', () => ({
   getProfileStats: (...args: unknown[]) => getProfileStatsMock(...args),
   getProfileActivities: (...args: unknown[]) => getProfileActivitiesMock(...args),
   getProfileWeekEvents: (...args: unknown[]) => getProfileWeekEventsMock(...args),
+}))
+
+vi.mock('@/server/queries/calendar-prefs', () => ({
+  getCalendarPrefs: () => getCalendarPrefsMock(),
 }))
 
 vi.mock('@/components/profile/profile-header', () => ({
@@ -53,14 +58,25 @@ vi.mock('@/components/profile/profile-week-view', () => ({
   ProfileWeekView: ({
     events,
     weekStart,
+    wakeHour,
+    sleepHour,
+    dayWindows,
   }: {
     events: readonly { id: string }[]
     weekStart: string
+    wakeHour: number
+    sleepHour: number
+    dayWindows: readonly { wake: number; sleep: number }[]
   }) => (
     <div
       data-testid="profile-week-view"
       data-week-start={weekStart}
       data-event-count={events.length}
+      data-wake-hour={wakeHour}
+      data-sleep-hour={sleepHour}
+      data-day-windows-count={dayWindows.length}
+      data-day-window-0-wake={dayWindows[0]?.wake}
+      data-day-window-0-sleep={dayWindows[0]?.sleep}
     />
   ),
 }))
@@ -111,6 +127,7 @@ describe('ProfilePage', () => {
       .mockResolvedValue({ completionsThisWeek: 0, completionsThisMonth: 0, completionsAllTime: 0 })
     getProfileActivitiesMock.mockReset().mockResolvedValue([])
     getProfileWeekEventsMock.mockReset().mockResolvedValue([])
+    getCalendarPrefsMock.mockReset().mockResolvedValue(null)
     notFoundMock.mockClear()
   })
 
@@ -225,6 +242,40 @@ describe('ProfilePage', () => {
     expect(getProfileWeekEventsMock).toHaveBeenCalledWith('viewer-1', 'owner-1', '2026-06-01')
     expect(screen.getByTestId('profile-week-view')).toHaveAttribute('data-week-start', '2026-06-01')
     expect(screen.getByTestId('profile-week-view')).toHaveAttribute('data-event-count', '2')
+  })
+
+  it('derives wakeHour/sleepHour/dayWindows from the VIEWER prefs (default 9/17 when no row)', async () => {
+    authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
+    getProfileByUsernameMock.mockResolvedValue(makeIdentity({ id: 'owner-1' }))
+    getCalendarPrefsMock.mockResolvedValue(null)
+
+    render(await ProfilePage(pageArgs('ada')))
+
+    const view = screen.getByTestId('profile-week-view')
+    expect(view).toHaveAttribute('data-wake-hour', '9')
+    expect(view).toHaveAttribute('data-sleep-hour', '17')
+    expect(view).toHaveAttribute('data-day-windows-count', '7')
+    expect(view).toHaveAttribute('data-day-window-0-wake', '9')
+    expect(view).toHaveAttribute('data-day-window-0-sleep', '17')
+  })
+
+  it('derives wakeHour/sleepHour/dayWindows from the viewer prefs when a row exists', async () => {
+    authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
+    getProfileByUsernameMock.mockResolvedValue(makeIdentity({ id: 'owner-1' }))
+    getCalendarPrefsMock.mockResolvedValue({
+      workingHoursStart: 480,
+      workingHoursEnd: 1350,
+      dayOverrides: {},
+      use24h: false,
+    })
+
+    render(await ProfilePage(pageArgs('ada')))
+
+    const view = screen.getByTestId('profile-week-view')
+    expect(view).toHaveAttribute('data-wake-hour', '8')
+    expect(view).toHaveAttribute('data-sleep-hour', '23')
+    expect(view).toHaveAttribute('data-day-window-0-wake', '8')
+    expect(view).toHaveAttribute('data-day-window-0-sleep', '22.5')
   })
 
   it('falls back to the current week and still renders the week section for a malformed ?week= value', async () => {

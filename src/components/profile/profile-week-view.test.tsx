@@ -1,4 +1,5 @@
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { ProfileWeekView } from './profile-week-view'
 import type { ProfileWeekEvent } from '@/server/queries/profile'
@@ -20,7 +21,26 @@ vi.mock('@/lib/ui', () => ({
     capturedProps = props
     return <div data-testid="week-calendar-view" />
   },
+  SleepToggle: ({
+    enabled,
+    onToggle,
+  }: {
+    enabled: boolean
+    onToggle: (enabled: boolean) => void
+    className?: string
+  }) => (
+    <button type="button" onClick={() => onToggle(!enabled)}>
+      sleep-toggle
+    </button>
+  ),
 }))
+
+const WAKE_HOUR = 9
+const SLEEP_HOUR = 17
+const DAY_WINDOWS: readonly { wake: number; sleep: number }[] = Array.from(
+  { length: 7 },
+  (_, day) => ({ wake: 8 + day, sleep: 16 + day }),
+)
 
 function makeEvent(overrides: Partial<ProfileWeekEvent> = {}): ProfileWeekEvent {
   return {
@@ -35,6 +55,26 @@ function makeEvent(overrides: Partial<ProfileWeekEvent> = {}): ProfileWeekEvent 
     masked: false,
     ...overrides,
   }
+}
+
+interface RenderOverrides {
+  readonly events?: readonly ProfileWeekEvent[]
+  readonly weekStart?: string
+  readonly wakeHour?: number
+  readonly sleepHour?: number
+  readonly dayWindows?: readonly { wake: number; sleep: number }[]
+}
+
+function renderView(overrides: RenderOverrides = {}) {
+  return render(
+    <ProfileWeekView
+      events={overrides.events ?? [makeEvent()]}
+      weekStart={overrides.weekStart ?? '2026-06-01'}
+      wakeHour={overrides.wakeHour ?? WAKE_HOUR}
+      sleepHour={overrides.sleepHour ?? SLEEP_HOUR}
+      dayWindows={overrides.dayWindows ?? DAY_WINDOWS}
+    />,
+  )
 }
 
 function props(): WeekCalendarViewProps {
@@ -61,7 +101,7 @@ describe('ProfileWeekView', () => {
         description: null,
       }),
     ]
-    render(<ProfileWeekView events={events} weekStart="2026-06-01" />)
+    renderView({ events })
 
     const mapped = props().events
     expect(mapped).toHaveLength(2)
@@ -80,7 +120,7 @@ describe('ProfileWeekView', () => {
         description: null,
       }),
     ]
-    render(<ProfileWeekView events={events} weekStart="2026-06-01" />)
+    renderView({ events })
 
     const [mapped] = props().events
     expect(mapped?.title).toBe('Busy')
@@ -100,7 +140,7 @@ describe('ProfileWeekView', () => {
         description: 'Loop the park',
       }),
     ]
-    render(<ProfileWeekView events={events} weekStart="2026-06-01" />)
+    renderView({ events })
 
     const [mapped] = props().events
     expect(mapped?.title).toBe('Morning Run')
@@ -111,7 +151,7 @@ describe('ProfileWeekView', () => {
 
   it('falls back an unmasked event with a null color to "default"', () => {
     const events = [makeEvent({ id: 'unmasked', masked: false, color: null })]
-    render(<ProfileWeekView events={events} weekStart="2026-06-01" />)
+    renderView({ events })
 
     expect(props().events[0]?.color).toBe('default')
   })
@@ -123,7 +163,7 @@ describe('ProfileWeekView', () => {
   // either). Wiring even one of these back in would reopen mutation on a
   // profile that must stay read-only.
   it('wires no mutation handlers on WeekCalendarView', () => {
-    render(<ProfileWeekView events={[makeEvent()]} weekStart="2026-06-01" />)
+    renderView()
 
     const forbiddenKeys = [
       'onEventCreate',
@@ -141,18 +181,49 @@ describe('ProfileWeekView', () => {
     }
   })
 
-  it('passes the read-only windowing props', () => {
-    render(<ProfileWeekView events={[makeEvent()]} weekStart="2026-06-01" />)
+  it('defaults to the windowed view using the viewer wake/sleep hours', () => {
+    renderView({ wakeHour: 9, sleepHour: 17 })
 
     expect(props().sleepEnabled).toBe(false)
-    expect(props().hourStart).toBe(0)
-    expect(props().hourCount).toBe(24)
+    expect(props().hourStart).toBe(9)
+    expect(props().hourCount).toBe(8)
     expect(props().defaultWeekStart).toBe('2026-06-01')
   })
 
-  it('calls router.replace with the new ?week= value and scroll:false, preserving an unrelated existing param', () => {
+  it('forwards sleepStart/sleepEnd and dayWindows unchanged in the windowed default', () => {
+    renderView({ wakeHour: 9, sleepHour: 17, dayWindows: DAY_WINDOWS })
+
+    expect(props().sleepStart).toBe(17)
+    expect(props().sleepEnd).toBe(9)
+    expect(props().dayWindows).toBe(DAY_WINDOWS)
+  })
+
+  it('clicking SleepToggle flips to full-day view (hourStart=0, hourCount=24, sleepEnabled=true)', async () => {
+    const user = userEvent.setup()
+    renderView({ wakeHour: 9, sleepHour: 17 })
+
+    await user.click(screen.getByRole('button', { name: 'sleep-toggle' }))
+
+    expect(props().sleepEnabled).toBe(true)
+    expect(props().hourStart).toBe(0)
+    expect(props().hourCount).toBe(24)
+  })
+
+  it('toggling back to windowed restores wakeHour/sleepHour-derived props', async () => {
+    const user = userEvent.setup()
+    renderView({ wakeHour: 9, sleepHour: 17 })
+
+    await user.click(screen.getByRole('button', { name: 'sleep-toggle' }))
+    await user.click(screen.getByRole('button', { name: 'sleep-toggle' }))
+
+    expect(props().sleepEnabled).toBe(false)
+    expect(props().hourStart).toBe(9)
+    expect(props().hourCount).toBe(8)
+  })
+
+  it('calls router.replace with the new ?week= value and scroll:false, preserving an unrelated existing param', async () => {
     currentParams = new URLSearchParams('foo=bar')
-    render(<ProfileWeekView events={[makeEvent()]} weekStart="2026-06-01" />)
+    renderView()
 
     props().onWeekChange?.('2026-06-08')
 

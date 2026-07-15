@@ -1,14 +1,15 @@
 'use client'
 import * as React from 'react'
+import { useState } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { WeekCalendarView, type CalendarEvent } from '@/lib/ui'
+import { WeekCalendarView, SleepToggle, type CalendarEvent } from '@/lib/ui'
 import type { ProfileWeekEvent } from '@/server/queries/profile'
 
-// Full 24h grid — a stranger viewer has no wake/sleep preference to honor
-// (those are the owner's private calendar settings), so there is no windowed
-// view for this read-only surface.
-const HOUR_START = 0
-const HOUR_COUNT = 24
+// Full 24h grid for the SleepToggle's "show full day" state — the windowed
+// state instead uses the VIEWER's own wakeHour/sleepHour (never the profile
+// owner's, which would leak the owner's private sleep schedule).
+const FULL_DAY_HOUR_START = 0
+const FULL_DAY_HOUR_COUNT = 24
 const DEFAULT_COLOR: CalendarEvent['color'] = 'default'
 
 /**
@@ -45,6 +46,12 @@ function toLibraryEvent(event: ProfileWeekEvent): CalendarEvent {
 interface ProfileWeekViewProps {
   readonly events: readonly ProfileWeekEvent[]
   readonly weekStart: string
+  /** Viewer's own wake hour (never the profile owner's) for the windowed view. */
+  readonly wakeHour: number
+  /** Viewer's own sleep hour (never the profile owner's) for the windowed view. */
+  readonly sleepHour: number
+  /** Viewer's own per-day awake windows, fractional hours, Sun-first. */
+  readonly dayWindows: readonly { wake: number; sleep: number }[]
 }
 
 /**
@@ -64,11 +71,33 @@ interface ProfileWeekViewProps {
  * `CalendarClient`, which avoids remounts specifically to preserve in-flight
  * optimistic mutations) because this view is fully read-only: there is no
  * client state worth preserving across a week navigation.
+ *
+ * Wake/sleep windowing (AGENTS.md "Calendar wake→sleep window semantics"
+ * trap): mirrors `CalendarClient`'s derivation exactly. `wakeHour`/`sleepHour`/
+ * `dayWindows` are the VIEWER's own calendar prefs — never the profile
+ * owner's, which would leak the owner's private sleep schedule. Default is
+ * windowed (`sleepEnabled=false`, `hourStart`/`hourCount` from wake/sleep);
+ * `SleepToggle` flips `showFullDay`, which forces `sleepEnabled=true` — the
+ * library then IGNORES `hourStart`/`hourCount` and renders the full 24h grid
+ * with shaded sleep zones, so the two states stay consistent by construction.
  */
-export function ProfileWeekView({ events, weekStart }: ProfileWeekViewProps): React.JSX.Element {
+export function ProfileWeekView({
+  events,
+  weekStart,
+  wakeHour,
+  sleepHour,
+  dayWindows,
+}: ProfileWeekViewProps): React.JSX.Element {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const [showFullDay, setShowFullDay] = useState(false)
+
+  const hourStart = showFullDay ? FULL_DAY_HOUR_START : wakeHour
+  const hourCount = showFullDay ? FULL_DAY_HOUR_COUNT : sleepHour - wakeHour
+  const sleepEnabled = showFullDay
+  const sleepStart = sleepHour
+  const sleepEnd = wakeHour
 
   function handleWeekChange(newWeekStart: string): void {
     const params = new URLSearchParams(searchParams.toString())
@@ -77,13 +106,21 @@ export function ProfileWeekView({ events, weekStart }: ProfileWeekViewProps): Re
   }
 
   return (
-    <WeekCalendarView
-      events={events.map(toLibraryEvent)}
-      defaultWeekStart={weekStart}
-      sleepEnabled={false}
-      hourStart={HOUR_START}
-      hourCount={HOUR_COUNT}
-      onWeekChange={handleWeekChange}
-    />
+    <>
+      <div className="mb-2 flex items-center justify-end gap-4">
+        <SleepToggle enabled={!showFullDay} onToggle={(windowed) => setShowFullDay(!windowed)} />
+      </div>
+      <WeekCalendarView
+        events={events.map(toLibraryEvent)}
+        defaultWeekStart={weekStart}
+        sleepEnabled={sleepEnabled}
+        hourStart={hourStart}
+        hourCount={hourCount}
+        sleepStart={sleepStart}
+        sleepEnd={sleepEnd}
+        dayWindows={dayWindows}
+        onWeekChange={handleWeekChange}
+      />
+    </>
   )
 }
