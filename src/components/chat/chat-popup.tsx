@@ -111,6 +111,8 @@ export function ChatPopup(): React.JSX.Element | null {
   return (
     <div
       data-testid="chat-popup-panel"
+      role="dialog"
+      aria-label="Cy assistant"
       className="border-border bg-background fixed right-6 bottom-6 z-50 flex h-[560px] w-[380px] flex-col overflow-hidden rounded-lg border shadow-xl"
     >
       <div className="border-border flex items-center gap-2 border-b p-3">

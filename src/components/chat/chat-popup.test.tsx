@@ -129,6 +129,20 @@ describe('ChatPopup', () => {
     })
   })
 
+  describe('dialog landmark', () => {
+    it('is absent when the panel is closed', () => {
+      render(<ChatPopup />)
+      expect(screen.queryByRole('dialog', { name: 'Cy assistant' })).not.toBeInTheDocument()
+    })
+
+    it('exposes the open panel as a dialog landmark', async () => {
+      render(<ChatPopup />)
+      openFab()
+      const dialog = await screen.findByRole('dialog', { name: 'Cy assistant' })
+      expect(dialog).toHaveAttribute('data-testid', 'chat-popup-panel')
+    })
+  })
+
   describe('open panel layout', () => {
     it('renders a fixed, sized panel with header controls and a truncated title', async () => {
       render(<ChatPopup />)
