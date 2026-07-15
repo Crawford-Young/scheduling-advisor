@@ -16,6 +16,7 @@ import {
 } from '@/lib/ui'
 import { setUsername, updateProfile } from '@/server/actions/profile'
 import { PROFILE_NAME_MAX, PROFILE_BIO_MAX } from '@/lib/schemas/profile'
+import { sanitizeUsernameInput, USERNAME_MAX } from '@/lib/schemas/username'
 
 type SaveStatus = 'idle' | 'saved' | 'error'
 
@@ -118,8 +119,9 @@ export function ProfileSection({
             <Input
               id="username"
               value={username}
+              maxLength={USERNAME_MAX}
               onChange={(e) => {
-                setUsernameValue(e.target.value)
+                setUsernameValue(sanitizeUsernameInput(e.target.value))
                 setUsernameStatus('idle')
               }}
               placeholder="your_username"
