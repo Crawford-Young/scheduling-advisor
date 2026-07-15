@@ -15,14 +15,16 @@ const DEFAULT_COLOR: CalendarEvent['color'] = 'default'
 /**
  * Maps a query-shaped `ProfileWeekEvent` to the library's `CalendarEvent`.
  *
- * Read-only trap (AGENTS.md — WeekCalendarView/resyncToken; library
- * `calendar-event-chip.tsx:480` gates resize handles on `!isLocked`;
- * `week-calendar-view.tsx:879-890` gates drag-create; `:997` gates move):
- * every mapped event is `locked: true`, and `ProfileWeekView` below wires NO
- * mutation handlers on `WeekCalendarView`. The lock icon itself only renders
- * when `onToggleLock` is wired (chip.tsx:409,802) — so this combination (lock
- * + zero handlers) yields a fully inert, icon-less chip, not a visibly locked
- * one.
+ * Read-only trap (AGENTS.md — "Read-only profile calendar"): every mapped
+ * event is `locked: true`, and `ProfileWeekView` below wires NO view-level
+ * mutation handlers on `WeekCalendarView` — so no server action is ever
+ * reachable from this surface; that is the real mutation boundary (alongside
+ * the server-side scrubbing in `getProfileWeekEvents`). The chips are NOT
+ * visually inert, though: the library wires its own internal optimistic chip
+ * handlers unconditionally (`week-calendar-view.tsx:567-605,976-986`), so
+ * lock/edit/delete icons render and a visitor can mutate LOCAL chip state
+ * (never persisted, wiped on remount). Known issue, deferred to a library
+ * `readOnly` prop — see docs/scheduling-advisor/issues/2026-07-14.
  *
  * Masked rows (`event.masked === true`) already arrive scrubbed from
  * `getProfileWeekEvents` (title `'Busy'`, `color`/`location`/`description`
