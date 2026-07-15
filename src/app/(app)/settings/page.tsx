@@ -4,6 +4,7 @@ import { db } from '@/db'
 import { users } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { SettingsForm } from './settings-form'
+import { ProfileSection } from './profile-section'
 import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
 import {
   DEFAULT_WAKE_MINUTES,
@@ -18,9 +19,13 @@ export default async function SettingsPage() {
   const prefs = await getCalendarPrefs()
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      <SettingsForm
+    <div className="mx-auto max-w-5xl space-y-10">
+      <ProfileSection
+        initialName={user?.name ?? ''}
+        initialBio={user?.bio ?? ''}
         initialUsername={user?.username ?? ''}
+      />
+      <SettingsForm
         initialWakeMinutes={prefs?.workingHoursStart ?? DEFAULT_WAKE_MINUTES}
         // TimeInput has no 24:00 representation; migrated hour-24 (1440) rows clamp to 23:59.
         initialSleepMinutes={Math.min(
