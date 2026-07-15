@@ -1,6 +1,6 @@
 import { db } from '@/db'
 import { tasks, users } from '@/db/schema'
-import { and, eq, ilike, isNotNull, or } from 'drizzle-orm'
+import { and, eq, gte, ilike, isNotNull, lte, ne, or } from 'drizzle-orm'
 import { computeGroupStreak } from '@/lib/streaks'
 import { zonedWallClock } from '@/lib/series-generation'
 
@@ -244,4 +244,123 @@ export async function getProfileStats(viewerId: string, ownerId: string): Promis
     completionsThisMonth,
     completionsAllTime: visibleRows.length,
   }
+}
+
+export interface ProfileWeekEvent {
+  readonly id: string
+  readonly title: string
+  readonly start: string
+  readonly end: string
+  readonly color: string | null
+  readonly allDay: boolean
+  readonly location: string | null
+  readonly description: string | null
+  readonly masked: boolean
+}
+
+// Generous fetch-range padding (days) around the requested week start —
+// absorbs viewer-timezone rendering shifts. The calendar library only ever
+// displays its own week, so the extra rows fetched here are harmless.
+const WEEK_FETCH_PAD_BEFORE_DAYS = 1
+const WEEK_FETCH_SPAN_AFTER_DAYS = 8
+const MASKED_EVENT_TITLE = 'Busy'
+
+interface WeekEventRow {
+  readonly id: string
+  readonly title: string
+  readonly startAt: Date | null
+  readonly endAt: Date | null
+  readonly color: string | null
+  readonly allDay: boolean
+  readonly location: string | null
+  readonly description: string | null
+  readonly visibility: string
+}
+
+/**
+ * Maps a fetched row to its public shape, applying the busy-masking rule for
+ * a stranger viewer. A masked event carries ZERO owner detail — this is the
+ * privacy boundary the leak test asserts against.
+ */
+function toProfileWeekEvent(row: WeekEventRow, isStranger: boolean): ProfileWeekEvent {
+  // startAt/endAt are guaranteed non-null by the isNotNull filters in the
+  // query below, even though the columns are nullable in the schema — same
+  // reasoning as getProfileByUsername's username cast above.
+  const start = (row.startAt as Date).toISOString()
+  const end = (row.endAt as Date).toISOString()
+
+  if (isStranger && row.visibility !== 'everyone') {
+    return {
+      id: row.id,
+      title: MASKED_EVENT_TITLE,
+      start,
+      end,
+      color: null,
+      allDay: false,
+      location: null,
+      description: null,
+      masked: true,
+    }
+  }
+
+  return {
+    id: row.id,
+    title: row.title,
+    start,
+    end,
+    color: row.color,
+    allDay: row.allDay,
+    location: row.location,
+    description: row.description,
+    masked: false,
+  }
+}
+
+/**
+ * Visibility-masked week events for a profile's read-only calendar.
+ * `only_me` rows are excluded in SQL for a stranger viewer — they never leave
+ * the DB. `busy`/`friends` rows are masked to time-occupancy only. The owner
+ * sees every row full-detail, unmasked. No `extendSeries` sweep runs here —
+ * foreign profile reads never write rows.
+ */
+export async function getProfileWeekEvents(
+  viewerId: string,
+  ownerId: string,
+  weekStart: string,
+): Promise<readonly ProfileWeekEvent[]> {
+  // Local parse — mirrors the calendar page's own weekStart validation
+  // construction.
+  const weekStartDate = new Date(`${weekStart}T00:00:00`)
+  const rangeStart = new Date(weekStartDate.getTime() - WEEK_FETCH_PAD_BEFORE_DAYS * MS_PER_DAY)
+  const rangeEnd = new Date(weekStartDate.getTime() + WEEK_FETCH_SPAN_AFTER_DAYS * MS_PER_DAY)
+
+  const isStranger = viewerId !== ownerId
+
+  const conditions = [
+    eq(tasks.userId, ownerId),
+    isNotNull(tasks.startAt),
+    isNotNull(tasks.endAt),
+    gte(tasks.startAt, rangeStart),
+    lte(tasks.startAt, rangeEnd),
+  ]
+  if (isStranger) {
+    conditions.push(ne(tasks.visibility, 'only_me'))
+  }
+
+  const rows: readonly WeekEventRow[] = await db
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      startAt: tasks.startAt,
+      endAt: tasks.endAt,
+      color: tasks.color,
+      allDay: tasks.allDay,
+      location: tasks.location,
+      description: tasks.description,
+      visibility: tasks.visibility,
+    })
+    .from(tasks)
+    .where(and(...conditions))
+
+  return rows.map((row) => toProfileWeekEvent(row, isStranger))
 }
