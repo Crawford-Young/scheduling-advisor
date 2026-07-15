@@ -246,6 +246,126 @@ export async function getProfileStats(viewerId: string, ownerId: string): Promis
   }
 }
 
+export interface ProfileActivity {
+  readonly id: string
+  readonly title: string
+  readonly type: string
+  readonly recurrence: string | null
+  readonly streak: number
+  readonly lastStartAt: Date | null
+}
+
+interface ActivityQueryRow {
+  readonly id: string
+  readonly title: string
+  readonly type: string
+  readonly recurrence: string | null
+  readonly recurrenceGroupId: string | null
+  readonly startAt: Date | null
+  readonly status: string
+  readonly visibility: string
+}
+
+const UNGROUPED_ACTIVITY_STREAK = 0
+
+/** Row with the latest `startAt` in a set (null sorts earliest). */
+function latestByStartAt<T extends { readonly startAt: Date | null }>(rows: readonly T[]): T {
+  return rows.reduce((latest, row) => {
+    const rowTime = row.startAt?.getTime() ?? Number.NEGATIVE_INFINITY
+    const latestTime = latest.startAt?.getTime() ?? Number.NEGATIVE_INFINITY
+    return rowTime > latestTime ? row : latest
+  })
+}
+
+function toGroupActivity(groupRows: readonly ActivityQueryRow[], now: Date): ProfileActivity {
+  const latestRow = latestByStartAt(groupRows)
+  const { current } = computeGroupStreak(
+    groupRows.map((r) => ({ startAt: r.startAt, status: r.status })),
+    now,
+  )
+  return {
+    id: latestRow.id,
+    title: latestRow.title,
+    type: latestRow.type,
+    recurrence: latestRow.recurrence,
+    streak: current,
+    lastStartAt: latestRow.startAt,
+  }
+}
+
+function toUngroupedActivity(row: ActivityQueryRow): ProfileActivity {
+  return {
+    id: row.id,
+    title: row.title,
+    type: row.type,
+    recurrence: row.recurrence,
+    streak: UNGROUPED_ACTIVITY_STREAK,
+    lastStartAt: row.startAt,
+  }
+}
+
+/**
+ * Visibility-filtered, recurrence-collapsed activity list for a profile. Uses
+ * the same conservative group-visibility rule as `getProfileStreaks`: a
+ * stranger viewer only ever sees a recurrence group whose EVERY row is
+ * `visibility: 'everyone'`, and an ungrouped row only when that row itself is
+ * `everyone`. The owner sees everything. Ordered by `lastStartAt` desc, with
+ * a null `lastStartAt` sorted last.
+ */
+export async function getProfileActivities(
+  viewerId: string,
+  ownerId: string,
+): Promise<readonly ProfileActivity[]> {
+  const rows: readonly ActivityQueryRow[] = await db
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      type: tasks.type,
+      recurrence: tasks.recurrence,
+      recurrenceGroupId: tasks.recurrenceGroupId,
+      startAt: tasks.startAt,
+      status: tasks.status,
+      visibility: tasks.visibility,
+    })
+    .from(tasks)
+    .where(eq(tasks.userId, ownerId))
+
+  const isStranger = viewerId !== ownerId
+  const now = new Date()
+
+  const groups = new Map<string, ActivityQueryRow[]>()
+  const ungrouped: ActivityQueryRow[] = []
+  for (const row of rows) {
+    if (row.recurrenceGroupId === null) {
+      ungrouped.push(row)
+    } else {
+      const list = groups.get(row.recurrenceGroupId) ?? []
+      list.push(row)
+      groups.set(row.recurrenceGroupId, list)
+    }
+  }
+
+  const activities: ProfileActivity[] = []
+
+  for (const groupRows of groups.values()) {
+    if (isStranger && !groupRows.every((r) => r.visibility === 'everyone')) continue
+    activities.push(toGroupActivity(groupRows, now))
+  }
+
+  for (const row of ungrouped) {
+    if (isStranger && row.visibility !== 'everyone') continue
+    activities.push(toUngroupedActivity(row))
+  }
+
+  activities.sort((a, b) => {
+    const aTime = a.lastStartAt?.getTime() ?? Number.NEGATIVE_INFINITY
+    const bTime = b.lastStartAt?.getTime() ?? Number.NEGATIVE_INFINITY
+    return bTime - aTime
+  })
+
+  return activities
+}
+
 export interface ProfileWeekEvent {
   readonly id: string
   readonly title: string
