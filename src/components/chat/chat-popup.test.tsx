@@ -213,14 +213,57 @@ describe('ChatPopup', () => {
         expect(screen.getByTestId('cs-conversation-id')).toHaveTextContent('lazy-1')
       })
     })
+  })
 
-    it('only fetches the latest conversation on the first open, not on subsequent opens', async () => {
+  describe('reopen', () => {
+    it('reloads latest conversation on reopen', async () => {
+      getLatestConversationMock.mockResolvedValueOnce({ id: 'conv-1', title: 'Trip planning' })
+      getConversationMessagesActionMock.mockResolvedValueOnce([
+        { id: 'm1', role: 'user', content: 'hi' },
+      ])
+      getTokenBalanceActionMock.mockResolvedValueOnce(42)
+
       render(<ChatPopup />)
       openFab()
       await screen.findByTestId('chat-surface')
+      expect(screen.getByTestId('cs-conversation-id')).toHaveTextContent('conv-1')
+      expect(screen.getByTestId('cs-message-count')).toHaveTextContent('1')
+
       fireEvent.click(screen.getByRole('button', { name: 'Close chat' }))
+
+      getLatestConversationMock.mockResolvedValueOnce({ id: 'conv-2', title: 'Updated title' })
+      getConversationMessagesActionMock.mockResolvedValueOnce([
+        { id: 'm1', role: 'user', content: 'hi' },
+        { id: 'm2', role: 'assistant', content: 'hello' },
+        { id: 'm3', role: 'user', content: 'more' },
+      ])
+      getTokenBalanceActionMock.mockResolvedValueOnce(30)
+
+      openFab()
+      await waitFor(() => {
+        expect(screen.getByTestId('cs-conversation-id')).toHaveTextContent('conv-2')
+      })
+      expect(screen.getByTestId('cs-message-count')).toHaveTextContent('3')
+      expect(screen.getByTestId('chat-popup-title')).toHaveTextContent('Updated title')
+      expect(getLatestConversationMock).toHaveBeenCalledTimes(2)
+      expect(getConversationMessagesActionMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not reload when open-chat fires while the panel is already open', async () => {
+      getLatestConversationMock.mockResolvedValue({ id: 'conv-1', title: 'Trip planning' })
+
+      render(<ChatPopup />)
       openFab()
       await screen.findByTestId('chat-surface')
+      expect(getLatestConversationMock).toHaveBeenCalledTimes(1)
+
+      act(() => {
+        window.dispatchEvent(new CustomEvent('open-chat', { detail: { prefill: 'while open' } }))
+      })
+
+      await waitFor(() => {
+        expect(screen.getByTestId('cs-prefill')).toHaveTextContent('while open')
+      })
       expect(getLatestConversationMock).toHaveBeenCalledTimes(1)
     })
   })
