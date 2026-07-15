@@ -242,6 +242,21 @@ describe('ProfileSection', () => {
       ).toBeInTheDocument()
     })
 
+    it('sanitizes typed input — lowercases and strips invalid characters', async () => {
+      const user = userEvent.setup()
+      render(
+        <ProfileSection
+          initialName="Crawford Young"
+          initialBio="Hello"
+          initialUsername="old_name"
+        />,
+      )
+      const usernameInput = screen.getByDisplayValue('old_name')
+      await user.clear(usernameInput)
+      await user.type(usernameInput, 'Ada Lovelace!')
+      expect(screen.getByDisplayValue('adalovelace')).toBeInTheDocument()
+    })
+
     it('renders the "Friends find you by username" help copy', () => {
       render(
         <ProfileSection
