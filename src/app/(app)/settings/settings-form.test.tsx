@@ -2,12 +2,7 @@ import { render, screen, act, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { SettingsForm } from './settings-form'
-import * as profileActions from '@/server/actions/profile'
 import * as calendarActions from '@/server/actions/calendar-prefs'
-
-vi.mock('@/server/actions/profile', () => ({
-  setUsername: vi.fn(),
-}))
 
 vi.mock('@/server/actions/calendar-prefs', () => ({
   setCalendarWindow: vi.fn(),
@@ -29,85 +24,18 @@ function timeInputRoot(hourInput: HTMLElement): HTMLElement {
 
 describe('SettingsForm', () => {
   beforeEach(() => {
-    vi.mocked(profileActions.setUsername).mockReset()
     vi.mocked(calendarActions.setCalendarWindow).mockReset()
-  })
-
-  describe('Account section', () => {
-    it('renders the initial username value', () => {
-      render(<SettingsForm initialUsername="crawford_young" {...CALENDAR_DEFAULTS} />)
-      expect(screen.getByDisplayValue('crawford_young')).toBeInTheDocument()
-    })
-
-    it('renders empty input when initialUsername is empty', () => {
-      render(<SettingsForm initialUsername="" {...CALENDAR_DEFAULTS} />)
-      const input = screen.getByPlaceholderText('your_username')
-      expect(input).toHaveValue('')
-    })
-
-    it('save button is disabled when value equals initialUsername', () => {
-      render(<SettingsForm initialUsername="same_name" {...CALENDAR_DEFAULTS} />)
-      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
-    })
-
-    it('save button becomes enabled after typing a new value', async () => {
-      const user = userEvent.setup()
-      render(<SettingsForm initialUsername="old_name" {...CALENDAR_DEFAULTS} />)
-      const input = screen.getByDisplayValue('old_name')
-      await user.clear(input)
-      await user.type(input, 'new_name')
-      expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
-    })
-
-    it('calls setUsername with the current input value when save is clicked', async () => {
-      const user = userEvent.setup()
-      vi.mocked(profileActions.setUsername).mockResolvedValueOnce(undefined)
-      render(<SettingsForm initialUsername="old_name" {...CALENDAR_DEFAULTS} />)
-      const input = screen.getByDisplayValue('old_name')
-      await user.clear(input)
-      await user.type(input, 'new_name')
-      await user.click(screen.getByRole('button', { name: 'Save' }))
-      expect(profileActions.setUsername).toHaveBeenCalledWith('new_name')
-    })
-
-    it('shows success message after successful save', async () => {
-      const user = userEvent.setup()
-      vi.mocked(profileActions.setUsername).mockResolvedValueOnce(undefined)
-      render(<SettingsForm initialUsername="old_name" {...CALENDAR_DEFAULTS} />)
-      const input = screen.getByDisplayValue('old_name')
-      await user.clear(input)
-      await user.type(input, 'new_name')
-      await act(async () => {
-        await user.click(screen.getByRole('button', { name: 'Save' }))
-      })
-      expect(await screen.findByText('Username saved.')).toBeInTheDocument()
-    })
-
-    it('shows error message when setUsername rejects', async () => {
-      const user = userEvent.setup()
-      vi.mocked(profileActions.setUsername).mockRejectedValueOnce(new Error('taken'))
-      render(<SettingsForm initialUsername="old_name" {...CALENDAR_DEFAULTS} />)
-      const input = screen.getByDisplayValue('old_name')
-      await user.clear(input)
-      await user.type(input, 'bad_name')
-      await act(async () => {
-        await user.click(screen.getByRole('button', { name: 'Save' }))
-      })
-      expect(
-        await screen.findByText('Invalid or taken username — try another.'),
-      ).toBeInTheDocument()
-    })
   })
 
   describe('Calendar section', () => {
     it('renders Wake as hour:minute seeded from 540 (09:00) in 12-hour mode', () => {
-      render(<SettingsForm initialUsername="user" {...CALENDAR_DEFAULTS} />)
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
       expect(screen.getByLabelText('Wake hour')).toHaveValue('9')
       expect(screen.getByLabelText('Wake minute')).toHaveValue('00')
     })
 
     it('renders Sleep as hour:minute seeded from 1020 (17:00) with PM pressed in 12-hour mode', () => {
-      render(<SettingsForm initialUsername="user" {...CALENDAR_DEFAULTS} />)
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
       const sleepHour = screen.getByLabelText('Sleep hour')
       expect(sleepHour).toHaveValue('5')
       expect(screen.getByLabelText('Sleep minute')).toHaveValue('00')
@@ -119,7 +47,7 @@ describe('SettingsForm', () => {
     })
 
     it('uses the label "Wake" (not "Wake up")', () => {
-      render(<SettingsForm initialUsername="user" {...CALENDAR_DEFAULTS} />)
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
       expect(screen.getByText('Wake')).toBeInTheDocument()
       expect(screen.queryByText('Wake up')).not.toBeInTheDocument()
     })
@@ -127,7 +55,6 @@ describe('SettingsForm', () => {
     it('renders a sleep seed of 1439 minutes as 23:59 (the display cap boundary)', () => {
       render(
         <SettingsForm
-          initialUsername="user"
           initialWakeMinutes={540}
           initialSleepMinutes={1439}
           initialUse24h={true}
@@ -144,7 +71,6 @@ describe('SettingsForm', () => {
       // 24:00/00:00 would be wrong, so the seed clamps to 23:59 (1439) like the global value.
       render(
         <SettingsForm
-          initialUsername="user"
           initialWakeMinutes={540}
           initialSleepMinutes={1020}
           initialUse24h={true}
@@ -158,7 +84,7 @@ describe('SettingsForm', () => {
 
     it('toggling the 24-hour switch flips the wake/sleep display to military time', async () => {
       const user = userEvent.setup()
-      render(<SettingsForm initialUsername="user" {...CALENDAR_DEFAULTS} />)
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
       expect(screen.getByLabelText('Wake hour')).toHaveValue('9')
       expect(screen.getByLabelText('Sleep hour')).toHaveValue('5')
       await user.click(screen.getByLabelText('24-hour time'))
@@ -169,7 +95,7 @@ describe('SettingsForm', () => {
     it('editing wake to 06:30 and saving sends workingHoursStart 390', async () => {
       const user = userEvent.setup()
       vi.mocked(calendarActions.setCalendarWindow).mockResolvedValueOnce({ data: null } as never)
-      render(<SettingsForm initialUsername="user" {...CALENDAR_DEFAULTS} />)
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
       const wakeHour = screen.getByLabelText('Wake hour')
       await user.clear(wakeHour)
       await user.type(wakeHour, '6{Enter}')
@@ -193,7 +119,7 @@ describe('SettingsForm', () => {
       vi.mocked(calendarActions.setCalendarWindow).mockResolvedValueOnce({
         error: 'boom',
       } as never)
-      render(<SettingsForm initialUsername="user" {...CALENDAR_DEFAULTS} />)
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
       await user.click(screen.getByLabelText('24-hour time'))
       await act(async () => {
         await user.click(screen.getByRole('button', { name: 'Save calendar settings' }))
@@ -204,14 +130,14 @@ describe('SettingsForm', () => {
     })
 
     it('renders the 24-hour time switch unchecked from initialUse24h=false', () => {
-      render(<SettingsForm initialUsername="user" {...CALENDAR_DEFAULTS} />)
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
       expect(screen.getByLabelText('24-hour time')).not.toBeChecked()
     })
 
     it('toggling the 24-hour switch and saving calls setCalendarWindow with use24h true', async () => {
       const user = userEvent.setup()
       vi.mocked(calendarActions.setCalendarWindow).mockResolvedValueOnce({ data: null } as never)
-      render(<SettingsForm initialUsername="user" {...CALENDAR_DEFAULTS} />)
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
       await user.click(screen.getByLabelText('24-hour time'))
       await act(async () => {
         await user.click(screen.getByRole('button', { name: 'Save calendar settings' }))
@@ -227,7 +153,7 @@ describe('SettingsForm', () => {
 
     it('save button is disabled when pristine and enabled after toggling use24h', async () => {
       const user = userEvent.setup()
-      render(<SettingsForm initialUsername="user" {...CALENDAR_DEFAULTS} />)
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
       expect(screen.getByRole('button', { name: 'Save calendar settings' })).toBeDisabled()
       await user.click(screen.getByLabelText('24-hour time'))
       expect(screen.getByRole('button', { name: 'Save calendar settings' })).toBeEnabled()
@@ -235,7 +161,7 @@ describe('SettingsForm', () => {
 
     it('enabling Override Mon reveals wake/sleep TimeInputs seeded from global values', async () => {
       const user = userEvent.setup()
-      render(<SettingsForm initialUsername="user" {...CALENDAR_DEFAULTS} />)
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
       await user.click(screen.getByLabelText('Override Mon'))
       expect(screen.getByLabelText('Mon wake hour')).toHaveValue('9')
       expect(screen.getByLabelText('Mon sleep hour')).toHaveValue('5')
@@ -244,7 +170,7 @@ describe('SettingsForm', () => {
     it('saves dayOverrides with only the enabled day, using its edited values', async () => {
       const user = userEvent.setup()
       vi.mocked(calendarActions.setCalendarWindow).mockResolvedValueOnce({ data: null } as never)
-      render(<SettingsForm initialUsername="user" {...CALENDAR_DEFAULTS} />)
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
       await user.click(screen.getByLabelText('Override Mon'))
       const monWake = screen.getByLabelText('Mon wake hour')
       await user.clear(monWake)
@@ -266,7 +192,6 @@ describe('SettingsForm', () => {
       vi.mocked(calendarActions.setCalendarWindow).mockResolvedValueOnce({ data: null } as never)
       render(
         <SettingsForm
-          initialUsername="user"
           initialWakeMinutes={540}
           initialSleepMinutes={1020}
           initialUse24h={false}
@@ -293,7 +218,7 @@ describe('SettingsForm', () => {
 
   describe('Event auto-delete (TTL) section', () => {
     it('is disabled when initialTtlDays is null and hides the days input', () => {
-      render(<SettingsForm initialUsername="user" {...CALENDAR_DEFAULTS} />)
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
       expect(screen.getByLabelText('Auto-delete events')).not.toBeChecked()
       expect(screen.queryByLabelText('Delete after (days)')).not.toBeInTheDocument()
     })
@@ -301,7 +226,6 @@ describe('SettingsForm', () => {
     it('is enabled and seeds the days input when initialTtlDays is set', () => {
       render(
         <SettingsForm
-          initialUsername="user"
           initialWakeMinutes={540}
           initialSleepMinutes={1020}
           initialUse24h={false}
@@ -316,7 +240,7 @@ describe('SettingsForm', () => {
     it('enabling auto-delete and saving sends the default ttlDays', async () => {
       const user = userEvent.setup()
       vi.mocked(calendarActions.setCalendarWindow).mockResolvedValueOnce({ data: null } as never)
-      render(<SettingsForm initialUsername="user" {...CALENDAR_DEFAULTS} />)
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
       await user.click(screen.getByLabelText('Auto-delete events'))
       expect(screen.getByLabelText('Delete after (days)')).toHaveValue(30)
       await act(async () => {
@@ -334,7 +258,7 @@ describe('SettingsForm', () => {
     it('editing the days input and saving sends that ttlDays', async () => {
       const user = userEvent.setup()
       vi.mocked(calendarActions.setCalendarWindow).mockResolvedValueOnce({ data: null } as never)
-      render(<SettingsForm initialUsername="user" {...CALENDAR_DEFAULTS} />)
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
       await user.click(screen.getByLabelText('Auto-delete events'))
       const daysInput = screen.getByLabelText('Delete after (days)')
       const daysGroup = daysInput.closest('div') as HTMLElement
@@ -356,7 +280,6 @@ describe('SettingsForm', () => {
       vi.mocked(calendarActions.setCalendarWindow).mockResolvedValueOnce({ data: null } as never)
       render(
         <SettingsForm
-          initialUsername="user"
           initialWakeMinutes={540}
           initialSleepMinutes={1020}
           initialUse24h={false}

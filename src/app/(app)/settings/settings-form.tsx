@@ -9,13 +9,11 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  Input,
   Label,
   NumberInput,
   Switch,
   TimeInput,
 } from '@/lib/ui'
-import { setUsername } from '@/server/actions/profile'
 import { setCalendarWindow } from '@/server/actions/calendar-prefs'
 import type { CalendarDayOverrides } from '@/lib/schemas/calendar-prefs'
 import { MAX_DISPLAY_MINUTES } from '@/lib/calendar-windows'
@@ -60,7 +58,6 @@ function buildInitialDayOverrideState(dayOverrides: CalendarDayOverrides): DayOv
 }
 
 interface SettingsFormProps {
-  readonly initialUsername: string
   readonly initialWakeMinutes: number
   readonly initialSleepMinutes: number
   readonly initialUse24h: boolean
@@ -69,17 +66,12 @@ interface SettingsFormProps {
 }
 
 export function SettingsForm({
-  initialUsername,
   initialWakeMinutes,
   initialSleepMinutes,
   initialUse24h,
   initialDayOverrides,
   initialTtlDays,
 }: SettingsFormProps): React.JSX.Element {
-  const [username, setUsernameValue] = useState(initialUsername)
-  const [status, setStatus] = useState<'idle' | 'saved' | 'error'>('idle')
-  const [isPending, startTransition] = useTransition()
-
   const [wakeMinutes, setWakeMinutes] = useState(initialWakeMinutes)
   const [sleepMinutes, setSleepMinutes] = useState(initialSleepMinutes)
   const [use24h, setUse24h] = useState(initialUse24h)
@@ -110,17 +102,6 @@ export function SettingsForm({
     setCalStatus('idle')
   }
 
-  function handleSave(): void {
-    startTransition(async () => {
-      try {
-        await setUsername(username)
-        setStatus('saved')
-      } catch {
-        setStatus('error')
-      }
-    })
-  }
-
   function handleCalSave(): void {
     startCalTransition(async () => {
       const activeDayOverrides: CalendarDayOverrides = {}
@@ -148,216 +129,179 @@ export function SettingsForm({
   }
 
   return (
-    <div className="space-y-10">
-      <Card>
-        <CardHeader>
-          <CardTitle>Account</CardTitle>
-          <CardDescription>Your public identity on Cybond.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+    <Card>
+      <CardHeader>
+        <CardTitle>Calendar</CardTitle>
+        <CardDescription>
+          When your day starts and ends, and how events are cleaned up.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="flex flex-wrap gap-6">
           <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
-            <div className="flex gap-3">
-              <Input
-                id="username"
-                value={username}
-                onChange={(e) => {
-                  setUsernameValue(e.target.value)
-                  setStatus('idle')
-                }}
-                placeholder="your_username"
-                className="max-w-xs"
-              />
-              <Button onClick={handleSave} disabled={isPending || username === initialUsername}>
-                {isPending ? 'Saving…' : 'Save'}
-              </Button>
-            </div>
+            <Label htmlFor="wake-time">Wake</Label>
+            <TimeInput
+              id="wake-time"
+              label="Wake"
+              size="md"
+              use24h={use24h}
+              value={minutesToTimeString(wakeMinutes)}
+              onChange={(next) => {
+                setWakeMinutes(timeStringToMinutes(next))
+                clearCalStatus()
+              }}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="sleep-time">Sleep</Label>
+            <TimeInput
+              id="sleep-time"
+              label="Sleep"
+              size="md"
+              use24h={use24h}
+              value={minutesToTimeString(sleepMinutes)}
+              onChange={(next) => {
+                setSleepMinutes(timeStringToMinutes(next))
+                clearCalStatus()
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Switch
+            id="use-24h"
+            aria-label="24-hour time"
+            checked={use24h}
+            onCheckedChange={(checked) => {
+              setUse24h(checked)
+              clearCalStatus()
+            }}
+          />
+          <div className="space-y-0.5">
+            <Label htmlFor="use-24h">24-hour time</Label>
             <p className="text-muted-foreground text-xs">
-              Friends find you by username. 3–20 characters, lowercase letters, numbers,
-              underscores.
+              Display times as 14:00 instead of 2:00 PM.
             </p>
-            {status === 'saved' && <p className="text-xs text-emerald-400">Username saved.</p>}
-            {status === 'error' && (
-              <p className="text-xs text-red-400">Invalid or taken username — try another.</p>
-            )}
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Calendar</CardTitle>
-          <CardDescription>
-            When your day starts and ends, and how events are cleaned up.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="flex flex-wrap gap-6">
-            <div className="space-y-2">
-              <Label htmlFor="wake-time">Wake</Label>
-              <TimeInput
-                id="wake-time"
-                label="Wake"
-                size="md"
-                use24h={use24h}
-                value={minutesToTimeString(wakeMinutes)}
-                onChange={(next) => {
-                  setWakeMinutes(timeStringToMinutes(next))
-                  clearCalStatus()
-                }}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="sleep-time">Sleep</Label>
-              <TimeInput
-                id="sleep-time"
-                label="Sleep"
-                size="md"
-                use24h={use24h}
-                value={minutesToTimeString(sleepMinutes)}
-                onChange={(next) => {
-                  setSleepMinutes(timeStringToMinutes(next))
-                  clearCalStatus()
-                }}
-              />
-            </div>
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <h3 className="text-foreground text-sm font-medium">Per-day overrides</h3>
+            <p className="text-muted-foreground text-xs">
+              Set different wake and sleep times for individual days.
+            </p>
           </div>
+          <div className="space-y-3">
+            {DAY_LABELS.map((label, index) => {
+              const key = String(index)
+              const override = dayOverrides[key] ?? null
+              const overrideSwitchId = `override-${key}`
+              return (
+                <div key={key} className="grid grid-cols-[auto_9rem_1fr] items-center gap-4">
+                  <Switch
+                    id={overrideSwitchId}
+                    aria-label={`Override ${label}`}
+                    checked={override !== null}
+                    onCheckedChange={(checked) => {
+                      setDayOverrides((prev) => ({
+                        ...prev,
+                        [key]: checked ? { wake: wakeMinutes, sleep: sleepMinutes } : null,
+                      }))
+                      clearCalStatus()
+                    }}
+                  />
+                  <Label htmlFor={overrideSwitchId} className="text-foreground text-sm">
+                    {label}
+                  </Label>
+                  {override !== null && (
+                    <div className="flex flex-wrap gap-4">
+                      <TimeInput
+                        id={`day-${key}-wake`}
+                        label={`${label} wake`}
+                        use24h={use24h}
+                        value={minutesToTimeString(override.wake)}
+                        onChange={(next) => {
+                          setDayOverrides((prev) => ({
+                            ...prev,
+                            [key]: { wake: timeStringToMinutes(next), sleep: override.sleep },
+                          }))
+                          clearCalStatus()
+                        }}
+                      />
+                      <TimeInput
+                        id={`day-${key}-sleep`}
+                        label={`${label} sleep`}
+                        use24h={use24h}
+                        value={minutesToTimeString(override.sleep)}
+                        onChange={(next) => {
+                          setDayOverrides((prev) => ({
+                            ...prev,
+                            [key]: { wake: override.wake, sleep: timeStringToMinutes(next) },
+                          }))
+                          clearCalStatus()
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
 
+        <div className="space-y-4">
           <div className="flex items-center gap-3">
             <Switch
-              id="use-24h"
-              aria-label="24-hour time"
-              checked={use24h}
+              id="ttl-enabled"
+              aria-label="Auto-delete events"
+              checked={ttlEnabled}
               onCheckedChange={(checked) => {
-                setUse24h(checked)
+                setTtlEnabled(checked)
                 clearCalStatus()
               }}
             />
             <div className="space-y-0.5">
-              <Label htmlFor="use-24h">24-hour time</Label>
+              <Label htmlFor="ttl-enabled">Auto-delete events</Label>
               <p className="text-muted-foreground text-xs">
-                Display times as 14:00 instead of 2:00 PM.
+                Pending one-off events are deleted this many days after they end. Completed events
+                are kept.
               </p>
             </div>
           </div>
-
-          <div className="space-y-4">
-            <div className="space-y-1">
-              <h3 className="text-foreground text-sm font-medium">Per-day overrides</h3>
-              <p className="text-muted-foreground text-xs">
-                Set different wake and sleep times for individual days.
-              </p>
-            </div>
-            <div className="space-y-3">
-              {DAY_LABELS.map((label, index) => {
-                const key = String(index)
-                const override = dayOverrides[key] ?? null
-                const overrideSwitchId = `override-${key}`
-                return (
-                  <div key={key} className="grid grid-cols-[auto_9rem_1fr] items-center gap-4">
-                    <Switch
-                      id={overrideSwitchId}
-                      aria-label={`Override ${label}`}
-                      checked={override !== null}
-                      onCheckedChange={(checked) => {
-                        setDayOverrides((prev) => ({
-                          ...prev,
-                          [key]: checked ? { wake: wakeMinutes, sleep: sleepMinutes } : null,
-                        }))
-                        clearCalStatus()
-                      }}
-                    />
-                    <Label htmlFor={overrideSwitchId} className="text-foreground text-sm">
-                      {label}
-                    </Label>
-                    {override !== null && (
-                      <div className="flex flex-wrap gap-4">
-                        <TimeInput
-                          id={`day-${key}-wake`}
-                          label={`${label} wake`}
-                          use24h={use24h}
-                          value={minutesToTimeString(override.wake)}
-                          onChange={(next) => {
-                            setDayOverrides((prev) => ({
-                              ...prev,
-                              [key]: { wake: timeStringToMinutes(next), sleep: override.sleep },
-                            }))
-                            clearCalStatus()
-                          }}
-                        />
-                        <TimeInput
-                          id={`day-${key}-sleep`}
-                          label={`${label} sleep`}
-                          use24h={use24h}
-                          value={minutesToTimeString(override.sleep)}
-                          onChange={(next) => {
-                            setDayOverrides((prev) => ({
-                              ...prev,
-                              [key]: { wake: override.wake, sleep: timeStringToMinutes(next) },
-                            }))
-                            clearCalStatus()
-                          }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <Switch
-                id="ttl-enabled"
-                aria-label="Auto-delete events"
-                checked={ttlEnabled}
-                onCheckedChange={(checked) => {
-                  setTtlEnabled(checked)
+          {ttlEnabled && (
+            <div className="space-y-2">
+              <Label htmlFor="ttl-days">Delete after (days)</Label>
+              <NumberInput
+                id="ttl-days"
+                min={TTL_MIN_DAYS}
+                max={TTL_MAX_DAYS}
+                value={ttlDays}
+                onChange={(value) => {
+                  setTtlDays(value)
                   clearCalStatus()
                 }}
+                className="w-32"
               />
-              <div className="space-y-0.5">
-                <Label htmlFor="ttl-enabled">Auto-delete events</Label>
-                <p className="text-muted-foreground text-xs">
-                  Pending one-off events are deleted this many days after they end. Completed events
-                  are kept.
-                </p>
-              </div>
             </div>
-            {ttlEnabled && (
-              <div className="space-y-2">
-                <Label htmlFor="ttl-days">Delete after (days)</Label>
-                <NumberInput
-                  id="ttl-days"
-                  min={TTL_MIN_DAYS}
-                  max={TTL_MAX_DAYS}
-                  value={ttlDays}
-                  onChange={(value) => {
-                    setTtlDays(value)
-                    clearCalStatus()
-                  }}
-                  className="w-32"
-                />
-              </div>
-            )}
-          </div>
+          )}
+        </div>
 
-          <div className="flex items-center gap-3">
-            <Button
-              aria-label="Save calendar settings"
-              onClick={handleCalSave}
-              disabled={isCalPending || !calDirty}
-            >
-              {isCalPending ? 'Saving…' : 'Save'}
-            </Button>
-            {calStatus === 'saved' && <p className="text-xs text-emerald-400">Calendar saved.</p>}
-            {calStatus === 'error' && (
-              <p className="text-xs text-red-400">Could not save calendar settings — try again.</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+        <div className="flex items-center gap-3">
+          <Button
+            aria-label="Save calendar settings"
+            onClick={handleCalSave}
+            disabled={isCalPending || !calDirty}
+          >
+            {isCalPending ? 'Saving…' : 'Save'}
+          </Button>
+          {calStatus === 'saved' && <p className="text-xs text-emerald-400">Calendar saved.</p>}
+          {calStatus === 'error' && (
+            <p className="text-xs text-red-400">Could not save calendar settings — try again.</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
