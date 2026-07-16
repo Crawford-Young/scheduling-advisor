@@ -31,3 +31,5 @@ peerDependencyRules:
     'eslint-plugin-import>eslint': '10'
     'eslint-plugin-jsx-a11y>eslint': '10'
     'eslint-plugin-react>eslint': '10'
+minimumReleaseAgeExclude:
+  - '@crawfordyoung/ui@0.22.0'
