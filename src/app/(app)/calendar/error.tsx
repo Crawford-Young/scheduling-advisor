@@ -1,15 +1,19 @@
 'use client'
 
-export default function CalendarError({ reset }: { reset: () => void }) {
-  return (
-    <div className="flex flex-col items-center gap-4 py-16">
-      <p className="text-muted-foreground text-sm">Failed to load calendar.</p>
-      <button
-        onClick={reset}
-        className="bg-accent text-accent-foreground hover:bg-accent-hover rounded-md px-4 py-2 text-sm font-medium"
-      >
-        Try again
-      </button>
-    </div>
-  )
+import * as Sentry from '@sentry/nextjs'
+import { RouteErrorFallback } from '@/lib/ui'
+import { useEffect } from 'react'
+
+export default function CalendarError({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string }
+  reset: () => void
+}) {
+  useEffect(() => {
+    Sentry.captureException(error)
+  }, [error])
+
+  return <RouteErrorFallback error={error} reset={reset} title="Failed to load calendar" />
 }
