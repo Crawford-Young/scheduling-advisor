@@ -47,6 +47,7 @@ Copy `.env.example` to `.env.local` and fill in all values — `t3-env` validate
 - `TaskTimeFields`, `buildIso`, and `toTimeSlot` are bundled in `@crawfordyoung/ui` (≥0.17.0) and used by the library's `ActivityFormDialog`; the app does not duplicate them. As of `@crawfordyoung/ui` ≥0.19.0, typed/displayed times are LOCAL wall-clock throughout the calendar and dialog — the persisted ISO on an event's start/end is always a real UTC instant, only the local reading of that instant changed.
 - Calendar chip locking (`@crawfordyoung/ui` ≥0.19.0, Wave 2.4): the `locked` boolean on `tasks` seeds the chip's lock icon; toggling it flips the persisted flag via `updateTask({ id, locked })`. Lock scope is move/resize only — complete-toggle, edit, and delete all stay available on a locked event, and there is no server-side time-guard (client-side gating only, by design).
 - The chat popup (`ChatPopup`, mounted app-wide) listens for an `open-chat` CustomEvent; dispatchers may pass `detail.prefill` to seed the input. All chat surfaces compose the single `ChatSurface` wiring.
+- Error boundaries (`@crawfordyoung/ui` ≥0.22.0): every route segment ships an `error.tsx` rendering `RouteErrorFallback` with Sentry capture — root `error.tsx`, `global-error.tsx` (own html/body, imports globals.css), `(app)/error.tsx`, and all 8 segments with per-segment titles ("Failed to load calendar" etc.). Each boundary has a co-located test.
 
 ## Testing
 
