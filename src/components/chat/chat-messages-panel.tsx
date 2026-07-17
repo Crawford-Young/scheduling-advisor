@@ -3,8 +3,8 @@ import * as React from 'react'
 import type { Message, ToolInvocation } from 'ai'
 import { Textarea, Button } from '@/lib/ui'
 import { Send } from 'lucide-react'
-import { ToolResultRenderer } from '@/components/chat/tool-result-renderer'
-import type { AppEvent } from '@/components/chat/tool-result-renderer'
+import { ProposeEventResult, ToolResultRenderer } from '@/components/chat/tool-result-renderer'
+import type { AppEvent, CreatedEvent, EventProposal } from '@/components/chat/tool-result-renderer'
 
 const CHAT_ERROR_MESSAGE = "Cy couldn't respond. Try again."
 const RETRY_LABEL = 'Retry'
@@ -23,6 +23,16 @@ export interface ChatMessagesPanelProps {
     date?: string,
     time?: string,
   ) => void
+  readonly onEventProposed?: (proposal: EventProposal) => void
+  readonly onEventResolved?: (
+    toolCallId: string,
+    outcome: 'confirmed' | 'denied',
+    created?: CreatedEvent,
+  ) => void
+  // Proposals carried across the popup → /chat expand handoff. Re-rendered here as
+  // fully-actionable ✓/✗ cards outside the message loop (history is text-only).
+  readonly carriedProposals?: readonly EventProposal[]
+  readonly inlineDayPreview?: boolean
   readonly inputReplacement?: React.ReactNode
   readonly error?: Error
   readonly onRetry?: () => void
@@ -37,6 +47,10 @@ export function ChatMessagesPanel({
   append,
   onScheduleUpdate,
   onItemConfirmed,
+  onEventProposed,
+  onEventResolved,
+  carriedProposals,
+  inlineDayPreview,
   inputReplacement,
   error,
   onRetry,
@@ -90,12 +104,38 @@ export function ChatMessagesPanel({
                       append={append}
                       onScheduleUpdate={onScheduleUpdate}
                       onItemConfirmed={onItemConfirmed}
+                      onEventProposed={onEventProposed}
+                      onEventResolved={onEventResolved}
+                      inlineDayPreview={inlineDayPreview}
                     />
                   ))}
               </div>
             </div>
           ),
         )}
+        {carriedProposals?.map((p) => (
+          <div key={p.toolCallId} className="flex justify-start">
+            <div className="max-w-[85%]">
+              <ProposeEventResult
+                toolCallId={p.toolCallId}
+                result={{
+                  title: p.title,
+                  date: p.date,
+                  start: p.start,
+                  end: p.end,
+                  description: p.description,
+                  recurrence: p.recurrence,
+                  recurrenceDays: p.recurrenceDays,
+                  recurrenceCount: p.recurrenceCount,
+                }}
+                append={append}
+                onEventProposed={onEventProposed}
+                onEventResolved={onEventResolved}
+                inlineDayPreview={inlineDayPreview}
+              />
+            </div>
+          </div>
+        ))}
         {error ? (
           <div className="flex justify-start">
             <div className="bg-surface-raised flex items-center gap-2 rounded-lg px-3 py-2">

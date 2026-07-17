@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import type { z } from 'zod'
 
 vi.mock('@/server/services', () => ({ getCalendarService: vi.fn() }))
 vi.mock('@/server/queries/tasks', () => ({ getUserTasks: vi.fn() }))
@@ -34,9 +35,9 @@ function execute(all: ChatToolSet, name: keyof ChatToolSet, params: unknown): Pr
 }
 
 describe('buildChatTools', () => {
-  it('exposes exactly the 19 chat tools', () => {
+  it('exposes exactly the 20 chat tools', () => {
     expect(Object.keys(buildChatTools('u1')).sort()).toEqual([...CHAT_TOOL_NAMES].sort())
-    expect(CHAT_TOOL_NAMES).toHaveLength(19)
+    expect(CHAT_TOOL_NAMES).toHaveLength(20)
   })
 
   it('pickTools returns only the requested subset', () => {
@@ -191,5 +192,94 @@ describe('buildChatTools', () => {
       title: 'Updated',
     })
     expect(updateItem).toHaveBeenCalledWith(params)
+  })
+
+  it('proposeEvent echoes its props (render-only)', async () => {
+    const all = buildChatTools('u1')
+    const props = { title: 'Standup', date: '2026-01-01', start: '09:00', end: '09:15' }
+    await expect(execute(all, 'proposeEvent', props)).resolves.toEqual(props)
+  })
+
+  describe('proposeEvent schema', () => {
+    const schema = buildChatTools('u1').proposeEvent.parameters as z.ZodTypeAny
+    const valid = { title: 'Standup', date: '2026-01-01', start: '09:00', end: '09:15' }
+
+    it('accepts a valid event with optional description omitted', () => {
+      expect(schema.safeParse(valid).success).toBe(true)
+    })
+
+    it('accepts a valid event with description', () => {
+      expect(schema.safeParse({ ...valid, description: 'Daily sync' }).success).toBe(true)
+    })
+
+    it('rejects an empty title', () => {
+      expect(schema.safeParse({ ...valid, title: '' }).success).toBe(false)
+    })
+
+    it('rejects a malformed date', () => {
+      expect(schema.safeParse({ ...valid, date: '2026/01/01' }).success).toBe(false)
+    })
+
+    it('rejects a malformed start time', () => {
+      expect(schema.safeParse({ ...valid, start: '9:00' }).success).toBe(false)
+    })
+
+    it('rejects a malformed end time', () => {
+      expect(schema.safeParse({ ...valid, end: '9:15' }).success).toBe(false)
+    })
+
+    it('rejects end equal to start', () => {
+      expect(schema.safeParse({ ...valid, start: '09:00', end: '09:00' }).success).toBe(false)
+    })
+
+    it('rejects end before start', () => {
+      expect(schema.safeParse({ ...valid, start: '10:00', end: '09:00' }).success).toBe(false)
+    })
+
+    it('accepts a weekly recurrence with weekday tokens and a week count', () => {
+      expect(
+        schema.safeParse({
+          ...valid,
+          recurrence: 'weekly',
+          recurrenceDays: ['Mon', 'Fri'],
+          recurrenceCount: 8,
+        }).success,
+      ).toBe(true)
+    })
+
+    it('accepts a daily recurrence with a count', () => {
+      expect(schema.safeParse({ ...valid, recurrence: 'daily', recurrenceCount: 4 }).success).toBe(
+        true,
+      )
+    })
+
+    it('accepts a monthly recurrence with a count', () => {
+      expect(
+        schema.safeParse({ ...valid, recurrence: 'monthly', recurrenceCount: 6 }).success,
+      ).toBe(true)
+    })
+
+    it('rejects a recurrenceCount below the minimum of 2', () => {
+      expect(schema.safeParse({ ...valid, recurrence: 'daily', recurrenceCount: 1 }).success).toBe(
+        false,
+      )
+    })
+
+    it('rejects a recurrenceCount above the maximum of 52', () => {
+      expect(
+        schema.safeParse({ ...valid, recurrence: 'weekly', recurrenceCount: 53 }).success,
+      ).toBe(false)
+    })
+
+    it('rejects an unknown recurrence frequency', () => {
+      expect(schema.safeParse({ ...valid, recurrence: 'yearly' }).success).toBe(false)
+    })
+
+    it('rejects a bad weekday token', () => {
+      expect(
+        schema.safeParse({ ...valid, recurrence: 'weekly', recurrenceDays: ['Mon', 'Funday'] })
+          .success,
+      ).toBe(false)
+    })
   })
 })

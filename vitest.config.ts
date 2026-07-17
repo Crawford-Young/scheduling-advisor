@@ -29,7 +29,6 @@ export default defineConfig({
         'src/proxy.ts',
         'src/trigger/**',
         'src/components/activity/activity-settings-menu.tsx',
-        'src/components/chat/full-page-chat-layout.tsx',
       ],
       thresholds: {
         statements: 99,

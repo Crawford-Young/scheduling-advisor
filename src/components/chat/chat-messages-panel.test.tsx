@@ -17,8 +17,32 @@ vi.mock('@/lib/ui', () => ({
   ),
 }))
 
+let capturedRendererProps: Record<string, unknown> | undefined
+interface MockProposeEventResultProps {
+  readonly toolCallId: string
+  readonly result: {
+    readonly title: string
+    readonly recurrence?: string
+    readonly recurrenceCount?: number
+  }
+  readonly inlineDayPreview?: boolean
+}
 vi.mock('@/components/chat/tool-result-renderer', () => ({
-  ToolResultRenderer: () => <div data-testid="tool-result" />,
+  ToolResultRenderer: (props: Record<string, unknown>) => {
+    capturedRendererProps = props
+    return <div data-testid="tool-result" />
+  },
+  ProposeEventResult: ({ toolCallId, result, inlineDayPreview }: MockProposeEventResultProps) => (
+    <div
+      data-testid="carried-proposal"
+      data-tool-call-id={toolCallId}
+      data-recurrence={result.recurrence ?? 'none'}
+      data-recurrence-count={result.recurrenceCount ?? 'none'}
+      data-inline-preview={String(inlineDayPreview)}
+    >
+      {result.title}
+    </div>
+  ),
 }))
 
 const noopFns = {
@@ -104,6 +128,58 @@ describe('ChatMessagesPanel', () => {
     expect(screen.getByTestId('tool-result')).toBeInTheDocument()
   })
 
+  it('threads the event-proposal callbacks through to the tool renderer', () => {
+    const onEventProposed = vi.fn()
+    const onEventResolved = vi.fn()
+    const messages = [
+      {
+        id: '1',
+        role: 'assistant' as const,
+        content: '',
+        toolInvocations: [
+          {
+            toolCallId: 'tc1',
+            toolName: 'proposeEvent',
+            args: {},
+            state: 'result' as const,
+            result: {},
+          },
+        ],
+      },
+    ]
+    render(
+      <ChatMessagesPanel
+        messages={messages}
+        {...noopFns}
+        onEventProposed={onEventProposed}
+        onEventResolved={onEventResolved}
+      />,
+    )
+    expect(capturedRendererProps?.onEventProposed).toBe(onEventProposed)
+    expect(capturedRendererProps?.onEventResolved).toBe(onEventResolved)
+  })
+
+  it('threads inlineDayPreview through to the tool renderer', () => {
+    const messages = [
+      {
+        id: '1',
+        role: 'assistant' as const,
+        content: '',
+        toolInvocations: [
+          {
+            toolCallId: 'tc1',
+            toolName: 'proposeEvent',
+            args: {},
+            state: 'result' as const,
+            result: {},
+          },
+        ],
+      },
+    ]
+    render(<ChatMessagesPanel messages={messages} {...noopFns} inlineDayPreview />)
+    expect(capturedRendererProps?.inlineDayPreview).toBe(true)
+  })
+
   it('filters out non-result tool invocations', () => {
     const messages = [
       {
@@ -149,6 +225,48 @@ describe('ChatMessagesPanel', () => {
     it('does not render loading dots when an error is present', () => {
       render(<ChatMessagesPanel messages={[]} {...noopFns} isLoading error={new Error('boom')} />)
       expect(screen.queryByTestId('loading-dots')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('carriedProposals', () => {
+    const carried = [
+      { toolCallId: 'call-1', title: 'Dentist', date: '2026-06-03', start: '14:00', end: '15:00' },
+      {
+        toolCallId: 'call-2',
+        title: 'Standup',
+        date: '2026-06-01',
+        start: '09:00',
+        end: '09:15',
+        recurrence: 'weekly' as const,
+        recurrenceDays: ['Mon', 'Fri'] as const,
+        recurrenceCount: 8,
+      },
+    ]
+
+    it('renders one card per carried proposal, echoing title and recurrence', () => {
+      render(<ChatMessagesPanel messages={[]} {...noopFns} carriedProposals={carried} />)
+      const cards = screen.getAllByTestId('carried-proposal')
+      expect(cards).toHaveLength(2)
+      expect(screen.getByText('Dentist')).toBeInTheDocument()
+      const standup = cards.find((c) => c.getAttribute('data-tool-call-id') === 'call-2')
+      expect(standup).toHaveAttribute('data-recurrence', 'weekly')
+      expect(standup).toHaveAttribute('data-recurrence-count', '8')
+    })
+
+    it('leaves the inline day preview unset on carried cards', () => {
+      render(<ChatMessagesPanel messages={[]} {...noopFns} carriedProposals={carried} />)
+      const cards = screen.getAllByTestId('carried-proposal')
+      cards.forEach((card) => expect(card).toHaveAttribute('data-inline-preview', 'undefined'))
+    })
+
+    it('renders no carried cards when the prop is absent', () => {
+      render(<ChatMessagesPanel messages={[]} {...noopFns} />)
+      expect(screen.queryByTestId('carried-proposal')).not.toBeInTheDocument()
+    })
+
+    it('renders no carried cards for an empty array', () => {
+      render(<ChatMessagesPanel messages={[]} {...noopFns} carriedProposals={[]} />)
+      expect(screen.queryByTestId('carried-proposal')).not.toBeInTheDocument()
     })
   })
 

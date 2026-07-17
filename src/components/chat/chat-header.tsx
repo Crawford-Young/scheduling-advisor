@@ -2,13 +2,22 @@
 import * as React from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { Button, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/lib/ui'
+import { ModelTierSelect } from '@/components/chat/model-tier-select'
+import type { ModelTier } from '@/lib/chat/model-tiers'
 
 export interface ChatHeaderProps {
   readonly title: string | null
   readonly onBack: () => void
+  readonly model: ModelTier
+  readonly onModelChange: (tier: ModelTier) => void
 }
 
-export function ChatHeader({ title, onBack }: ChatHeaderProps): React.JSX.Element {
+export function ChatHeader({
+  title,
+  onBack,
+  model,
+  onModelChange,
+}: ChatHeaderProps): React.JSX.Element {
   const displayTitle = title ?? 'Untitled'
   return (
     <header className="border-border flex h-12 shrink-0 items-center border-b px-4">
@@ -31,7 +40,7 @@ export function ChatHeader({ title, onBack }: ChatHeaderProps): React.JSX.Elemen
           <TooltipContent>{displayTitle}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      <div className="w-8" aria-hidden="true" />
+      <ModelTierSelect value={model} onChange={onModelChange} />
     </header>
   )
 }

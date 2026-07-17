@@ -4,6 +4,7 @@ import { db } from '@/db'
 import { conversations } from '@/db/schema'
 import { eq, and, isNull, gt, desc } from 'drizzle-orm'
 import { getConversationMessages, type ConversationMessage } from '@/server/queries/conversations'
+import { modelTierSchema, type ModelTier } from '@/lib/chat/model-tiers'
 
 export type ConversationType = 'check_in' | 'general'
 
@@ -23,7 +24,10 @@ function thirtyDaysFromNow(): Date {
   return d
 }
 
-export async function createConversation(type: ConversationType): Promise<{ id: string }> {
+export async function createConversation(
+  type: ConversationType,
+  model?: ModelTier,
+): Promise<{ id: string }> {
   const session = await auth()
   if (!session?.user?.id) throw new Error('Unauthorized')
 
@@ -34,6 +38,7 @@ export async function createConversation(type: ConversationType): Promise<{ id: 
       type,
       title: type === 'check_in' ? checkInTitle() : null,
       expiresAt: thirtyDaysFromNow(),
+      ...(model ? { model } : {}),
     })
     .returning()
 
@@ -73,6 +78,26 @@ export async function setConversationTitle(conversationId: string, title: string
     .where(eq(conversations.id, conversationId))
 }
 
+export async function setConversationModel(
+  conversationId: string,
+  model: ModelTier,
+): Promise<void> {
+  const session = await auth()
+  if (!session?.user?.id) throw new Error('Unauthorized')
+
+  const parsedModel = modelTierSchema.parse(model)
+
+  const [row] = await db.select().from(conversations).where(eq(conversations.id, conversationId))
+
+  if (!row) return
+  if (row.userId !== session.user.id) throw new Error('Forbidden')
+
+  await db
+    .update(conversations)
+    .set({ model: parsedModel, updatedAt: new Date() })
+    .where(eq(conversations.id, conversationId))
+}
+
 export async function bumpConversationExpiry(conversationId: string): Promise<void> {
   const session = await auth()
   if (!session?.user?.id) throw new Error('Unauthorized')
@@ -90,12 +115,13 @@ export async function bumpConversationExpiry(conversationId: string): Promise<vo
 export async function getLatestConversation(): Promise<{
   id: string
   title: string | null
+  model: ModelTier
 } | null> {
   const session = await auth()
   if (!session?.user?.id) throw new Error('Unauthorized')
 
   const rows = await db
-    .select({ id: conversations.id, title: conversations.title })
+    .select({ id: conversations.id, title: conversations.title, model: conversations.model })
     .from(conversations)
     .where(
       and(

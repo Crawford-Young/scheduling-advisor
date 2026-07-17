@@ -44,6 +44,55 @@ vi.mock('@/components/chat/action-confirm-card', () => ({
     </div>
   ),
 }))
+vi.mock('@/components/chat/event-proposal-card', () => ({
+  EventProposalCard: ({
+    title,
+    onConfirmed,
+    onDenied,
+    preview,
+  }: {
+    title: string
+    onConfirmed: (created: { id: string; title: string; start: string; end: string }) => void
+    onDenied: (reason: string) => void
+    preview?: React.ReactNode
+  }) => (
+    <div>
+      <span>{title}</span>
+      <button
+        onClick={() =>
+          onConfirmed({
+            id: 'task-1',
+            title,
+            start: '2026-06-02T13:00:00.000Z',
+            end: '2026-06-02T14:00:00.000Z',
+          })
+        }
+      >
+        proposal-confirm
+      </button>
+      <button onClick={() => onDenied('nope')}>proposal-deny</button>
+      {preview}
+    </div>
+  ),
+}))
+vi.mock('@/components/chat/day-proposal-preview', () => ({
+  DayProposalPreview: ({
+    date,
+    state,
+    recurrence,
+  }: {
+    date: string
+    state: string
+    recurrence?: string
+  }) => (
+    <div
+      data-testid="day-preview"
+      data-date={date}
+      data-state={state}
+      data-recurrence={recurrence}
+    />
+  ),
+}))
 
 function makeInvocation(toolName: string, result: unknown) {
   return { toolCallId: 'tc1', toolName, args: {}, state: 'result' as const, result }
@@ -291,5 +340,154 @@ describe('ToolResultRenderer', () => {
     )
     expect(screen.getByTestId('activity-card')).toBeInTheDocument()
     expect(screen.queryByText(/^Target:/)).not.toBeInTheDocument()
+  })
+
+  describe('proposeEvent', () => {
+    const proposal = {
+      title: 'Standup',
+      date: '2026-06-02',
+      start: '09:00',
+      end: '10:00',
+    }
+
+    it('fires onEventProposed exactly once on mount with the tool-call proposal', () => {
+      const onEventProposed = vi.fn()
+      render(
+        <ToolResultRenderer
+          toolInvocation={makeInvocation('proposeEvent', proposal)}
+          onEventProposed={onEventProposed}
+        />,
+      )
+      expect(onEventProposed).toHaveBeenCalledTimes(1)
+      expect(onEventProposed).toHaveBeenCalledWith({ toolCallId: 'tc1', ...proposal })
+    })
+
+    it('renders the EventProposalCard with the proposed title', () => {
+      render(<ToolResultRenderer toolInvocation={makeInvocation('proposeEvent', proposal)} />)
+      expect(screen.getByText('Standup')).toBeInTheDocument()
+    })
+
+    it('resolves confirmed with the created event through onEventResolved', async () => {
+      const user = userEvent.setup()
+      const onEventResolved = vi.fn()
+      render(
+        <ToolResultRenderer
+          toolInvocation={makeInvocation('proposeEvent', proposal)}
+          onEventResolved={onEventResolved}
+        />,
+      )
+      await user.click(screen.getByText('proposal-confirm'))
+      expect(onEventResolved).toHaveBeenCalledWith('tc1', 'confirmed', {
+        id: 'task-1',
+        title: 'Standup',
+        start: '2026-06-02T13:00:00.000Z',
+        end: '2026-06-02T14:00:00.000Z',
+      })
+    })
+
+    it('resolves denied through onEventResolved', async () => {
+      const user = userEvent.setup()
+      const onEventResolved = vi.fn()
+      render(
+        <ToolResultRenderer
+          toolInvocation={makeInvocation('proposeEvent', proposal)}
+          onEventResolved={onEventResolved}
+        />,
+      )
+      await user.click(screen.getByText('proposal-deny'))
+      expect(onEventResolved).toHaveBeenCalledWith('tc1', 'denied')
+    })
+
+    it('does not throw when neither proposal callback is provided', async () => {
+      const user = userEvent.setup()
+      render(<ToolResultRenderer toolInvocation={makeInvocation('proposeEvent', proposal)} />)
+      await user.click(screen.getByText('proposal-confirm'))
+      await user.click(screen.getByText('proposal-deny'))
+    })
+
+    it('does not slot the day preview when inlineDayPreview is not set', () => {
+      render(<ToolResultRenderer toolInvocation={makeInvocation('proposeEvent', proposal)} />)
+      expect(screen.queryByTestId('day-preview')).not.toBeInTheDocument()
+    })
+
+    it('slots the day preview in ghost state when inlineDayPreview is set', () => {
+      render(
+        <ToolResultRenderer
+          toolInvocation={makeInvocation('proposeEvent', proposal)}
+          inlineDayPreview
+        />,
+      )
+      const preview = screen.getByTestId('day-preview')
+      expect(preview).toHaveAttribute('data-date', '2026-06-02')
+      expect(preview).toHaveAttribute('data-state', 'ghost')
+    })
+
+    it('drives the preview to confirmed once the proposal is confirmed', async () => {
+      const user = userEvent.setup()
+      render(
+        <ToolResultRenderer
+          toolInvocation={makeInvocation('proposeEvent', proposal)}
+          inlineDayPreview
+        />,
+      )
+      await user.click(screen.getByText('proposal-confirm'))
+      expect(screen.getByTestId('day-preview')).toHaveAttribute('data-state', 'confirmed')
+    })
+
+    it('drives the preview to removed once the proposal is denied', async () => {
+      const user = userEvent.setup()
+      render(
+        <ToolResultRenderer
+          toolInvocation={makeInvocation('proposeEvent', proposal)}
+          inlineDayPreview
+        />,
+      )
+      await user.click(screen.getByText('proposal-deny'))
+      expect(screen.getByTestId('day-preview')).toHaveAttribute('data-state', 'removed')
+    })
+
+    const recurringProposal = {
+      ...proposal,
+      recurrence: 'weekly' as const,
+      recurrenceDays: ['Mon', 'Fri'] as const,
+      recurrenceCount: 8,
+    }
+
+    it('threads recurrence fields into onEventProposed', () => {
+      const onEventProposed = vi.fn()
+      render(
+        <ToolResultRenderer
+          toolInvocation={makeInvocation('proposeEvent', recurringProposal)}
+          onEventProposed={onEventProposed}
+        />,
+      )
+      expect(onEventProposed).toHaveBeenCalledWith({ toolCallId: 'tc1', ...recurringProposal })
+    })
+
+    it('threads the description into onEventProposed', () => {
+      const onEventProposed = vi.fn()
+      render(
+        <ToolResultRenderer
+          toolInvocation={makeInvocation('proposeEvent', {
+            ...proposal,
+            description: 'bring x-rays',
+          })}
+          onEventProposed={onEventProposed}
+        />,
+      )
+      expect(onEventProposed).toHaveBeenCalledWith(
+        expect.objectContaining({ toolCallId: 'tc1', description: 'bring x-rays' }),
+      )
+    })
+
+    it('threads the recurrence frequency into the slotted day preview', () => {
+      render(
+        <ToolResultRenderer
+          toolInvocation={makeInvocation('proposeEvent', recurringProposal)}
+          inlineDayPreview
+        />,
+      )
+      expect(screen.getByTestId('day-preview')).toHaveAttribute('data-recurrence', 'weekly')
+    })
   })
 })

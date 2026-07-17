@@ -1,4 +1,4 @@
-import { tasks, seriesSlotTombstones } from '@/db/schema'
+import { tasks, seriesSlotTombstones, conversations } from '@/db/schema'
 it('tasks has rich columns', () => {
   expect(tasks.location).toBeDefined()
   expect(tasks.description).toBeDefined()
@@ -13,4 +13,8 @@ it('series_slot_tombstones carries the slot identity columns', () => {
   expect(seriesSlotTombstones.userId).toBeDefined()
   expect(seriesSlotTombstones.recurrenceGroupId).toBeDefined()
   expect(seriesSlotTombstones.slotStart).toBeDefined()
+})
+
+it('conversations carries the model column', () => {
+  expect(conversations.model).toBeDefined()
 })

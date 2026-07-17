@@ -1,4 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { z } from 'zod'
+
+// model-tiers.ts eagerly constructs anthropic models from @/lib/ai at import
+// time, which triggers real env validation — mock it out so this suite only
+// exercises modelTierSchema's enum shape (model-tiers.test.ts owns the rest).
+vi.mock('@/lib/chat/model-tiers', () => ({
+  modelTierSchema: z.enum(['sonnet', 'opus']),
+}))
 
 // ── DB mock ───────────────────────────────────────────────────────────────────
 const mockReturning = vi.hoisted(() => vi.fn())
@@ -29,15 +37,19 @@ import {
   createConversation,
   deleteConversation,
   setConversationTitle,
+  setConversationModel,
   bumpConversationExpiry,
   getLatestConversation,
   getConversationMessagesAction,
 } from '@/server/actions/conversations'
 import { getConversationMessages } from '@/server/queries/conversations'
+import type { ModelTier } from '@/lib/chat/model-tiers'
 
 // Helper: wires the select().from().where().orderBy().limit() chain used by
 // getLatestConversation to resolve with the given rows.
-function mockDbSelectReturning(rows: ReadonlyArray<{ id: string; title: string | null }>): void {
+function mockDbSelectReturning(
+  rows: ReadonlyArray<{ id: string; title: string | null; model: ModelTier }>,
+): void {
   mockSelectWhere.mockReturnValue({ orderBy: mockOrderBy })
   mockLimit.mockResolvedValue(rows)
 }
@@ -88,6 +100,17 @@ describe('createConversation', () => {
   it('throws Insert failed when insert returns empty', async () => {
     mockReturning.mockResolvedValueOnce([])
     await expect(createConversation('general')).rejects.toThrow('Insert failed')
+  })
+
+  it('persists the passed model tier', async () => {
+    await createConversation('general', 'opus')
+    expect(mockInsertValues).toHaveBeenCalledWith(expect.objectContaining({ model: 'opus' }))
+  })
+
+  it('omits model when not provided, deferring to the db default', async () => {
+    await createConversation('general')
+    const inserted = (mockInsertValues.mock.calls[0] as unknown as [Record<string, unknown>])[0]
+    expect(inserted).not.toHaveProperty('model')
   })
 })
 
@@ -167,6 +190,43 @@ describe('setConversationTitle', () => {
   })
 })
 
+// ── setConversationModel ──────────────────────────────────────────────────────
+describe('setConversationModel', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUpdateWhere.mockResolvedValue(undefined)
+  })
+
+  it('updates the model tier when caller owns the conversation', async () => {
+    mockSelectWhere.mockResolvedValueOnce([{ id: 'conv-1', userId: 'user-1' }])
+    await setConversationModel('conv-1', 'opus')
+    expect(mockUpdateSet).toHaveBeenCalledWith(expect.objectContaining({ model: 'opus' }))
+  })
+
+  it('rejects an invalid model tier', async () => {
+    await expect(setConversationModel('conv-1', 'gpt5' as unknown as ModelTier)).rejects.toThrow()
+    expect(mockSelect).not.toHaveBeenCalled()
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('throws Unauthorized if unauthenticated', async () => {
+    const { auth } = await import('@/auth')
+    vi.mocked(auth).mockResolvedValueOnce(null as never)
+    await expect(setConversationModel('conv-1', 'sonnet')).rejects.toThrow('Unauthorized')
+  })
+
+  it('throws Forbidden if user does not own conversation', async () => {
+    mockSelectWhere.mockResolvedValueOnce([{ id: 'conv-1', userId: 'other-user' }])
+    await expect(setConversationModel('conv-1', 'sonnet')).rejects.toThrow('Forbidden')
+  })
+
+  it('is a no-op if conversation does not exist', async () => {
+    mockSelectWhere.mockResolvedValueOnce([])
+    await setConversationModel('missing-id', 'sonnet')
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+})
+
 // ── bumpConversationExpiry ────────────────────────────────────────────────────
 describe('bumpConversationExpiry', () => {
   beforeEach(() => {
@@ -211,8 +271,12 @@ describe('getLatestConversation', () => {
   })
 
   it('returns newest non-expired conversation', async () => {
-    mockDbSelectReturning([{ id: 'c1', title: 'Newest' }])
-    await expect(getLatestConversation()).resolves.toEqual({ id: 'c1', title: 'Newest' })
+    mockDbSelectReturning([{ id: 'c1', title: 'Newest', model: 'sonnet' }])
+    await expect(getLatestConversation()).resolves.toEqual({
+      id: 'c1',
+      title: 'Newest',
+      model: 'sonnet',
+    })
   })
 
   it('returns null when none', async () => {
@@ -221,7 +285,7 @@ describe('getLatestConversation', () => {
   })
 
   it('orders by updatedAt desc and limits to 1', async () => {
-    mockDbSelectReturning([{ id: 'c1', title: 'Newest' }])
+    mockDbSelectReturning([{ id: 'c1', title: 'Newest', model: 'sonnet' }])
     await getLatestConversation()
     expect(mockOrderBy).toHaveBeenCalledOnce()
     expect(mockLimit).toHaveBeenCalledWith(1)

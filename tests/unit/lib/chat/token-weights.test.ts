@@ -48,7 +48,7 @@ describe('computeWeightedTokens', () => {
     ).toBe(100 + 50 + 500 + 200)
   })
 
-  it('ceils fractional totals', () => {
+  it('returns the raw fractional total without ceiling (rounding is the caller’s job)', () => {
     expect(
       computeWeightedTokens({
         promptTokens: 0,
@@ -56,6 +56,6 @@ describe('computeWeightedTokens', () => {
         cacheReadTokens: 5,
         cacheWriteTokens: 0,
       }),
-    ).toBe(1)
+    ).toBe(0.5)
   })
 })

@@ -4,8 +4,12 @@ import { SchedulePanel } from './schedule-panel'
 import type { ScheduleState } from './schedule-panel'
 
 vi.mock('@/lib/ui', () => ({
-  WeekCalendarView: ({ events }: { events: unknown[] }) => (
-    <div data-testid="week-calendar" data-event-count={events.length} />
+  WeekCalendarView: ({ events, resyncToken }: { events: unknown[]; resyncToken?: number }) => (
+    <div
+      data-testid="week-calendar"
+      data-event-count={events.length}
+      data-resync-token={resyncToken}
+    />
   ),
 }))
 
@@ -38,6 +42,12 @@ describe('SchedulePanel', () => {
     expect(root).toHaveClass('items-center', 'justify-center')
   })
 
+  it('fills the resizable panel width and height when visible', () => {
+    render(<SchedulePanel state={baseState} />)
+    const root = screen.getByTestId('week-calendar').parentElement?.parentElement
+    expect(root).toHaveClass('h-full', 'w-full')
+  })
+
   it('passes events to WeekCalendarView', () => {
     const events = [
       {
@@ -50,5 +60,10 @@ describe('SchedulePanel', () => {
     ]
     render(<SchedulePanel state={{ ...baseState, events }} />)
     expect(screen.getByTestId('week-calendar')).toHaveAttribute('data-event-count', '1')
+  })
+
+  it('threads resyncToken to WeekCalendarView so events re-seed on change', () => {
+    render(<SchedulePanel state={baseState} resyncToken={7} />)
+    expect(screen.getByTestId('week-calendar')).toHaveAttribute('data-resync-token', '7')
   })
 })

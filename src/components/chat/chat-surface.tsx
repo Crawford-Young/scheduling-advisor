@@ -3,7 +3,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useChat } from 'ai/react'
 import { ChatMessagesPanel } from '@/components/chat/chat-messages-panel'
-import type { AppEvent } from '@/components/chat/tool-result-renderer'
+import type { AppEvent, CreatedEvent, EventProposal } from '@/components/chat/tool-result-renderer'
 import type { ConversationMessage } from '@/server/queries/conversations'
 import { getTokenBalanceAction } from '@/server/actions/tokens'
 import { setConversationTitle } from '@/server/actions/conversations'
@@ -24,7 +24,17 @@ export interface ChatSurfaceProps {
     date?: string,
     time?: string,
   ) => void
+  readonly onEventProposed?: (proposal: EventProposal) => void
+  readonly onEventResolved?: (
+    toolCallId: string,
+    outcome: 'confirmed' | 'denied',
+    created?: CreatedEvent,
+  ) => void
   readonly onEnsureConversation?: () => Promise<{ id: string }>
+  // Proposals carried across the popup → /chat expand handoff, rendered as
+  // actionable cards below the (text-only) message history.
+  readonly carriedProposals?: readonly EventProposal[]
+  readonly inlineDayPreview?: boolean
 }
 
 export function ChatSurface({
@@ -34,7 +44,11 @@ export function ChatSurface({
   prefill,
   onScheduleUpdate,
   onItemConfirmed,
+  onEventProposed,
+  onEventResolved,
   onEnsureConversation,
+  carriedProposals,
+  inlineDayPreview,
 }: ChatSurfaceProps): React.JSX.Element {
   const [tokenBalance, setTokenBalance] = React.useState(initialTokenBalance)
   const [conversationId, setConversationId] = React.useState<string | null>(
@@ -114,6 +128,10 @@ export function ChatSurface({
       append={append}
       onScheduleUpdate={onScheduleUpdate}
       onItemConfirmed={onItemConfirmed}
+      onEventProposed={onEventProposed}
+      onEventResolved={onEventResolved}
+      carriedProposals={carriedProposals}
+      inlineDayPreview={inlineDayPreview}
       inputReplacement={tokenBalance < MIN_TOKEN_BALANCE ? zeroBalanceCta : undefined}
       error={error}
       onRetry={reload}

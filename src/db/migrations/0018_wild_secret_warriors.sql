@@ -1,0 +1,1 @@
+ALTER TABLE "conversations" ADD COLUMN "model" text DEFAULT 'sonnet' NOT NULL;

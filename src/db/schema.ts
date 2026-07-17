@@ -190,6 +190,9 @@ export const conversations = pgTable(
     type: text('type', { enum: ['check_in', 'general'] })
       .notNull()
       .default('general'),
+    model: text('model', { enum: ['sonnet', 'opus'] })
+      .notNull()
+      .default('sonnet'),
     title: text('title'),
     deletedAt: timestamp('deleted_at', { mode: 'date' }),
     expiresAt: timestamp('expires_at', { mode: 'date' })
