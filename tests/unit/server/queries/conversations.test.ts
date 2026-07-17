@@ -34,6 +34,7 @@ const makeConv = (overrides: Record<string, unknown> = {}) => ({
   id: 'conv-1',
   userId: 'user-1',
   type: 'general' as const,
+  model: 'sonnet' as const,
   title: 'Planning session',
   deletedAt: null,
   expiresAt: new Date(Date.now() + 86400000),
@@ -56,6 +57,12 @@ describe('listConversations', () => {
     expect(result[0]!.id).toBe('conv-1')
     expect(result[0]!.type).toBe('general')
     expect(result[0]!.title).toBe('Planning session')
+  })
+
+  it('includes the model tier', async () => {
+    mockConvLimit.mockResolvedValueOnce([makeConv({ model: 'opus' })])
+    const result = await listConversations()
+    expect(result[0]!.model).toBe('opus')
   })
 
   it('includes lastMessagePreview from last message content', async () => {

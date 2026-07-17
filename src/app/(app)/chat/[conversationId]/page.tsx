@@ -41,6 +41,7 @@ export default async function ChatPage({ params }: PageProps): Promise<React.JSX
       conversation={{
         id: conversation.id,
         type: conversation.type,
+        model: conversation.model,
         title: conversation.title,
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,

@@ -38,6 +38,7 @@ const conversations = [
   {
     id: 'conv-1',
     type: 'general' as const,
+    model: 'sonnet' as const,
     title: 'My first chat',
     createdAt: new Date('2026-06-01'),
     updatedAt: new Date('2026-06-01'),
@@ -46,6 +47,7 @@ const conversations = [
   {
     id: 'conv-2',
     type: 'check_in' as const,
+    model: 'sonnet' as const,
     title: null,
     createdAt: new Date('2026-06-02'),
     updatedAt: new Date('2026-06-02'),

@@ -11,6 +11,13 @@ export interface ScheduleState {
 
 export interface SchedulePanelProps {
   readonly state: ScheduleState
+  /**
+   * Identity-changing counter forwarded to `WeekCalendarView.resyncToken`. The
+   * library seeds its internal event state once and only re-seeds from the
+   * `events` prop when this token's identity changes — so every schedule-state
+   * mutation (ghost added/replaced/dropped) must arrive with a fresh token.
+   */
+  readonly resyncToken?: number
 }
 
 function SchedulePanelEmptyState(): React.JSX.Element {
@@ -25,12 +32,18 @@ function SchedulePanelEmptyState(): React.JSX.Element {
   )
 }
 
-export function SchedulePanel({ state }: SchedulePanelProps): React.JSX.Element {
+export function SchedulePanel({ state, resyncToken }: SchedulePanelProps): React.JSX.Element {
   if (!state.visible) return <SchedulePanelEmptyState />
 
   return (
-    <div className="border-border flex h-full flex-col overflow-hidden border-l">
-      <WeekCalendarView defaultWeekStart={state.weekStart} events={state.events} />
+    <div className="border-border flex h-full w-full flex-col overflow-hidden border-l">
+      <div className="min-h-0 w-full flex-1 overflow-auto">
+        <WeekCalendarView
+          defaultWeekStart={state.weekStart}
+          events={state.events}
+          resyncToken={resyncToken}
+        />
+      </div>
     </div>
   )
 }

@@ -2,6 +2,7 @@ import { auth } from '@/auth'
 import { db } from '@/db'
 import { conversations, messages } from '@/db/schema'
 import { eq, and, isNull, gt, desc, asc } from 'drizzle-orm'
+import type { ModelTier } from '@/lib/chat/model-tiers'
 
 export interface ConversationMessage {
   readonly id: string
@@ -39,6 +40,7 @@ export async function getConversationMessages(
 export interface ConversationRow {
   readonly id: string
   readonly type: 'check_in' | 'general'
+  readonly model: ModelTier
   readonly title: string | null
   readonly createdAt: Date
   readonly updatedAt: Date
@@ -79,6 +81,7 @@ export async function listConversations(): Promise<ConversationRow[]> {
     result.push({
       id: row.id,
       type: row.type,
+      model: row.model,
       title: row.title,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

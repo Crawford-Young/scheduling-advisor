@@ -5,6 +5,9 @@ import { ScheduleSuggestion } from '@/components/cards/schedule-suggestion'
 import { ReflectionCard } from '@/components/cards/reflection-card'
 import { LifeBalanceView } from '@/components/cards/life-balance-view'
 import { ActionConfirmCard } from '@/components/chat/action-confirm-card'
+import { EventProposalCard, type RecurrenceFrequency } from '@/components/chat/event-proposal-card'
+import { DayProposalPreview } from '@/components/chat/day-proposal-preview'
+import type { DayOfWeek } from '@/lib/schemas/task'
 import {
   ActivityCard,
   WeekCalendarView,
@@ -105,6 +108,124 @@ const componentMap = {
   showLifeBalance: LifeBalanceView,
 } as const
 
+/** A calendar event Cy proposed via `proposeEvent`, surfaced on card mount. */
+export interface EventProposal {
+  readonly toolCallId: string
+  readonly title: string
+  readonly date: string
+  readonly start: string
+  readonly end: string
+  // Carried across the popup → /chat expand handoff so the re-rendered card keeps
+  // its description line at parity with the popup.
+  readonly description?: string
+  // Present when Cy proposed a recurring series (a single call). The right-panel
+  // ghost still renders the anchor day only (v1); the confirmed series lands from
+  // real rows after createTask's fan-out.
+  readonly recurrence?: RecurrenceFrequency
+  readonly recurrenceDays?: readonly DayOfWeek[]
+  readonly recurrenceCount?: number
+}
+
+/** The calendar row created when an event proposal is confirmed. */
+export interface CreatedEvent {
+  readonly id: string
+  readonly title: string
+  readonly start: string
+  readonly end: string
+}
+
+interface ProposeEventResultProps {
+  readonly toolCallId: string
+  readonly result: {
+    readonly title: string
+    readonly date: string
+    readonly start: string
+    readonly end: string
+    readonly description?: string
+    readonly recurrence?: RecurrenceFrequency
+    readonly recurrenceDays?: readonly DayOfWeek[]
+    readonly recurrenceCount?: number
+  }
+  readonly append?: (message: Pick<Message, 'role' | 'content'>) => void
+  readonly onEventProposed?: (proposal: EventProposal) => void
+  readonly onEventResolved?: (
+    toolCallId: string,
+    outcome: 'confirmed' | 'denied',
+    created?: CreatedEvent,
+  ) => void
+  // Popup-only: slot a DayProposalPreview under the card so the proposal is seen
+  // in the context of the day. The full-page surface renders its own right-panel
+  // preview instead, so it leaves this unset.
+  readonly inlineDayPreview?: boolean
+}
+
+/**
+ * Wraps `EventProposalCard` so the mount-time `onEventProposed` notification and
+ * the `onEventResolved` mapping live where the `toolCallId` is known. The effect
+ * fires once on mount (never during render — unlike the legacy `onScheduleUpdate`
+ * render-time call below, which is not the pattern to copy). Local `previewState`
+ * mirrors the card's internal resolution (ghost → confirmed on confirm, ghost →
+ * removed on deny) to drive the slotted `DayProposalPreview`.
+ */
+export function ProposeEventResult({
+  toolCallId,
+  result,
+  append,
+  onEventProposed,
+  onEventResolved,
+  inlineDayPreview,
+}: ProposeEventResultProps): React.JSX.Element {
+  const { title, date, start, end, description, recurrence, recurrenceDays, recurrenceCount } =
+    result
+  const [previewState, setPreviewState] = React.useState<'ghost' | 'confirmed' | 'removed'>('ghost')
+  React.useEffect(() => {
+    onEventProposed?.({
+      toolCallId,
+      title,
+      date,
+      start,
+      end,
+      description,
+      recurrence,
+      recurrenceDays,
+      recurrenceCount,
+    })
+    // Fire once on mount with the proposal identity; deps intentionally omitted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return (
+    <EventProposalCard
+      title={title}
+      date={date}
+      start={start}
+      end={end}
+      description={description}
+      recurrence={recurrence}
+      recurrenceDays={recurrenceDays}
+      recurrenceCount={recurrenceCount}
+      append={append}
+      onConfirmed={(created) => {
+        setPreviewState('confirmed')
+        onEventResolved?.(toolCallId, 'confirmed', created)
+      }}
+      onDenied={() => {
+        setPreviewState('removed')
+        onEventResolved?.(toolCallId, 'denied')
+      }}
+      preview={
+        inlineDayPreview ? (
+          <DayProposalPreview
+            date={date}
+            proposal={{ title, start, end }}
+            state={previewState}
+            recurrence={recurrence}
+          />
+        ) : undefined
+      }
+    />
+  )
+}
+
 export interface ToolResultRendererProps {
   readonly toolInvocation: ToolInvocation & { state: 'result' }
   readonly append?: (message: Pick<Message, 'role' | 'content'>) => void
@@ -115,6 +236,13 @@ export interface ToolResultRendererProps {
     date?: string,
     time?: string,
   ) => void
+  readonly onEventProposed?: (proposal: EventProposal) => void
+  readonly onEventResolved?: (
+    toolCallId: string,
+    outcome: 'confirmed' | 'denied',
+    created?: CreatedEvent,
+  ) => void
+  readonly inlineDayPreview?: boolean
 }
 
 export function ToolResultRenderer({
@@ -122,6 +250,9 @@ export function ToolResultRenderer({
   append,
   onScheduleUpdate,
   onItemConfirmed,
+  onEventProposed,
+  onEventResolved,
+  inlineDayPreview,
 }: ToolResultRendererProps) {
   if (toolInvocation.toolName === 'showWeekCalendar') {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -147,6 +278,20 @@ export function ToolResultRenderer({
         onDeny={(reason: string) => {
           append?.({ role: 'user', content: reason ? `[DENY] reason: ${reason}` : '[DENY]' })
         }}
+      />
+    )
+  }
+
+  if (toolInvocation.toolName === 'proposeEvent') {
+    const result = toolInvocation.result as ProposeEventResultProps['result']
+    return (
+      <ProposeEventResult
+        toolCallId={toolInvocation.toolCallId}
+        result={result}
+        append={append}
+        onEventProposed={onEventProposed}
+        onEventResolved={onEventResolved}
+        inlineDayPreview={inlineDayPreview}
       />
     )
   }

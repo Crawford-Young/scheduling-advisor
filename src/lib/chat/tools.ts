@@ -25,6 +25,7 @@ export const CHAT_TOOL_NAMES = [
   'showWeekCalendar',
   'showLifeBalance',
   'proposeAction',
+  'proposeEvent',
   'markItemComplete',
   'markItemSkipped',
   'rescheduleItem',
@@ -199,6 +200,25 @@ export function buildChatTools(userId: string): ChatToolSet {
         time: z.string().optional(),
         detail: z.string().optional(),
       }),
+      execute: async (props) => props,
+    }),
+    proposeEvent: tool({
+      description:
+        'Propose a calendar event for user approval. ALWAYS use this for calendar events instead of proposeAction/createCalendarEvent. Renders an approval card with a day preview. The event is created only after the user approves. For a repeated/recurring request ("every weekday", "daily for a month"), make ONE call with the recurrence fields — NEVER multiple proposeEvent calls for individual occurrences. Set `recurrence` to daily/weekly/monthly. recurrenceCount: for weekly = number of WEEKS the pattern repeats; for daily = number of days; for monthly = number of months. Use recurrenceDays only for weekly. `date` is the first occurrence.',
+      parameters: z
+        .object({
+          title: z.string().min(1),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          start: z.string().regex(/^\d{2}:\d{2}$/),
+          end: z.string().regex(/^\d{2}:\d{2}$/),
+          description: z.string().optional(),
+          recurrence: z.enum(['daily', 'weekly', 'monthly']).optional(),
+          recurrenceDays: z
+            .array(z.enum(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']))
+            .optional(),
+          recurrenceCount: z.number().int().min(2).max(52).optional(),
+        })
+        .refine((v) => v.end > v.start, { message: 'end must be after start' }),
       execute: async (props) => props,
     }),
     // ── Mutation tools (only after [CONFIRM]) ───────────────────────────────

@@ -1,17 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
-const { mockInsertValues, mockInsert, mockSelect, mockFindFirst } = vi.hoisted(() => {
-  const mockInsertValues = vi.fn().mockResolvedValue([])
-  const mockInsert = vi.fn().mockReturnValue({ values: mockInsertValues })
-  const mockLimit = vi.fn().mockResolvedValue([])
-  const mockOrderBy = vi.fn().mockReturnValue({ limit: mockLimit })
-  const mockSelectWhere = vi.fn().mockReturnValue({ orderBy: mockOrderBy })
-  const mockFrom = vi.fn().mockReturnValue({ where: mockSelectWhere })
-  const mockSelect = vi.fn().mockReturnValue({ from: mockFrom })
-  const mockFindFirst = vi.fn()
-  return { mockInsertValues, mockInsert, mockSelect, mockFindFirst }
-})
+const { mockInsertValues, mockInsert, mockSelect, mockFindFirst, mockConvWhere, mockLimit } =
+  vi.hoisted(() => {
+    const mockInsertValues = vi.fn().mockResolvedValue([])
+    const mockInsert = vi.fn().mockReturnValue({ values: mockInsertValues })
+    const mockLimit = vi.fn().mockResolvedValue([])
+    const mockOrderBy = vi.fn().mockReturnValue({ limit: mockLimit })
+    const mockSelectWhere = vi.fn().mockReturnValue({ orderBy: mockOrderBy })
+    const mockFrom = vi.fn().mockReturnValue({ where: mockSelectWhere })
+    // The ownership-guard/tier fetch is a projected select awaited directly (no orderBy chain);
+    // the history fetch is an un-projected select. Branch on the projection argument.
+    const mockConvWhere = vi.fn().mockResolvedValue([{ model: 'sonnet' }])
+    const mockConvFrom = vi.fn().mockReturnValue({ where: mockConvWhere })
+    const mockSelect = vi.fn((projection?: unknown) =>
+      projection ? { from: mockConvFrom } : { from: mockFrom },
+    )
+    const mockFindFirst = vi.fn()
+    return { mockInsertValues, mockInsert, mockSelect, mockFindFirst, mockConvWhere, mockLimit }
+  })
 
 vi.mock('@/auth', () => ({ auth: vi.fn() }))
 vi.mock('@/db', () => ({
@@ -21,8 +28,14 @@ vi.mock('@/db', () => ({
     select: mockSelect,
   },
 }))
-vi.mock('@/db/schema', () => ({ users: {}, messages: {} }))
-vi.mock('@/lib/ai', () => ({ advisorModel: 'fake-model', quickModel: 'fake-quick' }))
+vi.mock('@/db/schema', () => ({ users: {}, messages: {}, conversations: { model: {} } }))
+vi.mock('@/lib/ai', () => ({ quickModel: 'fake-quick' }))
+vi.mock('@/lib/chat/model-tiers', () => ({
+  MODEL_TIERS: {
+    sonnet: { tier: 'sonnet', model: 'fake-model', multiplier: 1, label: 'Sonnet' },
+    opus: { tier: 'opus', model: 'fake-opus', multiplier: 2, label: 'Opus' },
+  },
+}))
 vi.mock('@/server/actions/conversations', () => ({
   bumpConversationExpiry: vi.fn().mockResolvedValue(undefined),
 }))
@@ -70,11 +83,12 @@ vi.mock('@/server/actions/items', () => ({
   updateItem: vi.fn().mockResolvedValue({}),
 }))
 vi.mock('@/lib/logger', () => ({ logger: { error: vi.fn(), info: vi.fn() } }))
-vi.mock('drizzle-orm', () => ({ eq: vi.fn(), desc: vi.fn() }))
+vi.mock('drizzle-orm', () => ({ eq: vi.fn(), desc: vi.fn(), and: vi.fn(), isNull: vi.fn() }))
 
 import { auth } from '@/auth'
 import { ratelimit } from '@/lib/redis'
 import { streamText } from 'ai'
+import { logger } from '@/lib/logger'
 import { POST } from '@/app/api/chat/route'
 
 const VALID_UUID = '123e4567-e89b-12d3-a456-426614174000'
@@ -222,6 +236,100 @@ describe('POST /api/chat', () => {
     expect(deductTokens).toHaveBeenCalledWith('u1', 1280)
   })
 
+  it('returns 403 and inserts no message when the conversation is not owned by the user', async () => {
+    mockAuthed()
+    // Foreign conversation: the userId-scoped ownership query returns no row.
+    mockConvWhere.mockResolvedValueOnce([])
+    const res = await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: CONVO_ID }),
+    )
+    expect(res.status).toBe(403)
+    expect(await res.json()).toMatchObject({ error: 'Not found' })
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('returns 403 when the conversation is missing or soft-deleted', async () => {
+    mockAuthed()
+    // Missing / deletedAt-set conversation: the isNull(deletedAt) query returns no row.
+    mockConvWhere.mockResolvedValueOnce([])
+    const res = await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: CONVO_ID }),
+    )
+    expect(res.status).toBe(403)
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('persisted: a legacy haiku row falls back to Sonnet ×1 (model + billing + tier)', async () => {
+    mockAuthed()
+    // 'haiku' was removed as a tier; a pre-existing row must degrade to Sonnet ×1
+    // rather than leaving tierConfig undefined.
+    mockConvWhere.mockResolvedValueOnce([{ model: 'haiku' }])
+    const { deductTokens } = await import('@/server/queries/tokens')
+    await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: CONVO_ID }),
+    )
+    const args = vi.mocked(streamText).mock.calls[0]![0]
+    expect(args.model as unknown as string).toBe('fake-model')
+    await args.onFinish!({
+      response: { messages: [] },
+      usage: { promptTokens: 1000, completionTokens: 200 },
+      providerMetadata: { anthropic: { cacheReadInputTokens: 800 } },
+    } as never)
+    // raw = 1000 + 200 + 800*0.1 = 1280; ceil(1280 * 1) = 1280
+    expect(deductTokens).toHaveBeenCalledWith('u1', 1280)
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ weighted: 1280, tier: 'sonnet' }),
+      'chat token usage',
+    )
+  })
+
+  it('persisted: opus tier resolves the opus model and bills raw×2 (single ceil)', async () => {
+    mockAuthed()
+    mockConvWhere.mockResolvedValueOnce([{ model: 'opus' }])
+    const { deductTokens } = await import('@/server/queries/tokens')
+    await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: CONVO_ID }),
+    )
+    const args = vi.mocked(streamText).mock.calls[0]![0]
+    expect(args.model as unknown as string).toBe('fake-opus')
+    await args.onFinish!({
+      response: { messages: [] },
+      usage: { promptTokens: 1000, completionTokens: 200 },
+      providerMetadata: { anthropic: { cacheReadInputTokens: 800 } },
+    } as never)
+    // raw = 1280; ceil(1280 * 2) = 2560
+    expect(deductTokens).toHaveBeenCalledWith('u1', 2560)
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ weighted: 2560, tier: 'opus' }),
+      'chat token usage',
+    )
+  })
+
+  it('quick-schedule lane keeps mode.model, multiplier 1, null tier, and never fetches a row', async () => {
+    mockAuthed()
+    const { deductTokens } = await import('@/server/queries/tokens')
+    await POST(
+      makeRequest({
+        messages: [{ role: 'user', content: 'date 6pm a month from now' }],
+        mode: 'quick-schedule',
+      }),
+    )
+    expect(mockConvWhere).not.toHaveBeenCalled()
+    const args = vi.mocked(streamText).mock.calls[0]![0]
+    expect(args.model as unknown as string).toBe('fake-quick')
+    await args.onFinish!({
+      response: { messages: [] },
+      usage: { promptTokens: 1000, completionTokens: 200 },
+      providerMetadata: {},
+    } as never)
+    // raw = 1200; ceil(1200 * 1) = 1200
+    expect(deductTokens).toHaveBeenCalledWith('u1', 1200)
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ weighted: 1200, tier: null }),
+      'chat token usage',
+    )
+  })
+
   it('persists incoming user message before streaming', async () => {
     vi.mocked(auth).mockResolvedValue({ user: { id: 'u1', plan: 'pro' } } as never)
     mockFindFirst.mockResolvedValueOnce({ timezone: 'UTC' })
@@ -232,5 +340,177 @@ describe('POST /api/chat', () => {
     expect(mockInsertValues).toHaveBeenCalledWith(
       expect.objectContaining({ role: 'user', content: 'hello', conversationId: VALID_UUID }),
     )
+  })
+
+  it('onFinish persists assistant TEXT only, stripping proposeEvent tool blocks', async () => {
+    mockAuthed()
+    await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: CONVO_ID }),
+    )
+    const args = vi.mocked(streamText).mock.calls[0]![0]
+    mockInsertValues.mockClear()
+    await args.onFinish!({
+      response: {
+        messages: [
+          {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool-call',
+                toolCallId: 't1',
+                toolName: 'proposeEvent',
+                args: { title: 'x' },
+              },
+            ],
+          },
+          { role: 'tool', content: [{ type: 'tool-result', toolCallId: 't1', result: {} }] },
+          { role: 'assistant', content: [{ type: 'text', text: 'Here is the proposed event' }] },
+        ],
+      },
+      usage: undefined,
+    } as never)
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'assistant',
+        content: 'Here is the proposed event',
+        conversationId: CONVO_ID,
+      }),
+    )
+  })
+
+  it('onFinish persists NO assistant row when the response is all tool blocks (no text)', async () => {
+    mockAuthed()
+    await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: CONVO_ID }),
+    )
+    const args = vi.mocked(streamText).mock.calls[0]![0]
+    mockInsertValues.mockClear()
+    await args.onFinish!({
+      response: {
+        messages: [
+          {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool-call',
+                toolCallId: 't1',
+                toolName: 'proposeEvent',
+                args: { title: 'x' },
+              },
+            ],
+          },
+          { role: 'tool', content: [{ type: 'tool-result', toolCallId: 't1', result: {} }] },
+        ],
+      },
+      usage: undefined,
+    } as never)
+    expect(mockInsertValues).not.toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'assistant' }),
+    )
+  })
+
+  it('replay normalizes a legacy structured assistant row to clean text', async () => {
+    mockAuthed()
+    // Supplied newest-first (matches orderBy(desc)): a preceding user turn keeps
+    // the legacy assistant row from being the leading turn — realistic, since
+    // production history always has the just-inserted current user message
+    // ahead of any earlier row in the chronological order.
+    mockLimit.mockResolvedValueOnce([
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool-call', toolCallId: 't1', toolName: 'proposeEvent', args: {} },
+          { type: 'text', text: 'hi' },
+        ],
+      },
+      { role: 'user', content: 'earlier' },
+    ])
+    await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'follow up' }], conversationId: CONVO_ID }),
+    )
+    const args = vi.mocked(streamText).mock.calls[0]![0]
+    const turns = (args.messages as Array<{ role: string; content: unknown }>).filter(
+      (m) => m.role !== 'system',
+    )
+    expect(turns).toContainEqual({ role: 'assistant', content: 'hi' })
+  })
+
+  it('replay drops an empty-extracted legacy tool-only row and coalesces the bracketing same-role turns', async () => {
+    mockAuthed()
+    // History is fetched desc(createdAt) then reversed to chronological order,
+    // so supply it newest-first: replay must see user 'hi' → tool-only → user 'again'.
+    // The middle assistant row is 100% tool blocks (legacy) → extracts to '' → dropped,
+    // which would leave the two user turns adjacent unless they coalesce.
+    mockLimit.mockResolvedValueOnce([
+      { role: 'user', content: 'again' },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool-call', toolCallId: 't1', toolName: 'getCalendarEvents', args: {} }],
+      },
+      { role: 'user', content: 'hi' },
+    ])
+    await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'follow up' }], conversationId: CONVO_ID }),
+    )
+    const args = vi.mocked(streamText).mock.calls[0]![0]
+    const turns = (args.messages as Array<{ role: string; content: string }>).filter(
+      (m) => m.role !== 'system',
+    )
+    // No empty-content turn survives, and the bracketing user turns coalesce into one.
+    expect(turns.every((t) => t.content !== '')).toBe(true)
+    expect(turns).toEqual([{ role: 'user', content: 'hi\nagain' }])
+  })
+
+  it('replay leaves normal alternating turns unchanged (no accidental coalescing)', async () => {
+    mockAuthed()
+    mockLimit.mockResolvedValueOnce([
+      { role: 'user', content: 'u2' },
+      { role: 'assistant', content: 'a1' },
+      { role: 'user', content: 'u1' },
+    ])
+    await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'follow up' }], conversationId: CONVO_ID }),
+    )
+    const args = vi.mocked(streamText).mock.calls[0]![0]
+    const turns = (args.messages as Array<{ role: string; content: string }>).filter(
+      (m) => m.role !== 'system',
+    )
+    expect(turns).toEqual([
+      { role: 'user', content: 'u1' },
+      { role: 'assistant', content: 'a1' },
+      { role: 'user', content: 'u2' },
+    ])
+  })
+
+  it('replay drops a leading assistant turn so the first turn is always user (Anthropic 400s otherwise)', async () => {
+    mockAuthed()
+    // Supplied newest-first (matches orderBy(desc)): after .reverse() the
+    // chronological order is assistant 'a1' then user 'u2' — simulating a
+    // truncated history window that begins mid-conversation on an assistant turn.
+    mockLimit.mockResolvedValueOnce([
+      { role: 'user', content: 'u2' },
+      { role: 'assistant', content: 'a1' },
+    ])
+    await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'follow up' }], conversationId: CONVO_ID }),
+    )
+    const args = vi.mocked(streamText).mock.calls[0]![0]
+    const turns = (args.messages as Array<{ role: string; content: string }>).filter(
+      (m) => m.role !== 'system',
+    )
+    expect(turns).toEqual([{ role: 'user', content: 'u2' }])
+  })
+
+  it('replay drains an all-assistant history window to an empty turns array', async () => {
+    mockAuthed()
+    mockLimit.mockResolvedValueOnce([{ role: 'assistant', content: 'stray' }])
+    await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'follow up' }], conversationId: CONVO_ID }),
+    )
+    const args = vi.mocked(streamText).mock.calls[0]![0]
+    const turns = (args.messages as Array<{ role: string; content: string }>).filter(
+      (m) => m.role !== 'system',
+    )
+    expect(turns).toEqual([])
   })
 })

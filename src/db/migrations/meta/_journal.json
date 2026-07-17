@@ -127,6 +127,13 @@
       "when": 1784066397125,
       "tag": "0017_illegal_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1784321943552,
+      "tag": "0018_wild_secret_warriors",
+      "breakpoints": true
     }
   ]
 }

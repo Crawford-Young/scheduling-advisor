@@ -42,6 +42,10 @@ let capturedOnScheduleUpdate: ((weekStart: string, events: readonly AppEvent[]) 
 let capturedOnItemConfirmed:
   | ((action: string, entityType: 'habit' | 'goal' | 'event', date?: string, time?: string) => void)
   | undefined
+let capturedOnEventProposed: unknown
+let capturedOnEventResolved: unknown
+let capturedInlineDayPreview: unknown
+let capturedCarriedProposals: unknown
 
 vi.mock('@/components/chat/chat-messages-panel', () => ({
   ChatMessagesPanel: ({
@@ -49,6 +53,10 @@ vi.mock('@/components/chat/chat-messages-panel', () => ({
     handleSubmit,
     onScheduleUpdate,
     onItemConfirmed,
+    onEventProposed,
+    onEventResolved,
+    carriedProposals,
+    inlineDayPreview,
     inputReplacement,
     error,
     onRetry,
@@ -62,6 +70,10 @@ vi.mock('@/components/chat/chat-messages-panel', () => ({
       date?: string,
       time?: string,
     ) => void
+    onEventProposed?: unknown
+    onEventResolved?: unknown
+    carriedProposals?: unknown
+    inlineDayPreview?: boolean
     inputReplacement?: React.ReactNode
     error?: Error
     onRetry?: () => void
@@ -69,6 +81,10 @@ vi.mock('@/components/chat/chat-messages-panel', () => ({
     capturedPanelSubmit = handleSubmit
     capturedOnScheduleUpdate = onScheduleUpdate
     capturedOnItemConfirmed = onItemConfirmed
+    capturedOnEventProposed = onEventProposed
+    capturedOnEventResolved = onEventResolved
+    capturedCarriedProposals = carriedProposals
+    capturedInlineDayPreview = inlineDayPreview
     return (
       <div data-testid="messages-panel">
         {messages.map((m) => (
@@ -110,6 +126,8 @@ describe('ChatSurface', () => {
     useChatError = undefined
     capturedOnFinish = undefined
     capturedHookBody = undefined
+    capturedInlineDayPreview = undefined
+    capturedCarriedProposals = undefined
     setInputMock.mockClear()
     handleSubmitMock.mockClear()
     reloadMock.mockClear()
@@ -407,5 +425,70 @@ describe('ChatSurface', () => {
     capturedOnItemConfirmed?.('Run', 'habit')
     expect(onScheduleUpdate).toHaveBeenCalledWith('2026-06-02', [])
     expect(onItemConfirmed).toHaveBeenCalledWith('Run', 'habit')
+  })
+
+  it('passes the event-proposal callbacks through to the panel', () => {
+    const onEventProposed = vi.fn()
+    const onEventResolved = vi.fn()
+    render(
+      <ChatSurface
+        conversation={existingConversation}
+        initialMessages={initialMessages}
+        initialTokenBalance={50}
+        onEventProposed={onEventProposed}
+        onEventResolved={onEventResolved}
+      />,
+    )
+    expect(capturedOnEventProposed).toBe(onEventProposed)
+    expect(capturedOnEventResolved).toBe(onEventResolved)
+  })
+
+  it('forwards inlineDayPreview to the panel', () => {
+    render(
+      <ChatSurface
+        conversation={existingConversation}
+        initialMessages={initialMessages}
+        initialTokenBalance={50}
+        inlineDayPreview
+      />,
+    )
+    expect(capturedInlineDayPreview).toBe(true)
+  })
+
+  it('leaves inlineDayPreview undefined when not set', () => {
+    render(
+      <ChatSurface
+        conversation={existingConversation}
+        initialMessages={initialMessages}
+        initialTokenBalance={50}
+      />,
+    )
+    expect(capturedInlineDayPreview).toBeUndefined()
+  })
+
+  it('forwards carriedProposals to the panel', () => {
+    const carried = [
+      { toolCallId: 'call-1', title: 'Dentist', date: '2026-06-03', start: '14:00', end: '15:00' },
+    ]
+    render(
+      <ChatSurface
+        conversation={existingConversation}
+        initialMessages={initialMessages}
+        initialTokenBalance={50}
+        carriedProposals={carried}
+      />,
+    )
+    expect(capturedCarriedProposals).toBe(carried)
+  })
+
+  it('leaves carriedProposals undefined when not set', () => {
+    render(
+      <ChatSurface
+        conversation={existingConversation}
+        initialMessages={initialMessages}
+        initialTokenBalance={50}
+      />,
+    )
+    expect(capturedCarriedProposals).toBeUndefined()
   })
 })

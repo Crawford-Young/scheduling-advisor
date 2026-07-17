@@ -11,15 +11,17 @@ vi.mock('@ai-sdk/anthropic', () => ({
 vi.mock('@/env', () => ({ env: { ANTHROPIC_API_KEY: 'test-key' } }))
 
 describe('ai models', () => {
-  it('exposes advisor (sonnet) and quick (haiku) models', async () => {
-    const { advisorModel, quickModel } = await import('@/lib/ai')
-    expect((advisorModel as { modelId: string }).modelId).toBe('claude-sonnet-4-6')
+  it('exposes tierModels (sonnet/opus) and the standalone quick (haiku) model', async () => {
+    const { tierModels, quickModel } = await import('@/lib/ai')
+    expect((tierModels.sonnet as { modelId: string }).modelId).toBe('claude-sonnet-4-6')
+    expect((tierModels.opus as { modelId: string }).modelId).toBe('claude-opus-4-8')
     expect((quickModel as { modelId: string }).modelId).toBe('claude-haiku-4-5')
   })
 
-  it('enables provider cacheControl on both models (required for cache_control passthrough and cache token reporting)', async () => {
+  it('enables provider cacheControl on every model (required for cache_control passthrough and cache token reporting)', async () => {
     await import('@/lib/ai')
-    expect(modelFactory).toHaveBeenCalledWith('claude-sonnet-4-6', { cacheControl: true })
     expect(modelFactory).toHaveBeenCalledWith('claude-haiku-4-5', { cacheControl: true })
+    expect(modelFactory).toHaveBeenCalledWith('claude-sonnet-4-6', { cacheControl: true })
+    expect(modelFactory).toHaveBeenCalledWith('claude-opus-4-8', { cacheControl: true })
   })
 })
