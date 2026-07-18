@@ -2,6 +2,7 @@ import { auth, signOut } from '@/auth'
 import { redirect } from 'next/navigation'
 import { AppShell, Avatar, AvatarFallback, AvatarImage, Sidebar, Toaster } from '@/lib/ui'
 import { ActiveSidebarItem } from '@/components/layout/active-sidebar-item'
+import { BrandMark } from '@/components/layout/brand-mark'
 import { TokenChipLive } from '@/components/layout/token-chip-live'
 import { QuickScheduleInput } from '@/components/chat/quick-schedule-input'
 import { ChatPopup } from '@/components/chat/chat-popup'
@@ -57,7 +58,7 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
         height={28}
         className="shrink-0 rounded-lg"
       />
-      <span className="text-foreground text-sm font-bold">Cybond</span>
+      <BrandMark />
     </div>
   )
 
