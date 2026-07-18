@@ -5,3 +5,55 @@
 
 /* Import component library design tokens (CSS variables for colors, radius, etc.) */
 @import '@crawfordyoung/ui/styles.css';
+
+/* Route + reveal view transitions — motion.md §3/§5. Library styles.css sets
+   the 600ms hero default for the splash morph; routes override to base. */
+@supports (view-transition-name: none) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: var(--motion-base);
+    animation-timing-function: var(--ease-in-out);
+  }
+
+  /* Skeleton → content handoff (Suspense reveals): old leaves fast, new
+     arrives after it — motion.md §5 Pattern 1 crossfade. */
+  ::view-transition-old(.reveal-exit) {
+    animation: var(--motion-fast) var(--ease-exit) both vt-fade-out;
+  }
+  ::view-transition-new(.reveal-enter) {
+    animation: var(--motion-base) var(--ease-out) var(--motion-fast) both vt-fade-in;
+  }
+}
+
+/* Cross-document fallback: any residual full-page nav (OAuth return, MPA
+   edges) still crossfades in supporting browsers. */
+@view-transition {
+  navigation: auto;
+}
+
+@keyframes vt-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes vt-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
