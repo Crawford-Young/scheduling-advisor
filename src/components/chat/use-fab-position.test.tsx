@@ -1,11 +1,12 @@
 import * as React from 'react'
 import { render, screen, fireEvent, act } from '@testing-library/react'
-import { describe, expect, it, beforeEach, vi } from 'vitest'
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import {
   useFabPosition,
   DRAG_THRESHOLD_PX,
   FAB_PADDING_PX,
   FAB_TOP_PADDING_PX,
+  BAR_GAP_PX,
   type FabPosition,
 } from './use-fab-position'
 
@@ -13,6 +14,8 @@ const VIEWPORT_WIDTH = 1024
 const VIEWPORT_HEIGHT = 768
 const FAB_SIZE = 56
 const STORAGE_KEY = 'chat-fab-position'
+const SIDEBAR_WIDTH = 256
+const COLLAPSED_SIDEBAR_WIDTH = 56
 
 // Default (never-dragged) fab sits at the bottom-right corner with 24px padding.
 const DEFAULT_FAB_LEFT = VIEWPORT_WIDTH - FAB_SIZE - FAB_PADDING_PX // 944
@@ -25,6 +28,55 @@ function setViewport(width: number, height: number): void {
 
 function storePosition(position: FabPosition): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(position))
+}
+
+// happy-dom lays out nothing, so the sidebar's measured width is mocked; the
+// hook only reads getBoundingClientRect().width.
+function mountSidebar(width: number): HTMLElement {
+  const aside = document.createElement('aside')
+  aside.setAttribute('aria-label', 'Main sidebar')
+  setSidebarWidth(aside, width)
+  document.body.appendChild(aside)
+  return aside
+}
+
+function setSidebarWidth(aside: HTMLElement, width: number): void {
+  aside.getBoundingClientRect = () => ({ width }) as DOMRect
+}
+
+// happy-dom's ResizeObserver never fires (no layout), so the observer contract
+// is exercised through this mock: tests trigger the callback manually after
+// changing the mocked sidebar width.
+class MockResizeObserver {
+  static instances: MockResizeObserver[] = []
+  readonly targets: Element[] = []
+  disconnected = false
+  private readonly callback: ResizeObserverCallback
+
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback
+    MockResizeObserver.instances.push(this)
+  }
+
+  observe(objectTarget: Element): void {
+    this.targets.push(objectTarget)
+  }
+
+  unobserve(): void {}
+
+  disconnect(): void {
+    this.disconnected = true
+  }
+
+  trigger(): void {
+    this.callback([], this as unknown as ResizeObserver)
+  }
+}
+
+function firstObserver(): MockResizeObserver {
+  const observer = MockResizeObserver.instances[0]
+  if (!observer) throw new Error('no ResizeObserver was constructed')
+  return observer
 }
 
 function Harness(): React.JSX.Element {
@@ -91,6 +143,10 @@ describe('useFabPosition', () => {
     setViewport(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
   })
 
+  afterEach(() => {
+    document.querySelectorAll('aside[aria-label="Main sidebar"]').forEach((aside) => aside.remove())
+  })
+
   describe('default (no stored position)', () => {
     it('renders no inline fab or panel style so the CSS-class placement is used', () => {
       render(<Harness />)
@@ -111,10 +167,11 @@ describe('useFabPosition', () => {
 
       // First render must not depend on localStorage -> matches SSR default.
       expect(renders[0]).toBeUndefined()
-      // After the mount effect flushes, the stored left-edge position is applied.
+      // After the mount effect flushes, the stored left-edge position is applied
+      // (no sidebar in the test DOM, so the left boundary is just the bar gap).
       expect(renders[renders.length - 1]).toMatchObject({
         position: 'fixed',
-        left: FAB_PADDING_PX,
+        left: BAR_GAP_PX,
       })
     })
   })
@@ -123,10 +180,10 @@ describe('useFabPosition', () => {
     it('places the fab at the left edge from a stored left position', () => {
       storePosition({ edge: 'left', offset: 0 })
       render(<Harness />)
-      // offset 0 sits at the top clearance (80), clearing the 48px app topbar.
+      // offset 0 sits at the top clearance (56), just clear of the 48px topbar.
       expect(fabStyleNow()).toMatchObject({
         position: 'fixed',
-        left: FAB_PADDING_PX,
+        left: BAR_GAP_PX,
         top: FAB_TOP_PADDING_PX,
       })
     })
@@ -140,15 +197,118 @@ describe('useFabPosition', () => {
     it('places the fab at the top edge clear of the app topbar', () => {
       storePosition({ edge: 'top', offset: 0 })
       render(<Harness />)
-      // The top edge pins at FAB_TOP_PADDING_PX (72), NOT FAB_PADDING_PX (24),
-      // so the fab never overlaps the 48px fixed app topbar / token chip.
-      expect(fabStyleNow()).toMatchObject({ left: FAB_PADDING_PX, top: FAB_TOP_PADDING_PX })
+      // The top edge pins at FAB_TOP_PADDING_PX (48px topbar + BAR_GAP_PX), NOT
+      // FAB_PADDING_PX (24), so the fab never overlaps the fixed app topbar.
+      expect(fabStyleNow()).toMatchObject({ left: BAR_GAP_PX, top: FAB_TOP_PADDING_PX })
     })
 
     it('places the fab at the bottom edge from a stored bottom position', () => {
       storePosition({ edge: 'bottom', offset: 1 })
       render(<Harness />)
       expect(fabStyleNow()).toMatchObject({ left: DEFAULT_FAB_LEFT, top: DEFAULT_FAB_TOP })
+    })
+  })
+
+  describe('sidebar-aware left boundary', () => {
+    it('places a left-edge fab just clear of the expanded sidebar', () => {
+      mountSidebar(SIDEBAR_WIDTH)
+      storePosition({ edge: 'left', offset: 0 })
+      render(<Harness />)
+      expect(fabStyleNow()).toMatchObject({
+        left: SIDEBAR_WIDTH + BAR_GAP_PX,
+        top: FAB_TOP_PADDING_PX,
+      })
+    })
+
+    it('anchors a left-half panel just clear of the sidebar and topbar', () => {
+      mountSidebar(SIDEBAR_WIDTH)
+      storePosition({ edge: 'left', offset: 0 })
+      render(<Harness />)
+      expect(panelStyleNow()).toMatchObject({
+        position: 'fixed',
+        left: SIDEBAR_WIDTH + BAR_GAP_PX,
+        top: FAB_TOP_PADDING_PX,
+      })
+    })
+
+    it('clamps a live drag at the sidebar boundary, not the viewport edge', () => {
+      mountSidebar(SIDEBAR_WIDTH)
+      storePosition({ edge: 'right', offset: 0.5 })
+      render(<Harness />)
+      pointerDown(DEFAULT_FAB_LEFT, 356)
+      pointerMove(-500, 400)
+      expect(fabStyleNow()).toMatchObject({ left: SIDEBAR_WIDTH + BAR_GAP_PX })
+    })
+
+    it('follows a sidebar collapse/expand live via ResizeObserver', () => {
+      vi.stubGlobal('ResizeObserver', MockResizeObserver)
+      MockResizeObserver.instances = []
+      const aside = mountSidebar(SIDEBAR_WIDTH)
+      storePosition({ edge: 'left', offset: 0 })
+      render(<Harness />)
+      expect(fabStyleNow()).toMatchObject({ left: SIDEBAR_WIDTH + BAR_GAP_PX })
+
+      const observer = firstObserver()
+      expect(observer.targets).toContain(aside)
+
+      // Collapse: the parked fab and its open panel both slide in with the bar.
+      act(() => {
+        setSidebarWidth(aside, COLLAPSED_SIDEBAR_WIDTH)
+        observer.trigger()
+      })
+      expect(fabStyleNow()).toMatchObject({ left: COLLAPSED_SIDEBAR_WIDTH + BAR_GAP_PX })
+      expect(panelStyleNow()).toMatchObject({ left: COLLAPSED_SIDEBAR_WIDTH + BAR_GAP_PX })
+
+      // Expand: back out.
+      act(() => {
+        setSidebarWidth(aside, SIDEBAR_WIDTH)
+        observer.trigger()
+      })
+      expect(fabStyleNow()).toMatchObject({ left: SIDEBAR_WIDTH + BAR_GAP_PX })
+      vi.unstubAllGlobals()
+    })
+
+    it('disconnects the sidebar observer on unmount', () => {
+      vi.stubGlobal('ResizeObserver', MockResizeObserver)
+      MockResizeObserver.instances = []
+      mountSidebar(SIDEBAR_WIDTH)
+      const { unmount } = render(<Harness />)
+      unmount()
+      expect(firstObserver().disconnected).toBe(true)
+      vi.unstubAllGlobals()
+    })
+
+    it('creates no observer when no sidebar exists', () => {
+      vi.stubGlobal('ResizeObserver', MockResizeObserver)
+      MockResizeObserver.instances = []
+      render(<Harness />)
+      expect(MockResizeObserver.instances).toHaveLength(0)
+      vi.unstubAllGlobals()
+    })
+
+    it('still measures once when ResizeObserver is unavailable', () => {
+      vi.stubGlobal('ResizeObserver', undefined)
+      mountSidebar(SIDEBAR_WIDTH)
+      storePosition({ edge: 'left', offset: 0 })
+      render(<Harness />)
+      expect(fabStyleNow()).toMatchObject({ left: SIDEBAR_WIDTH + BAR_GAP_PX })
+      vi.unstubAllGlobals()
+    })
+
+    it('re-measures the sidebar on pointer-down so a collapsed sidebar frees the space', () => {
+      const aside = mountSidebar(SIDEBAR_WIDTH)
+      storePosition({ edge: 'left', offset: 0.5 })
+      render(<Harness />)
+      expect(fabStyleNow()).toMatchObject({ left: SIDEBAR_WIDTH + BAR_GAP_PX })
+
+      setSidebarWidth(aside, COLLAPSED_SIDEBAR_WIDTH)
+      pointerDown(SIDEBAR_WIDTH + BAR_GAP_PX, 400)
+      pointerMove(-500, 400)
+      pointerUp(-500, 400)
+
+      const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? 'null') as FabPosition
+      expect(stored.edge).toBe('left')
+      expect(fabStyleNow()).toMatchObject({ left: COLLAPSED_SIDEBAR_WIDTH + BAR_GAP_PX })
     })
   })
 
@@ -205,10 +365,12 @@ describe('useFabPosition', () => {
     it('flips the panel to open down-right when the fab is at the top-left', () => {
       storePosition({ edge: 'left', offset: 0 })
       render(<Harness />)
+      // Top anchors at the topbar clearance, not the 24px padding -- the panel
+      // must never slide under the 48px app topbar.
       expect(panelStyleNow()).toMatchObject({
         position: 'fixed',
-        left: FAB_PADDING_PX,
-        top: FAB_PADDING_PX,
+        left: BAR_GAP_PX,
+        top: FAB_TOP_PADDING_PX,
       })
     })
   })
@@ -226,13 +388,13 @@ describe('useFabPosition', () => {
 
       const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? 'null') as FabPosition
       expect(stored.edge).toBe('left')
-      expect(fabStyleNow()).toMatchObject({ left: FAB_PADDING_PX })
+      expect(fabStyleNow()).toMatchObject({ left: BAR_GAP_PX })
     })
 
     it('snaps to the right edge when released near the right', () => {
       storePosition({ edge: 'left', offset: 0.5 })
       render(<Harness />)
-      pointerDown(FAB_PADDING_PX, 356)
+      pointerDown(BAR_GAP_PX, 356)
       pointerMove(994, 400)
       pointerUp(994, 400)
 
@@ -254,7 +416,7 @@ describe('useFabPosition', () => {
     it('snaps to the bottom edge when released near the bottom', () => {
       storePosition({ edge: 'top', offset: 0.5 })
       render(<Harness />)
-      pointerDown(484, FAB_PADDING_PX)
+      pointerDown(484, FAB_TOP_PADDING_PX)
       pointerMove(500, VIEWPORT_HEIGHT - 30)
       pointerUp(500, VIEWPORT_HEIGHT - 30)
 
@@ -262,13 +424,13 @@ describe('useFabPosition', () => {
       expect(stored.edge).toBe('bottom')
     })
 
-    it('clamps the live drag position inside the viewport minus padding', () => {
+    it('clamps the live drag position inside the usable area', () => {
       render(<Harness />)
       pointerDown(DEFAULT_FAB_LEFT, DEFAULT_FAB_TOP)
       // Drag far past the top-left corner.
       pointerMove(-500, -500)
-      // Top clamps to the topbar clearance (80), not the 24px side padding.
-      expect(fabStyleNow()).toMatchObject({ left: FAB_PADDING_PX, top: FAB_TOP_PADDING_PX })
+      // Top clamps to the topbar clearance; left to the bar gap (no sidebar here).
+      expect(fabStyleNow()).toMatchObject({ left: BAR_GAP_PX, top: FAB_TOP_PADDING_PX })
     })
 
     it('marks a drag as consumable exactly once', () => {
@@ -285,9 +447,9 @@ describe('useFabPosition', () => {
     })
 
     it('falls back to offset 0 for a top/bottom snap when the horizontal track is exhausted', () => {
-      // A viewport smaller than the fab + double padding collapses the usable
-      // horizontal track to zero -- the offset math must not divide by zero.
-      setViewport(100, 100)
+      // A viewport no wider than fab + left bar gap + right padding collapses the
+      // usable horizontal track to zero -- the offset math must not divide by zero.
+      setViewport(88, 100)
       storePosition({ edge: 'right', offset: 0.5 })
       render(<Harness />)
       pointerDown(20, 20)
@@ -302,9 +464,9 @@ describe('useFabPosition', () => {
     it('falls back to offset 0 for a left/right snap when the vertical track is exhausted', () => {
       // A viewport no taller than fab + top clearance + bottom padding collapses
       // the usable vertical track to zero -- the offset math must not divide by
-      // zero. Width 100 keeps the right edge the nearest (right distance 20 < the
-      // clamped bottom distance 24), so the left/right offset branch is exercised.
-      setViewport(100, 152)
+      // zero. Width 80 exhausts the horizontal track past the right boundary, so
+      // the right edge is strictly nearest and the left/right offset branch runs.
+      setViewport(80, 136)
       storePosition({ edge: 'right', offset: 0.5 })
       render(<Harness />)
       pointerDown(20, 20)
@@ -408,6 +570,20 @@ describe('useFabPosition', () => {
         left: 1400 - FAB_SIZE - FAB_PADDING_PX,
         top: 900 - FAB_SIZE - FAB_PADDING_PX,
       })
+    })
+
+    it('re-measures the sidebar on resize', () => {
+      const aside = mountSidebar(SIDEBAR_WIDTH)
+      storePosition({ edge: 'left', offset: 0 })
+      render(<Harness />)
+      expect(fabStyleNow()).toMatchObject({ left: SIDEBAR_WIDTH + BAR_GAP_PX })
+
+      act(() => {
+        setSidebarWidth(aside, COLLAPSED_SIDEBAR_WIDTH)
+        window.dispatchEvent(new Event('resize'))
+      })
+
+      expect(fabStyleNow()).toMatchObject({ left: COLLAPSED_SIDEBAR_WIDTH + BAR_GAP_PX })
     })
 
     it('removes the resize listener on unmount', () => {
