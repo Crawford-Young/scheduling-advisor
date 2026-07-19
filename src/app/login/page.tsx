@@ -1,15 +1,20 @@
 import { signIn } from '@/auth'
 import { CalendarDays } from 'lucide-react'
+import { SplitText, StaggerReveal, MagneticButton } from '@/lib/ui'
+import { LoginAmbient } from '@/components/login/login-ambient'
 
 export default function LoginPage() {
   return (
-    <main className="bg-background flex min-h-screen flex-col items-center justify-center px-4">
-      <div className="flex w-full max-w-sm flex-col items-center gap-8">
+    <main className="bg-background relative flex min-h-screen flex-col items-center justify-center px-4">
+      <LoginAmbient />
+      <StaggerReveal className="relative flex w-full max-w-sm flex-col items-center gap-8">
         <div className="flex flex-col items-center gap-3">
           <div className="bg-accent-subtle flex h-12 w-12 items-center justify-center rounded-full">
             <CalendarDays className="text-accent h-6 w-6" aria-hidden="true" />
           </div>
-          <h1 className="text-foreground text-2xl font-semibold tracking-tight">Cybond</h1>
+          <h1 className="text-foreground text-2xl font-semibold tracking-tight">
+            <SplitText text="Cybond" />
+          </h1>
           <p className="text-muted-foreground text-center text-sm">Bond to what matters.</p>
         </div>
 
@@ -20,9 +25,11 @@ export default function LoginPage() {
           }}
           className="w-full"
         >
-          <button
+          <MagneticButton
             type="submit"
-            className="border-border bg-surface text-foreground hover:bg-surface-raised focus-visible:ring-ring flex w-full items-center justify-center gap-3 rounded-lg border px-4 py-3 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none"
+            variant="outline"
+            size="lg"
+            className="flex w-full items-center justify-center gap-3"
           >
             <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
               <path
@@ -43,9 +50,9 @@ export default function LoginPage() {
               />
             </svg>
             Continue with Google
-          </button>
+          </MagneticButton>
         </form>
-      </div>
+      </StaggerReveal>
     </main>
   )
 }
