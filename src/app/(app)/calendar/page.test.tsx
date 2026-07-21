@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { render, within } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import CalendarPage from './page'
 
@@ -8,6 +8,33 @@ const getUserActivitiesMock = vi.fn()
 const safeDeleteExpiredEventsMock = vi.fn()
 const safeGenerateEventsMock = vi.fn()
 const getCalendarPrefsMock = vi.fn()
+
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react')>()
+  return {
+    ...actual,
+    ViewTransition: ({
+      children,
+      enter,
+      exit,
+      default: defaultTransition,
+    }: {
+      readonly children: React.ReactNode
+      readonly enter?: string
+      readonly exit?: string
+      readonly default?: string
+    }) => (
+      <div
+        data-testid="view-transition"
+        data-enter={enter}
+        data-exit={exit}
+        data-default={defaultTransition}
+      >
+        {children}
+      </div>
+    ),
+  }
+})
 
 vi.mock('@/auth', () => ({ auth: () => authMock() }))
 
@@ -201,5 +228,13 @@ describe('CalendarPage', () => {
     getUserActivitiesMock.mockResolvedValueOnce([makeActivity({ id: 'act-1', minDurationMin: 25 })])
     const { getByTestId } = render(await CalendarPage({ searchParams: Promise.resolve({}) }))
     expect(getByTestId('calendar-client')).toHaveAttribute('data-activity-options', 'act-1:25')
+  })
+
+  it('wraps the page in a reveal ViewTransition (no StaggerReveal)', async () => {
+    const { getByTestId } = render(await CalendarPage({ searchParams: Promise.resolve({}) }))
+    const viewTransition = getByTestId('view-transition')
+    expect(viewTransition).toHaveAttribute('data-enter', 'reveal-enter')
+    expect(viewTransition).toHaveAttribute('data-default', 'none')
+    expect(within(viewTransition).getByTestId('calendar-client')).toBeInTheDocument()
   })
 })

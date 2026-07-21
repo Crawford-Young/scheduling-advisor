@@ -1,8 +1,10 @@
 import * as React from 'react'
+import { ViewTransition } from 'react'
 import { auth } from '@/auth'
 import { redirect, notFound } from 'next/navigation'
 import { getProfileByUsername } from '@/server/queries/profile'
 import { ProfileHeader } from '@/components/profile/profile-header'
+import { StaggerReveal } from '@/lib/ui'
 
 interface ProfilePageProps {
   readonly params: Promise<{ username: string }>
@@ -25,8 +27,10 @@ export default async function ProfilePage({
   if (identity === null) notFound()
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      <ProfileHeader identity={identity} />
-    </div>
+    <ViewTransition enter="reveal-enter" default="none">
+      <StaggerReveal className="mx-auto max-w-5xl space-y-6">
+        <ProfileHeader identity={identity} />
+      </StaggerReveal>
+    </ViewTransition>
   )
 }

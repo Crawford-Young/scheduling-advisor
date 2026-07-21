@@ -8,6 +8,47 @@ const notFoundMock = vi.fn(() => {
   throw new Error('NOT_FOUND')
 })
 
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react')>()
+  return {
+    ...actual,
+    ViewTransition: ({
+      children,
+      enter,
+      exit,
+      default: defaultTransition,
+    }: {
+      readonly children: React.ReactNode
+      readonly enter?: string
+      readonly exit?: string
+      readonly default?: string
+    }) => (
+      <div
+        data-testid="view-transition"
+        data-enter={enter}
+        data-exit={exit}
+        data-default={defaultTransition}
+      >
+        {children}
+      </div>
+    ),
+  }
+})
+
+vi.mock('@/lib/ui', () => ({
+  StaggerReveal: ({
+    children,
+    className,
+  }: {
+    readonly children: React.ReactNode
+    readonly className?: string
+  }) => (
+    <div data-testid="stagger-reveal" className={className}>
+      {children}
+    </div>
+  ),
+}))
+
 vi.mock('@/auth', () => ({ auth: () => authMock() }))
 
 vi.mock('next/navigation', () => ({
@@ -82,5 +123,18 @@ describe('ProfilePage', () => {
     render(await ProfilePage(pageArgs('ada')))
 
     expect(screen.getByTestId('profile-header')).toHaveTextContent('Ada Lovelace')
+  })
+
+  it('wraps the page in a reveal ViewTransition with a StaggerReveal container', async () => {
+    authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
+    getProfileByUsernameMock.mockResolvedValue(makeIdentity())
+
+    render(await ProfilePage(pageArgs('ada')))
+
+    const viewTransition = screen.getByTestId('view-transition')
+    expect(viewTransition).toHaveAttribute('data-enter', 'reveal-enter')
+    expect(viewTransition).toHaveAttribute('data-default', 'none')
+    const staggerReveal = screen.getByTestId('stagger-reveal')
+    expect(staggerReveal).toHaveClass('mx-auto', 'max-w-5xl', 'space-y-6')
   })
 })

@@ -1,6 +1,34 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
+// ── react mock ────────────────────────────────────────────────────────────────
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react')>()
+  return {
+    ...actual,
+    ViewTransition: ({
+      children,
+      enter,
+      exit,
+      default: defaultTransition,
+    }: {
+      readonly children: React.ReactNode
+      readonly enter?: string
+      readonly exit?: string
+      readonly default?: string
+    }) => (
+      <div
+        data-testid="view-transition"
+        data-enter={enter}
+        data-exit={exit}
+        data-default={defaultTransition}
+      >
+        {children}
+      </div>
+    ),
+  }
+})
+
 // ── db mock ───────────────────────────────────────────────────────────────────
 const mockFindFirst = vi.fn()
 
@@ -57,6 +85,17 @@ vi.mock('@/lib/ui', () => ({
     <span data-testid="badge">{children}</span>
   ),
   Separator: () => <hr />,
+  StaggerReveal: ({
+    children,
+    className,
+  }: {
+    readonly children: React.ReactNode
+    readonly className?: string
+  }) => (
+    <div data-testid="stagger-reveal" className={className}>
+      {children}
+    </div>
+  ),
 }))
 
 vi.mock('./purchase-buttons', () => ({
@@ -215,5 +254,15 @@ describe('TokensPage', () => {
     const { default: TokensPage } = await import('./page')
     await expect(TokensPage({ searchParams: Promise.resolve({}) })).rejects.toThrow('NEXT_REDIRECT')
     expect(redirect).toHaveBeenCalledWith('/login')
+  })
+
+  it('wraps the page in a reveal ViewTransition with a StaggerReveal container', async () => {
+    const { default: TokensPage } = await import('./page')
+    render(await TokensPage({ searchParams: Promise.resolve({}) }))
+    const viewTransition = screen.getByTestId('view-transition')
+    expect(viewTransition).toHaveAttribute('data-enter', 'reveal-enter')
+    expect(viewTransition).toHaveAttribute('data-default', 'none')
+    const staggerReveal = screen.getByTestId('stagger-reveal')
+    expect(staggerReveal).toHaveClass('mx-auto', 'max-w-5xl', 'space-y-6')
   })
 })

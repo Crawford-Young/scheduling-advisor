@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { ViewTransition } from 'react'
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { getUserEvents } from '@/server/queries/events'
@@ -86,16 +87,18 @@ export default async function CalendarPage({
   }))
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      <CalendarClient
-        weekStart={weekStart}
-        events={events}
-        activities={activityOptions}
-        wakeHour={wakeHour}
-        sleepHour={sleepHour}
-        dayWindows={dayWindows}
-        use24h={prefs?.use24h ?? false}
-      />
-    </div>
+    <ViewTransition enter="reveal-enter" default="none">
+      <div className="mx-auto max-w-5xl space-y-6">
+        <CalendarClient
+          weekStart={weekStart}
+          events={events}
+          activities={activityOptions}
+          wakeHour={wakeHour}
+          sleepHour={sleepHour}
+          dayWindows={dayWindows}
+          use24h={prefs?.use24h ?? false}
+        />
+      </div>
+    </ViewTransition>
   )
 }

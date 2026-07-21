@@ -1,7 +1,8 @@
 import * as React from 'react'
+import { ViewTransition } from 'react'
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
-import { EmptyState } from '@/lib/ui'
+import { EmptyState, StaggerReveal } from '@/lib/ui'
 import { searchUsers } from '@/server/queries/profile'
 import { PeopleSearchInput } from '@/components/profile/people-search-input'
 import { PersonCard } from '@/components/profile/person-card'
@@ -21,20 +22,22 @@ export default async function FeedPage({
   const results = trimmedQuery === '' ? [] : await searchUsers(session.user.id, trimmedQuery)
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      <PeopleSearchInput />
+    <ViewTransition enter="reveal-enter" default="none">
+      <StaggerReveal className="mx-auto max-w-5xl space-y-6">
+        <PeopleSearchInput />
 
-      {trimmedQuery === '' ? (
-        <EmptyState message="Search for people by name or username." />
-      ) : results.length === 0 ? (
-        <EmptyState message="No people found." />
-      ) : (
-        <div className="space-y-2">
-          {results.map((result) => (
-            <PersonCard key={result.username} result={result} />
-          ))}
-        </div>
-      )}
-    </div>
+        {trimmedQuery === '' ? (
+          <EmptyState message="Search for people by name or username." />
+        ) : results.length === 0 ? (
+          <EmptyState message="No people found." />
+        ) : (
+          <div className="space-y-2">
+            {results.map((result) => (
+              <PersonCard key={result.username} result={result} />
+            ))}
+          </div>
+        )}
+      </StaggerReveal>
+    </ViewTransition>
   )
 }

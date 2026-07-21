@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { ViewTransition } from 'react'
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
@@ -11,7 +12,7 @@ import {
 import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
 import { safeDeleteExpiredEvents } from '@/server/actions/event-ttl'
 import { safeGenerateEvents } from '@/server/actions/event-generation'
-import { EmptyState } from '@/lib/ui'
+import { EmptyState, StaggerReveal } from '@/lib/ui'
 import { OpenChatButton } from '@/components/chat/open-chat-button'
 import { ActivityFilters } from '@/components/activity/activity-filters'
 import { ActivityCreateButton } from '@/components/activity/activity-create-button'
@@ -120,35 +121,37 @@ export default async function ActivitiesPage({
   const oneOffRows = standaloneEvents.map(toOneOffRow)
 
   return (
-    <div className="mx-auto max-w-5xl space-y-10">
-      <div className="space-y-6">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex-1">
-            <ActivityFilters />
+    <ViewTransition enter="reveal-enter" default="none">
+      <StaggerReveal className="mx-auto max-w-5xl space-y-10">
+        <div className="space-y-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex-1">
+              <ActivityFilters />
+            </div>
+            <ActivityCreateButton use24h={use24h} />
           </div>
-          <ActivityCreateButton use24h={use24h} />
+
+          {activityRows.length === 0 ? (
+            <div className="flex flex-col items-center gap-4">
+              <EmptyState message="No activities yet. Add one or ask the AI to plan your week." />
+              <OpenChatButton label="Plan with AI" />
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <ActivityTable items={activityRows} use24h={use24h} initialEditId={initialEditId} />
+            </div>
+          )}
         </div>
 
-        {activityRows.length === 0 ? (
-          <div className="flex flex-col items-center gap-4">
-            <EmptyState message="No activities yet. Add one or ask the AI to plan your week." />
-            <OpenChatButton label="Plan with AI" />
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <ActivityTable items={activityRows} use24h={use24h} initialEditId={initialEditId} />
-          </div>
+        {oneOffRows.length > 0 && (
+          <section className="space-y-4">
+            <h2 className="text-lg font-semibold">One-off events</h2>
+            <div className="overflow-x-auto">
+              <OneOffEventsTable items={oneOffRows} use24h={use24h} />
+            </div>
+          </section>
         )}
-      </div>
-
-      {oneOffRows.length > 0 && (
-        <section className="space-y-4">
-          <h2 className="text-lg font-semibold">One-off events</h2>
-          <div className="overflow-x-auto">
-            <OneOffEventsTable items={oneOffRows} use24h={use24h} />
-          </div>
-        </section>
-      )}
-    </div>
+      </StaggerReveal>
+    </ViewTransition>
   )
 }
