@@ -188,7 +188,35 @@ describe('QuickScheduleInput', () => {
     expect(appendMock).toHaveBeenCalledWith({ role: 'user', content: '[CONFIRM] test' })
   })
 
-  it('shows a success state after a createCalendarEvent tool result appears', () => {
+  it('shows a success state after a createEvent tool result appears (A9 hardening — real tool name)', () => {
+    messagesState = [
+      {
+        id: '1',
+        role: 'assistant',
+        content: '',
+        toolInvocations: [resultInvocation('createEvent', { id: 'evt-1' })],
+      },
+    ]
+    render(<QuickScheduleInput />)
+    expect(screen.getByText(/added/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add another' })).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Quick add — "dinner Fri 7pm"')).not.toBeInTheDocument()
+  })
+
+  it('shows a success state after a createEvents (mass) tool result appears (A9 hardening — real tool name)', () => {
+    messagesState = [
+      {
+        id: '1',
+        role: 'assistant',
+        content: '',
+        toolInvocations: [resultInvocation('createEvents', { data: [{ id: 'evt-1' }] })],
+      },
+    ]
+    render(<QuickScheduleInput />)
+    expect(screen.getByText(/added/i)).toBeInTheDocument()
+  })
+
+  it('does NOT show a success state for the dead legacy tool names (A9 hardening regression guard)', () => {
     messagesState = [
       {
         id: '1',
@@ -198,22 +226,8 @@ describe('QuickScheduleInput', () => {
       },
     ]
     render(<QuickScheduleInput />)
-    expect(screen.getByText(/added/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Add another' })).toBeInTheDocument()
-    expect(screen.queryByPlaceholderText('Quick add — "dinner Fri 7pm"')).not.toBeInTheDocument()
-  })
-
-  it('shows a success state after a createTask tool result appears', () => {
-    messagesState = [
-      {
-        id: '1',
-        role: 'assistant',
-        content: '',
-        toolInvocations: [resultInvocation('createTask', { id: 'task-1' })],
-      },
-    ]
-    render(<QuickScheduleInput />)
-    expect(screen.getByText(/added/i)).toBeInTheDocument()
+    expect(screen.queryByText(/added/i)).not.toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Quick add — "dinner Fri 7pm"')).toBeInTheDocument()
   })
 
   it('reset clears the transcript via setMessages([]) and restores the input form', () => {
@@ -222,7 +236,7 @@ describe('QuickScheduleInput', () => {
         id: '1',
         role: 'assistant',
         content: '',
-        toolInvocations: [resultInvocation('createTask', { id: 'task-1' })],
+        toolInvocations: [resultInvocation('createEvent', { id: 'evt-1' })],
       },
     ]
     render(<QuickScheduleInput />)
@@ -307,7 +321,7 @@ describe('QuickScheduleInput', () => {
           id: '1',
           role: 'assistant',
           content: '',
-          toolInvocations: [resultInvocation('createTask', { id: 'task-1' })],
+          toolInvocations: [resultInvocation('createEvent', { id: 'evt-1' })],
         },
       ]
       render(<QuickScheduleInput />)

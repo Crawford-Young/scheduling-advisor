@@ -161,8 +161,8 @@ export function FullPageChatLayout({
   function handleEventProposed(p: EventProposal): void {
     // TODO(recurrence): show all in-week occurrences as ghosts. v1 keeps the
     // single anchor-day violet ghost; a recurring proposal (p.recurrence set)
-    // still renders one ghost here, and the confirmed series appears from real
-    // rows after createTask's fan-out.
+    // still renders one ghost here, and the confirmed occurrences appear from
+    // real rows after the createEvents fan-out.
     const ghost: CalendarEvent = {
       id: p.toolCallId,
       title: p.title,

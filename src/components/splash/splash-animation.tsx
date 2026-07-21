@@ -8,7 +8,6 @@ interface Quote {
 }
 
 interface SplashAnimationProps {
-  readonly checkInDone: boolean
   readonly onComplete: () => void
   readonly quote: Quote
 }
@@ -22,7 +21,6 @@ const PHASE_MS: Record<Exclude<Phase, 'done'>, number> = {
 }
 
 export function SplashAnimation({
-  checkInDone,
   onComplete,
   quote,
 }: SplashAnimationProps): React.JSX.Element | null {
@@ -76,8 +74,8 @@ export function SplashAnimation({
           className="transition-all duration-500"
           style={{
             transform: isSplit ? 'translateX(12px)' : 'translateX(0)',
-            opacity: isSignal ? (checkInDone ? 1 : 0.4) : 1,
-            textShadow: isSignal && checkInDone ? '0 0 20px rgba(16, 185, 129, 0.8)' : 'none',
+            opacity: 1,
+            textShadow: isSignal ? '0 0 20px rgba(16, 185, 129, 0.8)' : 'none',
           }}
         >
           bond

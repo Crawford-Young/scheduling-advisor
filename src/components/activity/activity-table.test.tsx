@@ -1,68 +1,99 @@
-import { render, screen, within, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { ActivityTable, type ActivityRow } from './activity-table'
+import { describe, expect, it, vi, beforeEach, beforeAll, afterAll } from 'vitest'
+import {
+  ActivityTable,
+  OneOffEventsTable,
+  type ActivityRow,
+  type OneOffEventRow,
+} from './activity-table'
 
 const refreshMock = vi.fn()
+const toastErrorMock = vi.fn()
+
+// Pin TZ so next-event/when formatting is deterministic across machines/CI.
+const ORIGINAL_TZ = process.env.TZ
+beforeAll(() => {
+  process.env.TZ = 'America/New_York'
+})
+afterAll(() => {
+  process.env.TZ = ORIGINAL_TZ
+})
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: refreshMock }),
 }))
 
-const updateTaskMock = vi.fn().mockResolvedValue({ data: {} })
-const updateSeriesMock = vi.fn().mockResolvedValue({ data: {} })
-const deleteSeriesMock = vi.fn().mockResolvedValue({ data: { success: true } })
-const recordCompletionMock = vi.fn().mockResolvedValue({ data: {} })
-const toastErrorMock = vi.fn()
-
-vi.mock('@/server/actions/tasks', () => ({
-  updateTask: (input: unknown) => updateTaskMock(input),
-  deleteTask: vi.fn().mockResolvedValue({ data: { success: true } }),
+vi.mock('@/server/actions/activities', () => ({
+  updateActivity: vi.fn().mockResolvedValue({ data: {} }),
+  deleteActivity: vi.fn().mockResolvedValue({ data: { success: true } }),
 }))
 
-vi.mock('@/server/actions/series-mutations', () => ({
-  updateSeries: (input: unknown) => updateSeriesMock(input),
-  deleteSeries: (input: unknown) => deleteSeriesMock(input),
+vi.mock('@/server/actions/events', () => ({
+  updateEvent: vi.fn().mockResolvedValue({ data: {} }),
+  deleteEvent: vi.fn().mockResolvedValue({ data: { success: true } }),
 }))
 
-vi.mock('@/server/actions/consistency', () => ({
-  recordCompletion: (input: unknown) => recordCompletionMock(input),
-}))
-
-// Keep the real @/lib/ui (DataTable, AlertDialog, ActivityFormDialog) but stub
-// toast so the S14 error path is observable.
+// Keep the real @/lib/ui (DataTable, Progress, Badge, Button, Table) but stub
+// toast and surface the dialogs' data props so seeding/deep-link contracts show.
 vi.mock('@/lib/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/ui')>()),
   toast: { error: (...args: unknown[]) => toastErrorMock(...args) },
+  ActivityTemplateDialog: ({
+    open,
+    initialValues,
+  }: {
+    open: boolean
+    initialValues?: { title?: string }
+  }) =>
+    open ? (
+      <div role="dialog" aria-label="activity-template" data-initial-title={initialValues?.title} />
+    ) : null,
+  EventFormDialog: ({
+    open,
+    initialValues,
+  }: {
+    open: boolean
+    initialValues?: { title?: string }
+  }) =>
+    open ? (
+      <div role="dialog" aria-label="event-form" data-initial-title={initialValues?.title} />
+    ) : null,
 }))
 
-function makeRow(over: Partial<ActivityRow> = {}): ActivityRow {
+function makeActivityRow(over: Partial<ActivityRow> = {}): ActivityRow {
   return {
-    id: 'r1',
-    title: 'Row title',
-    type: 'task',
-    status: 'pending',
-    dateIso: '2026-06-20T09:00:00.000Z',
-    dateLabel: 'Jun 20, 5:00 AM',
-    recurrence: null,
-    recurrenceCount: null,
-    recurrenceDays: null,
-    recurrenceGroupId: null,
-    location: null,
-    description: null,
-    color: null,
+    id: 'act-1',
+    title: 'Running',
+    color: '#3b82f6',
+    description: 'cardio',
+    defaultLocation: 'Park',
+    minDurationMin: 30,
+    maxDurationMin: 60,
+    weeklyTargetSessions: 3,
+    schedule: [
+      { day: 1, startMinutes: 420, durationMin: 45 },
+      { day: 3, startMinutes: 420, durationMin: 45 },
+      { day: 5, startMinutes: 420, durationMin: 45 },
+    ],
+    timeZone: 'America/New_York',
+    completedThisWeek: 2,
+    nextEventIso: '2026-07-02T20:00:00.000Z',
+    ...over,
+  }
+}
+
+function makeEventRow(over: Partial<OneOffEventRow> = {}): OneOffEventRow {
+  return {
+    id: 'evt-1',
+    title: 'Dentist',
+    startAt: '2026-07-02T20:00:00.000Z',
+    endAt: '2026-07-02T21:00:00.000Z',
     allDay: false,
-    streak: 0,
-    startAt: '2026-06-20T09:00:00.000Z',
-    endAt: null,
-    targetDate: null,
-    activityType: 'solo',
-    visibility: 'only_me',
-    joinability: null,
-    maxParticipants: null,
-    isSeries: false,
-    todayOccurrenceId: null,
-    todayOccurrenceStatus: null,
+    color: '#ef4444',
+    location: 'Clinic',
+    description: 'checkup',
+    status: 'pending',
     ...over,
   }
 }
@@ -70,510 +101,213 @@ function makeRow(over: Partial<ActivityRow> = {}): ActivityRow {
 describe('ActivityTable', () => {
   beforeEach(() => {
     refreshMock.mockClear()
-    updateTaskMock.mockClear()
-    updateSeriesMock.mockClear()
-    deleteSeriesMock.mockClear()
-    deleteSeriesMock.mockResolvedValue({ data: { success: true } })
-    recordCompletionMock.mockClear()
     toastErrorMock.mockClear()
   })
 
-  // Prop chain (wave 2.6 S5): page toActivityRow → ActivityRow → ActivityRowActions
-  // → useActivityActions. A grouped row (recurrenceGroupId set) must route its
-  // edit through updateSeries, proving recurrenceGroupId reached the hook.
-  it('threads recurrenceGroupId through ActivityRowActions so a grouped row edit routes through updateSeries', async () => {
+  it('renders the activity title and color dot', () => {
+    render(<ActivityTable items={[makeActivityRow()]} />)
+    expect(screen.getByText('Running')).toBeInTheDocument()
+    expect(document.querySelector('[data-color="#3b82f6"]')).toBeInTheDocument()
+  })
+
+  it('renders the pattern label for a scheduled activity', () => {
+    render(<ActivityTable items={[makeActivityRow()]} />)
+    expect(screen.getByText('Mon/Wed/Fri · 3×/wk')).toBeInTheDocument()
+  })
+
+  it('renders "No schedule" for an activity with an empty schedule', () => {
+    render(<ActivityTable items={[makeActivityRow({ schedule: [] })]} />)
+    expect(screen.getByText('No schedule')).toBeInTheDocument()
+  })
+
+  it('renders the weekly-fit count and a progress bar', () => {
+    render(
+      <ActivityTable
+        items={[makeActivityRow({ completedThisWeek: 2, weeklyTargetSessions: 3 })]}
+      />,
+    )
+    expect(screen.getByText('2 of 3')).toBeInTheDocument()
+    // 2/3 → 67%.
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '67')
+  })
+
+  it('clamps the progress bar at 100% when over target', () => {
+    render(
+      <ActivityTable
+        items={[makeActivityRow({ completedThisWeek: 5, weeklyTargetSessions: 3 })]}
+      />,
+    )
+    expect(screen.getByText('5 of 3')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100')
+  })
+
+  it('formats the next event time (12-hour by default)', () => {
+    render(<ActivityTable items={[makeActivityRow()]} />)
+    // 2026-07-02T20:00Z → 4:00 PM in America/New_York.
+    expect(screen.getByText(/Jul 2/)).toHaveTextContent('4:00 PM')
+  })
+
+  it('formats the next event time as 24-hour when use24h is set', () => {
+    render(<ActivityTable items={[makeActivityRow()]} use24h />)
+    expect(screen.getByText(/Jul 2/)).toHaveTextContent('16:00')
+  })
+
+  it('renders an em dash when the activity has no next event', () => {
+    render(<ActivityTable items={[makeActivityRow({ nextEventIso: null })]} />)
+    expect(screen.getByText('—')).toBeInTheDocument()
+  })
+
+  it('renders edit and delete action controls per row', () => {
+    render(<ActivityTable items={[makeActivityRow()]} />)
+    expect(screen.getByRole('button', { name: 'Edit activity' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete activity' })).toBeInTheDocument()
+  })
+
+  it('does not auto-open any dialog without a matching initialEditId', () => {
+    render(<ActivityTable items={[makeActivityRow()]} />)
+    expect(screen.queryByRole('dialog', { name: 'activity-template' })).not.toBeInTheDocument()
+  })
+
+  it('auto-opens the template dialog for the row matching initialEditId, seeded from that row', () => {
+    render(
+      <ActivityTable
+        items={[
+          makeActivityRow({ id: 'a', title: 'Running' }),
+          makeActivityRow({ id: 'b', title: 'Swimming' }),
+        ]}
+        initialEditId="b"
+      />,
+    )
+    const dialog = screen.getByRole('dialog', { name: 'activity-template' })
+    expect(dialog).toHaveAttribute('data-initial-title', 'Swimming')
+  })
+
+  it('does not auto-open when initialEditId matches no row', () => {
+    render(<ActivityTable items={[makeActivityRow({ id: 'a' })]} initialEditId="missing" />)
+    expect(screen.queryByRole('dialog', { name: 'activity-template' })).not.toBeInTheDocument()
+  })
+
+  it('renders one row per activity', () => {
+    render(
+      <ActivityTable
+        items={[
+          makeActivityRow({ id: 'a', title: 'Running' }),
+          makeActivityRow({ id: 'b', title: 'Swimming' }),
+        ]}
+      />,
+    )
+    expect(screen.getByText('Running')).toBeInTheDocument()
+    expect(screen.getByText('Swimming')).toBeInTheDocument()
+  })
+
+  // Sorting invokes each column's accessorFn (derived sort keys).
+  it('sorts by the derived pattern, weekly-fit, and next-event columns', async () => {
     const user = userEvent.setup()
     render(
       <ActivityTable
         items={[
-          makeRow({
-            id: 'grouped-row',
-            type: 'task',
-            recurrenceGroupId: 'group-42',
-            startAt: '2026-07-01T09:00:00.000Z',
+          makeActivityRow({
+            id: 'a',
+            title: 'Running',
+            completedThisWeek: 1,
+            schedule: [],
+            nextEventIso: null,
+          }),
+          makeActivityRow({
+            id: 'b',
+            title: 'Swimming',
+            completedThisWeek: 3,
+            nextEventIso: '2026-07-05T20:00:00.000Z',
           }),
         ]}
       />,
     )
-    await user.click(screen.getByRole('button', { name: 'Edit task' }))
-    await user.click(screen.getByRole('button', { name: 'Save' }))
-    await waitFor(() =>
-      expect(updateSeriesMock).toHaveBeenCalledWith(
-        expect.objectContaining({ taskId: 'grouped-row' }),
-      ),
-    )
-    expect(updateTaskMock).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('columnheader', { name: /Pattern/ }))
+    await user.click(screen.getByRole('columnheader', { name: /This week/ }))
+    await user.click(screen.getByRole('columnheader', { name: /Next event/ }))
+    expect(screen.getByText('Running')).toBeInTheDocument()
+    expect(screen.getByText('Swimming')).toBeInTheDocument()
+  })
+})
+
+describe('OneOffEventsTable', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    toastErrorMock.mockClear()
   })
 
-  it('an ungrouped row (recurrenceGroupId null) edit keeps routing through updateTask', async () => {
-    const user = userEvent.setup()
-    render(
-      <ActivityTable
-        items={[
-          makeRow({
-            id: 'ungrouped-row',
-            type: 'task',
-            recurrenceGroupId: null,
-            startAt: '2026-07-01T09:00:00.000Z',
-          }),
-        ]}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: 'Edit task' }))
-    await user.click(screen.getByRole('button', { name: 'Save' }))
-    await waitFor(() =>
-      expect(updateTaskMock).toHaveBeenCalledWith(expect.objectContaining({ id: 'ungrouped-row' })),
-    )
-    expect(updateSeriesMock).not.toHaveBeenCalled()
-  })
-
-  // S9 / 0.18.0: the row query carries recurrenceCount + recurrenceDays; the
-  // table must thread both into the edit dialog so the seeded recurrence UI
-  // (repeat count + weekday picker) opens pre-filled from the persisted series.
-  it('threads a weekly series row recurrenceCount and recurrenceDays into the edit dialog', async () => {
-    const user = userEvent.setup()
-    render(
-      <ActivityTable
-        items={[
-          makeRow({
-            id: 'sd',
-            type: 'task',
-            recurrence: 'weekly',
-            recurrenceCount: 4,
-            recurrenceDays: ['Mon', 'Wed'],
-          }),
-        ]}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: 'Edit task' }))
-    // Repeat count seeded from the row (the dialog defaults to 2 when unseeded).
-    expect((screen.getByLabelText('Repeat count') as HTMLInputElement).value).toBe('4')
-    // The persisted weekday set seeds the picker: Mon and Wed pressed, an
-    // unselected day (Fri) stays unpressed.
-    expect(screen.getByRole('button', { name: 'Day: Mon' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Day: Wed' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Day: Fri' })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    )
-  })
-
-  it('renders one data row per item with visible field data', () => {
-    render(
-      <ActivityTable
-        items={[
-          makeRow({
-            id: 'g1',
-            title: 'My goal',
-            type: 'goal',
-            status: 'in_progress',
-            dateLabel: 'Target: 2026-07-15',
-            dateIso: '2026-07-15',
-            recurrence: null,
-            location: 'Park',
-            activityType: 'solo',
-            visibility: 'friends',
-          }),
-          makeRow({
-            id: 't1',
-            title: 'My task',
-            type: 'task',
-            status: 'pending',
-            dateLabel: 'Jun 20, 5:00 AM',
-            recurrence: 'weekly',
-            location: 'Gym',
-            activityType: 'group',
-            visibility: 'everyone',
-          }),
-        ]}
-      />,
-    )
-
-    // one header row + two data rows
-    expect(screen.getAllByRole('row')).toHaveLength(3)
-    expect(screen.getByText('My goal')).toBeInTheDocument()
-    expect(screen.getByText('My task')).toBeInTheDocument()
-    expect(screen.getByText('goal')).toBeInTheDocument()
-    expect(screen.getByText('in_progress')).toBeInTheDocument()
+  it('renders the event title, when, and status', () => {
+    render(<OneOffEventsTable items={[makeEventRow()]} />)
+    expect(screen.getByText('Dentist')).toBeInTheDocument()
+    expect(screen.getByText(/Jul 2/)).toHaveTextContent('4:00 PM')
     expect(screen.getByText('pending')).toBeInTheDocument()
-    expect(screen.getByText('Target: 2026-07-15')).toBeInTheDocument()
-    expect(screen.getByText('Jun 20, 5:00 AM')).toBeInTheDocument()
-    expect(screen.getByText('· weekly', { exact: false })).toBeInTheDocument()
-    expect(screen.getByText('solo')).toBeInTheDocument()
-    expect(screen.getByText('friends')).toBeInTheDocument()
-    expect(screen.getByText('group')).toBeInTheDocument()
-    expect(screen.getByText('everyone')).toBeInTheDocument()
   })
 
-  it('no longer renders standalone Location/Color/Recurrence/Type columns', () => {
+  it('formats when as 24-hour and shows completed status', () => {
+    render(<OneOffEventsTable items={[makeEventRow({ status: 'completed' })]} use24h />)
+    expect(screen.getByText(/Jul 2/)).toHaveTextContent('16:00')
+    expect(screen.getByText('completed')).toBeInTheDocument()
+  })
+
+  it('shows "No time set" when the event has no start time', () => {
+    render(<OneOffEventsTable items={[makeEventRow({ startAt: null })]} />)
+    expect(screen.getByText('No time set')).toBeInTheDocument()
+  })
+
+  it('labels the complete toggle "Mark complete" for a pending event', () => {
+    render(<OneOffEventsTable items={[makeEventRow({ status: 'pending' })]} />)
+    expect(screen.getByRole('button', { name: 'Mark complete' })).toBeInTheDocument()
+  })
+
+  it('labels the complete toggle "Mark pending" for a completed event', () => {
+    render(<OneOffEventsTable items={[makeEventRow({ status: 'completed' })]} />)
+    expect(screen.getByRole('button', { name: 'Mark pending' })).toBeInTheDocument()
+  })
+
+  it('renders edit and delete controls per event row', () => {
+    render(<OneOffEventsTable items={[makeEventRow()]} />)
+    expect(screen.getByRole('button', { name: 'Edit event' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete event' })).toBeInTheDocument()
+  })
+
+  it('renders one row per event', () => {
     render(
-      <ActivityTable items={[makeRow({ location: 'Gym', color: 'blue', recurrence: 'daily' })]} />,
+      <OneOffEventsTable
+        items={[
+          makeEventRow({ id: 'a', title: 'Dentist' }),
+          makeEventRow({ id: 'b', title: 'Haircut' }),
+        ]}
+      />,
     )
-    const headerRow = screen.getAllByRole('row')[0]!
-    expect(within(headerRow).queryByText('Location')).not.toBeInTheDocument()
-    expect(within(headerRow).queryByText('Color')).not.toBeInTheDocument()
-    expect(within(headerRow).queryByText('Recurrence')).not.toBeInTheDocument()
-    expect(within(headerRow).queryByText('Type')).not.toBeInTheDocument()
-    expect(within(headerRow).queryByText('Date')).not.toBeInTheDocument()
-    expect(screen.queryByText('Gym')).not.toBeInTheDocument()
-    expect(within(headerRow).getByText('Title')).toBeInTheDocument()
-    expect(within(headerRow).getByText('When')).toBeInTheDocument()
-    expect(within(headerRow).getByText('Status')).toBeInTheDocument()
-    expect(within(headerRow).getByText('Social')).toBeInTheDocument()
-    expect(within(headerRow).getByText('Actions')).toBeInTheDocument()
+    const rows = screen.getAllByRole('button', { name: 'Edit event' })
+    expect(rows).toHaveLength(2)
+    expect(screen.getByText('Dentist')).toBeInTheDocument()
+    expect(screen.getByText('Haircut')).toBeInTheDocument()
   })
 
-  it('renders the color as a swatch dot carrying data-color, aria-hidden', () => {
-    const { container } = render(<ActivityTable items={[makeRow({ color: 'blue' })]} />)
-    const swatch = container.querySelector('[data-color="blue"]')
-    expect(swatch).not.toBeNull()
-    expect(swatch).toHaveAttribute('aria-hidden')
-    expect(swatch).toHaveStyle({ backgroundColor: 'blue' })
-  })
-
-  it('skips the swatch dot entirely when color is null', () => {
-    const { container } = render(<ActivityTable items={[makeRow({ color: null })]} />)
-    expect(container.querySelector('[aria-hidden][data-color]')).toBeNull()
-  })
-
-  it('appends a 🔥 streak suffix in the status column for recurring rows', () => {
-    render(<ActivityTable items={[makeRow({ type: 'task', recurrence: 'daily', streak: 3 })]} />)
-    expect(screen.getByText('🔥 3')).toBeInTheDocument()
-  })
-
-  it('does not show a streak suffix for non-recurring rows', () => {
-    render(<ActivityTable items={[makeRow({ recurrence: null, streak: 5 })]} />)
-    expect(screen.queryByText(/🔥/)).not.toBeInTheDocument()
-  })
-
-  it('does not show a flame for a recurring row with a 0 streak (not completed, wave 2.6 S13)', () => {
-    render(<ActivityTable items={[makeRow({ type: 'task', recurrence: 'daily', streak: 0 })]} />)
-    expect(screen.queryByText(/🔥/)).not.toBeInTheDocument()
-  })
-
-  it('shows a muted recurrence suffix in the When column for recurring rows', () => {
-    render(
-      <ActivityTable items={[makeRow({ dateLabel: 'Jul 3, 5:00 AM', recurrence: 'daily' })]} />,
-    )
-    expect(screen.getByText('Jul 3, 5:00 AM')).toBeInTheDocument()
-    const suffix = screen.getByText('· daily', { exact: false })
-    expect(suffix).toHaveClass('text-muted-foreground')
-  })
-
-  it('does not show a recurrence suffix in the When column for non-recurring rows', () => {
-    render(<ActivityTable items={[makeRow({ dateLabel: 'Jul 3, 5:00 AM', recurrence: null })]} />)
-    expect(screen.getByText('Jul 3, 5:00 AM')).toBeInTheDocument()
-    expect(screen.queryByText('·', { exact: false })).not.toBeInTheDocument()
-  })
-
-  it('truncates the title text instead of wrapping', () => {
-    render(<ActivityTable items={[makeRow({ title: 'A very long activity title' })]} />)
-    const titleEl = screen.getByText('A very long activity title')
-    expect(titleEl).toHaveClass('truncate')
-  })
-
-  it('sorts rows when the Title header is clicked', async () => {
+  it('sorts by the one-off "When" column (accessorFn)', async () => {
     const user = userEvent.setup()
     render(
-      <ActivityTable
-        items={[makeRow({ id: 'b', title: 'B task' }), makeRow({ id: 'a', title: 'A task' })]}
-      />,
-    )
-    expect(within(screen.getAllByRole('row')[1]!).getByText('B task')).toBeInTheDocument()
-    await user.click(screen.getByText('Title'))
-    expect(within(screen.getAllByRole('row')[1]!).getByText('A task')).toBeInTheDocument()
-  })
-
-  it('sorts rows when the Social header is clicked', async () => {
-    const user = userEvent.setup()
-    render(
-      <ActivityTable
+      <OneOffEventsTable
         items={[
-          makeRow({ id: 'z', title: 'Z row', activityType: 'solo', visibility: 'friends' }),
-          makeRow({ id: 'a', title: 'A row', activityType: 'group', visibility: 'everyone' }),
+          makeEventRow({ id: 'a', title: 'Dentist' }),
+          makeEventRow({ id: 'b', title: 'Haircut', startAt: null }),
         ]}
       />,
     )
-    await user.click(screen.getByText('Social'))
-    expect(within(screen.getAllByRole('row')[1]!).getByText('A row')).toBeInTheDocument()
+    await user.click(screen.getByRole('columnheader', { name: /When/ }))
+    expect(screen.getByText('Dentist')).toBeInTheDocument()
+    expect(screen.getByText('Haircut')).toBeInTheDocument()
   })
 
-  it('sorts the When column with null dates last', async () => {
-    const user = userEvent.setup()
-    render(
-      <ActivityTable
-        items={[
-          makeRow({ id: 'early', title: 'Early', dateIso: '2026-01-01', dateLabel: 'Early label' }),
-          makeRow({ id: 'none', title: 'No date', dateIso: null, dateLabel: 'No date label' }),
-          makeRow({ id: 'late', title: 'Late', dateIso: '2026-12-01', dateLabel: 'Late label' }),
-        ]}
-      />,
-    )
-    await user.click(screen.getByText('When'))
-    const rows = screen.getAllByRole('row')
-    // header + 3 data rows; null-date row must be last
-    expect(within(rows[rows.length - 1]!).getByText('No date label')).toBeInTheDocument()
+  it('renders a color dot when the event carries a color', () => {
+    render(<OneOffEventsTable items={[makeEventRow()]} />)
+    expect(document.querySelector('[data-color="#ef4444"]')).toBeInTheDocument()
   })
 
-  it('exposes edit/delete/complete controls in the actions cell', () => {
-    render(
-      <ActivityTable
-        items={[
-          makeRow({
-            type: 'task',
-            status: 'pending',
-            recurrence: null,
-            joinability: 'open',
-            maxParticipants: 5,
-          }),
-        ]}
-      />,
-    )
-    expect(screen.getByRole('button', { name: 'Edit task' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Delete task' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /mark complete/i })).toBeInTheDocument()
-  })
-
-  it('hides the complete control when the row is already completed', () => {
-    render(<ActivityTable items={[makeRow({ status: 'completed' })]} />)
-    expect(screen.queryByRole('button', { name: /mark complete/i })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Edit task' })).toBeInTheDocument()
-  })
-
-  it('renders the complete action as an icon-only button carrying the accessible name', () => {
-    render(<ActivityTable items={[makeRow({ status: 'pending', recurrence: null })]} />)
-    const completeButton = screen.getByRole('button', { name: /mark complete/i })
-    expect(completeButton).toHaveTextContent('')
-    expect(completeButton.querySelector('svg')).not.toBeNull()
-  })
-
-  it('renders the status cell as a colored Badge per status value', () => {
-    render(
-      <ActivityTable
-        items={[
-          makeRow({ id: 'p', title: 'Pending row', status: 'pending' }),
-          makeRow({ id: 'i', title: 'In-progress row', status: 'in_progress' }),
-          makeRow({ id: 'c', title: 'Completed row', status: 'completed' }),
-        ]}
-      />,
-    )
-    const pendingBadge = screen.getByText('pending')
-    expect(pendingBadge).toHaveClass('text-foreground')
-
-    const inProgressBadge = screen.getByText('in_progress')
-    expect(inProgressBadge).toHaveClass('bg-secondary')
-    expect(inProgressBadge).toHaveClass('text-secondary-foreground')
-
-    const completedBadge = screen.getByText('completed')
-    expect(completedBadge).toHaveClass('border-transparent')
-    expect(completedBadge).toHaveClass('bg-emerald-500/15')
-    expect(completedBadge).toHaveClass('text-emerald-400')
-  })
-
-  it('renders the type badge inline in the title cell per type value', () => {
-    render(
-      <ActivityTable
-        items={[
-          makeRow({ id: 't', title: 'Task row', type: 'task' }),
-          makeRow({ id: 'g', title: 'Goal row', type: 'goal' }),
-        ]}
-      />,
-    )
-    const taskBadge = screen.getByText('task')
-    expect(taskBadge).toHaveClass('bg-secondary')
-    expect(taskBadge).toHaveClass('text-secondary-foreground')
-
-    const goalBadge = screen.getByText('goal')
-    expect(goalBadge).toHaveClass('text-foreground')
-  })
-
-  it('renders the social cell as two Badges (activityType outline, visibility secondary)', () => {
-    render(<ActivityTable items={[makeRow({ activityType: 'group', visibility: 'everyone' })]} />)
-    const activityTypeBadge = screen.getByText('group')
-    expect(activityTypeBadge).toHaveClass('text-foreground')
-
-    const visibilityBadge = screen.getByText('everyone')
-    expect(visibilityBadge).toHaveClass('bg-secondary')
-    expect(visibilityBadge).toHaveClass('text-secondary-foreground')
-  })
-
-  // S14: confirming "Entire series" hides every row of the group instantly via a
-  // table-level hidden-group overlay (the items are filtered before DataTable),
-  // fires deleteSeries in the background, and reconciles on settle. Two rows share
-  // group 'grp-9'; a solo row must stay visible throughout.
-  describe('optimistic "Entire series" delete (S14)', () => {
-    const groupedItems = (): ActivityRow[] => [
-      makeRow({
-        id: 'grp-a',
-        title: 'Group member A',
-        recurrence: 'weekly',
-        recurrenceGroupId: 'grp-9',
-      }),
-      makeRow({
-        id: 'grp-b',
-        title: 'Group member B',
-        recurrence: 'weekly',
-        recurrenceGroupId: 'grp-9',
-      }),
-      makeRow({ id: 'solo', title: 'Solo row', recurrenceGroupId: null }),
-    ]
-
-    it('hides every row of the group synchronously on confirm, before deleteSeries resolves', async () => {
-      let resolveDelete!: (value: unknown) => void
-      deleteSeriesMock.mockReturnValueOnce(
-        new Promise((resolve) => {
-          resolveDelete = resolve
-        }),
-      )
-      const user = userEvent.setup()
-      render(<ActivityTable items={groupedItems()} />)
-
-      expect(screen.getByText('Group member A')).toBeInTheDocument()
-      expect(screen.getByText('Group member B')).toBeInTheDocument()
-
-      await user.click(screen.getAllByRole('button', { name: 'Delete task' })[0]!)
-      await user.click(screen.getByRole('button', { name: /entire series/i }))
-
-      await waitFor(() => expect(screen.queryByText('Group member A')).not.toBeInTheDocument())
-      expect(screen.queryByText('Group member B')).not.toBeInTheDocument()
-      // The ungrouped row is untouched by the group overlay.
-      expect(screen.getByText('Solo row')).toBeInTheDocument()
-      expect(deleteSeriesMock).toHaveBeenCalledWith({ groupId: 'grp-9' })
-
-      resolveDelete({ data: { success: true } })
-    })
-
-    it('refreshes on a successful "Entire series" delete, then clears the overlay once it settles', async () => {
-      const user = userEvent.setup()
-      render(<ActivityTable items={groupedItems()} />)
-
-      await user.click(screen.getAllByRole('button', { name: 'Delete task' })[0]!)
-      await user.click(screen.getByRole('button', { name: /entire series/i }))
-
-      await waitFor(() => expect(deleteSeriesMock).toHaveBeenCalledWith({ groupId: 'grp-9' }))
-      await waitFor(() => expect(refreshMock).toHaveBeenCalled())
-      // The overlay drops only after the refresh transition settles. With static
-      // test items the group rows return (in production the refreshed items omit
-      // the deleted group), proving the clear fires post-refresh, not mid-flight.
-      await waitFor(() => expect(screen.getByText('Group member A')).toBeInTheDocument())
-      expect(screen.getByText('Group member B')).toBeInTheDocument()
-    })
-
-    it('reveals the whole group again when "Entire series" fails to persist', async () => {
-      deleteSeriesMock.mockResolvedValueOnce({ error: 'Not found' })
-      const user = userEvent.setup()
-      render(<ActivityTable items={groupedItems()} />)
-
-      await user.click(screen.getAllByRole('button', { name: 'Delete task' })[0]!)
-      await user.click(screen.getByRole('button', { name: /entire series/i }))
-
-      await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not delete series'))
-      expect(screen.getByText('Group member A')).toBeInTheDocument()
-      expect(screen.getByText('Group member B')).toBeInTheDocument()
-      expect(refreshMock).not.toHaveBeenCalled()
-    })
-  })
-
-  // Task 3 (activities-series-grouping): collapsed series rows carry a
-  // representative id (`id`) plus a today-occurrence anchor
-  // (`todayOccurrenceId`/`todayOccurrenceStatus`) that the ✓ control and
-  // recordCompletion call target instead of the representative id.
-  describe('series row rendering (activities-series-grouping)', () => {
-    it('shows ✓ on a series row with a pending today occurrence', () => {
-      render(
-        <ActivityTable
-          items={[
-            makeRow({
-              isSeries: true,
-              todayOccurrenceId: 'occ-1',
-              todayOccurrenceStatus: 'pending',
-              recurrence: 'daily',
-            }),
-          ]}
-        />,
-      )
-      expect(screen.getByRole('button', { name: 'Log today' })).toBeInTheDocument()
-    })
-
-    it('hides ✓ on a series row whose today occurrence is completed', () => {
-      render(
-        <ActivityTable
-          items={[
-            makeRow({
-              isSeries: true,
-              todayOccurrenceId: 'occ-1',
-              todayOccurrenceStatus: 'completed',
-              recurrence: 'daily',
-            }),
-          ]}
-        />,
-      )
-      expect(screen.queryByRole('button', { name: 'Log today' })).not.toBeInTheDocument()
-    })
-
-    it('hides ✓ on a series row with nothing due today', () => {
-      render(
-        <ActivityTable
-          items={[
-            makeRow({
-              isSeries: true,
-              todayOccurrenceId: null,
-              todayOccurrenceStatus: 'pending',
-              recurrence: 'daily',
-            }),
-          ]}
-        />,
-      )
-      expect(screen.queryByRole('button', { name: 'Log today' })).not.toBeInTheDocument()
-    })
-
-    it('does not append the recurrence suffix to a series row When cell', () => {
-      const dateLabel = 'Weekly · Mon/Wed · next Jul 20, 9:00 AM'
-      render(
-        <ActivityTable items={[makeRow({ isSeries: true, dateLabel, recurrence: 'weekly' })]} />,
-      )
-      expect(screen.getByText(dateLabel)).toBeInTheDocument()
-      expect(screen.queryByText('· weekly', { exact: false })).not.toBeInTheDocument()
-    })
-
-    it('keeps the recurrence suffix on one-off recurring rows (regression)', () => {
-      render(
-        <ActivityTable
-          items={[makeRow({ isSeries: false, recurrence: 'yearly', dateLabel: 'Jul 3, 5:00 AM' })]}
-        />,
-      )
-      expect(screen.getByText('· yearly', { exact: false })).toBeInTheDocument()
-    })
-
-    it('series row delete goes straight to the series-only dialog', async () => {
-      const user = userEvent.setup()
-      render(<ActivityTable items={[makeRow({ isSeries: true, recurrenceGroupId: 'g1' })]} />)
-      await user.click(screen.getByRole('button', { name: 'Delete task' }))
-      expect(
-        screen.getByRole('button', { name: 'Confirm delete entire series' }),
-      ).toBeInTheDocument()
-      expect(
-        screen.queryByRole('button', { name: 'Confirm delete this event only' }),
-      ).not.toBeInTheDocument()
-    })
-
-    it('series row ✓ targets the today occurrence id', async () => {
-      const user = userEvent.setup()
-      render(
-        <ActivityTable
-          items={[
-            makeRow({
-              id: 'rep-1',
-              isSeries: true,
-              todayOccurrenceId: 'occ-1',
-              todayOccurrenceStatus: 'pending',
-              recurrence: 'daily',
-            }),
-          ]}
-        />,
-      )
-      await user.click(screen.getByRole('button', { name: 'Log today' }))
-      await waitFor(() => expect(recordCompletionMock).toHaveBeenCalledWith({ taskId: 'occ-1' }))
-    })
+  it('omits the color dot when the event has no color', () => {
+    render(<OneOffEventsTable items={[makeEventRow({ color: null })]} />)
+    expect(screen.getByText('Dentist')).toBeInTheDocument()
+    expect(document.querySelector('[data-color]')).toBeNull()
   })
 })

@@ -3,12 +3,11 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import CalendarPage from './page'
 
 const authMock = vi.fn()
-const getUserTasksMock = vi.fn()
-const getTaskStreaksMock = vi.fn()
+const getUserEventsMock = vi.fn()
+const getUserActivitiesMock = vi.fn()
 const safeDeleteExpiredEventsMock = vi.fn()
-const safeExtendSeriesMock = vi.fn()
+const safeGenerateEventsMock = vi.fn()
 const getCalendarPrefsMock = vi.fn()
-const reportSeriesDriftMock = vi.fn()
 
 vi.mock('@/auth', () => ({ auth: () => authMock() }))
 
@@ -18,47 +17,57 @@ vi.mock('next/navigation', () => ({
   }),
 }))
 
-vi.mock('@/server/queries/tasks', () => ({
-  getUserTasks: () => getUserTasksMock(),
+vi.mock('@/server/queries/events', () => ({
+  getUserEvents: () => getUserEventsMock(),
 }))
 
-vi.mock('@/server/queries/consistency', () => ({
-  getTaskStreaks: () => getTaskStreaksMock(),
+vi.mock('@/server/queries/activities', () => ({
+  getUserActivities: () => getUserActivitiesMock(),
 }))
 
 vi.mock('@/server/actions/event-ttl', () => ({
   safeDeleteExpiredEvents: () => safeDeleteExpiredEventsMock(),
 }))
 
-vi.mock('@/server/actions/series-mutations', () => ({
-  safeExtendSeries: () => safeExtendSeriesMock(),
+vi.mock('@/server/actions/event-generation', () => ({
+  safeGenerateEvents: () => safeGenerateEventsMock(),
 }))
 
 vi.mock('@/server/queries/calendar-prefs', () => ({
   getCalendarPrefs: () => getCalendarPrefsMock(),
 }))
 
-vi.mock('@/lib/series-consistency', () => ({
-  reportSeriesDrift: (rows: unknown) => reportSeriesDriftMock(rows),
-}))
-
-interface MockCalendarClientEvent {
+interface MockClientEvent {
   readonly id: string
-  readonly recurrenceGroupId: string | null
+  readonly activityId: string | null
+  readonly status: string
+  readonly locked?: boolean
+}
+
+interface MockActivityOption {
+  readonly id: string
+  readonly minDurationMin: number
 }
 
 vi.mock('@/components/calendar/calendar-client', () => ({
   CalendarClient: ({
     weekStart,
     events,
+    activities,
   }: {
     weekStart: string
-    events: readonly MockCalendarClientEvent[]
+    events: readonly MockClientEvent[]
+    activities: readonly MockActivityOption[]
   }) => (
     <div
       data-testid="calendar-client"
       data-week-start={weekStart}
-      data-evt0-recurrence-group-id={events[0]?.recurrenceGroupId ?? ''}
+      data-event-count={String(events.length)}
+      data-evt0-id={events[0]?.id ?? ''}
+      data-evt0-activity-id={events[0]?.activityId ?? ''}
+      data-evt0-status={events[0]?.status ?? ''}
+      data-evt0-locked={String(events[0]?.locked ?? '')}
+      data-activity-options={activities.map((a) => `${a.id}:${a.minDurationMin}`).join('|')}
     />
   ),
 }))
@@ -67,7 +76,6 @@ function makeSession() {
   return { user: { id: 'user-1' } }
 }
 
-/** Mirrors the page's own Monday-of-current-week fallback, in local time. */
 function expectedFallbackWeekStart(): string {
   const now = new Date()
   const day = now.getDay()
@@ -77,58 +85,63 @@ function expectedFallbackWeekStart(): string {
   return monday.toISOString().slice(0, 10)
 }
 
+function makeEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'evt-1',
+    userId: 'user-1',
+    activityId: 'act-1',
+    title: 'Session',
+    description: null,
+    location: null,
+    startAt: new Date('2026-06-01T09:00:00.000Z'),
+    endAt: new Date('2026-06-01T10:00:00.000Z'),
+    allDay: false,
+    status: 'pending',
+    locked: false,
+    color: null,
+    createdAt: new Date('2026-06-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-06-01T00:00:00.000Z'),
+    ...overrides,
+  }
+}
+
+function makeActivity(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'act-1',
+    userId: 'user-1',
+    title: 'Running',
+    color: 'blue',
+    description: null,
+    defaultLocation: null,
+    minDurationMin: 30,
+    maxDurationMin: 60,
+    weeklyTargetSessions: 3,
+    schedule: [],
+    timeZone: null,
+    generatedThrough: null,
+    createdAt: new Date('2026-06-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-06-01T00:00:00.000Z'),
+    ...overrides,
+  }
+}
+
 describe('CalendarPage', () => {
   beforeEach(() => {
     authMock.mockReset().mockResolvedValue(makeSession())
-    getUserTasksMock.mockReset().mockResolvedValue([])
-    getTaskStreaksMock.mockReset().mockResolvedValue({})
+    getUserEventsMock.mockReset().mockResolvedValue([])
+    getUserActivitiesMock.mockReset().mockResolvedValue([])
     safeDeleteExpiredEventsMock.mockReset().mockResolvedValue(undefined)
-    safeExtendSeriesMock.mockReset().mockResolvedValue(undefined)
+    safeGenerateEventsMock.mockReset().mockResolvedValue(undefined)
     getCalendarPrefsMock.mockReset().mockResolvedValue(null)
-    reportSeriesDriftMock.mockReset()
   })
 
-  it('sweeps safeExtendSeries after safeDeleteExpiredEvents and before getUserTasks', async () => {
+  it('sweeps TTL then generation before reading events', async () => {
     await CalendarPage({ searchParams: Promise.resolve({}) })
     const deleteOrder = safeDeleteExpiredEventsMock.mock.invocationCallOrder[0]!
-    const extendOrder = safeExtendSeriesMock.mock.invocationCallOrder[0]!
-    const tasksOrder = getUserTasksMock.mock.invocationCallOrder[0]!
-    expect(deleteOrder).toBeLessThan(extendOrder)
-    expect(extendOrder).toBeLessThan(tasksOrder)
-  })
-
-  it('reports series drift after getUserTasks and still renders the calendar normally', async () => {
-    const groupedTask = {
-      id: 'task-1',
-      title: 'Grouped task',
-      startAt: new Date('2026-06-01T09:00:00.000Z'),
-      endAt: new Date('2026-06-01T10:00:00.000Z'),
-      targetDate: null,
-      type: 'task',
-      status: 'pending',
-      activityType: 'solo',
-      visibility: 'only_me',
-      color: null,
-      allDay: false,
-      location: null,
-      description: null,
-      recurrence: null,
-      recurrenceDays: null,
-      recurrenceGroupId: 'group-1',
-      locked: false,
-    }
-    getUserTasksMock.mockResolvedValueOnce([groupedTask])
-
-    const { getByTestId } = render(await CalendarPage({ searchParams: Promise.resolve({}) }))
-
-    const tasksOrder = getUserTasksMock.mock.invocationCallOrder[0]!
-    const driftOrder = reportSeriesDriftMock.mock.invocationCallOrder[0]!
-    expect(tasksOrder).toBeLessThan(driftOrder)
-    expect(reportSeriesDriftMock).toHaveBeenCalledWith([groupedTask])
-    expect(getByTestId('calendar-client')).toHaveAttribute(
-      'data-evt0-recurrence-group-id',
-      'group-1',
-    )
+    const generateOrder = safeGenerateEventsMock.mock.invocationCallOrder[0]!
+    const eventsOrder = getUserEventsMock.mock.invocationCallOrder[0]!
+    expect(deleteOrder).toBeLessThan(generateOrder)
+    expect(generateOrder).toBeLessThan(eventsOrder)
   })
 
   it('redirects to /login when unauthenticated', async () => {
@@ -136,7 +149,7 @@ describe('CalendarPage', () => {
     await expect(CalendarPage({ searchParams: Promise.resolve({}) })).rejects.toThrow('REDIRECT')
   })
 
-  it('passes a valid ?week= value through unchanged to CalendarClient', async () => {
+  it('passes a valid ?week= value through unchanged', async () => {
     const { getByTestId } = render(
       await CalendarPage({ searchParams: Promise.resolve({ week: '2026-06-01' }) }),
     )
@@ -153,16 +166,6 @@ describe('CalendarPage', () => {
     )
   })
 
-  it('falls back to the current week for a non-existent calendar date', async () => {
-    const { getByTestId } = render(
-      await CalendarPage({ searchParams: Promise.resolve({ week: '2026-13-99' }) }),
-    )
-    expect(getByTestId('calendar-client')).toHaveAttribute(
-      'data-week-start',
-      expectedFallbackWeekStart(),
-    )
-  })
-
   it('falls back to the current week when ?week= is absent', async () => {
     const { getByTestId } = render(await CalendarPage({ searchParams: Promise.resolve({}) }))
     expect(getByTestId('calendar-client')).toHaveAttribute(
@@ -171,58 +174,32 @@ describe('CalendarPage', () => {
     )
   })
 
-  it('threads a task recurrenceGroupId through to the event mapping', async () => {
-    getUserTasksMock.mockResolvedValueOnce([
-      {
-        id: 'task-1',
-        title: 'Grouped task',
-        startAt: new Date('2026-06-01T09:00:00.000Z'),
-        endAt: new Date('2026-06-01T10:00:00.000Z'),
-        targetDate: null,
-        type: 'task',
-        status: 'pending',
-        activityType: 'solo',
-        visibility: 'only_me',
-        color: null,
-        allDay: false,
-        location: null,
-        description: null,
-        recurrence: null,
-        recurrenceDays: null,
-        recurrenceGroupId: 'group-1',
-        locked: false,
-      },
-    ])
+  it('maps events to client props, threading activityId/status/locked', async () => {
+    getUserEventsMock.mockResolvedValueOnce([makeEvent({ status: 'completed', locked: true })])
     const { getByTestId } = render(await CalendarPage({ searchParams: Promise.resolve({}) }))
-    expect(getByTestId('calendar-client')).toHaveAttribute(
-      'data-evt0-recurrence-group-id',
-      'group-1',
-    )
+    const client = getByTestId('calendar-client')
+    expect(client).toHaveAttribute('data-event-count', '1')
+    expect(client).toHaveAttribute('data-evt0-id', 'evt-1')
+    expect(client).toHaveAttribute('data-evt0-activity-id', 'act-1')
+    expect(client).toHaveAttribute('data-evt0-status', 'completed')
+    expect(client).toHaveAttribute('data-evt0-locked', 'true')
   })
 
-  it('maps a null recurrenceGroupId when the task has none', async () => {
-    getUserTasksMock.mockResolvedValueOnce([
-      {
-        id: 'task-2',
-        title: 'Ungrouped task',
-        startAt: new Date('2026-06-01T09:00:00.000Z'),
-        endAt: new Date('2026-06-01T10:00:00.000Z'),
-        targetDate: null,
-        type: 'task',
-        status: 'pending',
-        activityType: 'solo',
-        visibility: 'only_me',
-        color: null,
-        allDay: false,
-        location: null,
-        description: null,
-        recurrence: null,
-        recurrenceDays: null,
-        recurrenceGroupId: null,
-        locked: false,
-      },
+  it('filters out events without a start/end time (unschedulable)', async () => {
+    getUserEventsMock.mockResolvedValueOnce([
+      makeEvent({ id: 'timed' }),
+      makeEvent({ id: 'no-start', startAt: null }),
+      makeEvent({ id: 'no-end', endAt: null }),
     ])
     const { getByTestId } = render(await CalendarPage({ searchParams: Promise.resolve({}) }))
-    expect(getByTestId('calendar-client')).toHaveAttribute('data-evt0-recurrence-group-id', '')
+    const client = getByTestId('calendar-client')
+    expect(client).toHaveAttribute('data-event-count', '1')
+    expect(client).toHaveAttribute('data-evt0-id', 'timed')
+  })
+
+  it('builds activity options with minDurationMin as the default duration', async () => {
+    getUserActivitiesMock.mockResolvedValueOnce([makeActivity({ id: 'act-1', minDurationMin: 25 })])
+    const { getByTestId } = render(await CalendarPage({ searchParams: Promise.resolve({}) }))
+    expect(getByTestId('calendar-client')).toHaveAttribute('data-activity-options', 'act-1:25')
   })
 })

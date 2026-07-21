@@ -2,7 +2,7 @@
 import * as Sentry from '@sentry/nextjs'
 import { auth } from '@/auth'
 import { db } from '@/db'
-import { tasks, calendarPrefs } from '@/db/schema'
+import { events, calendarPrefs } from '@/db/schema'
 import { and, eq, ne, lt, isNull, isNotNull } from 'drizzle-orm'
 import { logger } from '@/lib/logger'
 
@@ -11,9 +11,10 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000
 type DeleteExpiredEventsResult = { data: { deleted: number } } | { error: unknown }
 
 /**
- * Deletes the current user's still-pending, non-recurring events (type 'task')
- * whose endAt is more than calendarPrefs.ttlDays days in the past. Completed
- * events, recurring tasks, and goals are never touched.
+ * Deletes the current user's still-pending, STANDALONE events (`activityId
+ * IS NULL`) whose endAt is more than calendarPrefs.ttlDays days in the past.
+ * Completed events and any event generated from an activity (recurring
+ * pattern) are never touched — TTL applies to standalone events only.
  */
 export async function deleteExpiredEvents(): Promise<DeleteExpiredEventsResult> {
   const session = await auth()
@@ -29,18 +30,17 @@ export async function deleteExpiredEvents(): Promise<DeleteExpiredEventsResult> 
   const cutoff = new Date(Date.now() - prefs.ttlDays * MS_PER_DAY)
 
   const deleted = await db
-    .delete(tasks)
+    .delete(events)
     .where(
       and(
-        eq(tasks.userId, session.user.id),
-        eq(tasks.type, 'task'),
-        isNull(tasks.recurrence),
-        ne(tasks.status, 'completed'),
-        isNotNull(tasks.endAt),
-        lt(tasks.endAt, cutoff),
+        eq(events.userId, session.user.id),
+        isNull(events.activityId),
+        ne(events.status, 'completed'),
+        isNotNull(events.endAt),
+        lt(events.endAt, cutoff),
       ),
     )
-    .returning({ id: tasks.id })
+    .returning({ id: events.id })
 
   logger.info({ userId: session.user.id, deleted: deleted.length }, 'Expired events deleted (TTL)')
 

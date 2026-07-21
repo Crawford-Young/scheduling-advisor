@@ -7,7 +7,7 @@ import { LifeBalanceView } from '@/components/cards/life-balance-view'
 import { ActionConfirmCard } from '@/components/chat/action-confirm-card'
 import { EventProposalCard, type RecurrenceFrequency } from '@/components/chat/event-proposal-card'
 import { DayProposalPreview } from '@/components/chat/day-proposal-preview'
-import type { DayOfWeek } from '@/lib/schemas/task'
+import type { DayOfWeek } from '@/lib/chat/proposal-occurrences'
 import {
   ActivityCard,
   WeekCalendarView,
@@ -119,8 +119,8 @@ export interface EventProposal {
   // its description line at parity with the popup.
   readonly description?: string
   // Present when Cy proposed a recurring series (a single call). The right-panel
-  // ghost still renders the anchor day only (v1); the confirmed series lands from
-  // real rows after createTask's fan-out.
+  // ghost still renders the anchor day only (v1); the confirmed occurrences land
+  // from real rows after the createEvents fan-out.
   readonly recurrence?: RecurrenceFrequency
   readonly recurrenceDays?: readonly DayOfWeek[]
   readonly recurrenceCount?: number

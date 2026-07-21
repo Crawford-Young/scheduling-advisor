@@ -28,7 +28,12 @@ vi.mock('@/db', () => ({
     select: mockSelect,
   },
 }))
-vi.mock('@/db/schema', () => ({ users: {}, messages: {}, conversations: { model: {} } }))
+vi.mock('@/db/schema', () => ({
+  users: {},
+  messages: {},
+  conversations: { model: {} },
+  events: {},
+}))
 vi.mock('@/lib/ai', () => ({ quickModel: 'fake-quick' }))
 vi.mock('@/lib/chat/model-tiers', () => ({
   MODEL_TIERS: {
@@ -59,29 +64,16 @@ vi.mock('@/lib/chat/context-builder', () => ({
 vi.mock('@/lib/chat/system-prompt', () => ({
   buildSystemPrompt: vi.fn(() => 'test-system-prompt'),
 }))
-vi.mock('@/server/services', () => ({
-  getCalendarService: vi.fn().mockResolvedValue({
-    getEvents: vi.fn().mockResolvedValue([]),
-    createEvent: vi.fn().mockResolvedValue({
-      id: 'e1',
-      title: 'T',
-      start: new Date(),
-      end: new Date(),
-      calendarId: 'c',
-    }),
-  }),
+// tools.ts backs its read/mutation tools with these auth-scoped modules; mock
+// them so the route test never loads the real action/query graph.
+vi.mock('@/server/queries/activities', () => ({ getUserActivities: vi.fn().mockResolvedValue([]) }))
+vi.mock('@/server/actions/activities', () => ({ createActivity: vi.fn().mockResolvedValue({}) }))
+vi.mock('@/server/actions/events', () => ({
+  createEvent: vi.fn().mockResolvedValue({}),
+  updateEvent: vi.fn().mockResolvedValue({}),
+  deleteEvent: vi.fn().mockResolvedValue({}),
 }))
-vi.mock('@/server/queries/tasks', () => ({ getUserTasks: vi.fn().mockResolvedValue([]) }))
-vi.mock('@/server/queries/check-ins', () => ({ getUserCheckIns: vi.fn().mockResolvedValue([]) }))
-vi.mock('@/server/actions/items', () => ({
-  markItemComplete: vi.fn().mockResolvedValue({}),
-  markItemSkipped: vi.fn().mockResolvedValue({}),
-  rescheduleItem: vi.fn().mockResolvedValue({}),
-  createHabit: vi.fn().mockResolvedValue({}),
-  createGoal: vi.fn().mockResolvedValue({}),
-  createTask: vi.fn().mockResolvedValue({}),
-  updateItem: vi.fn().mockResolvedValue({}),
-}))
+vi.mock('@/server/actions/chat-mutations', () => ({ createEvents: vi.fn().mockResolvedValue({}) }))
 vi.mock('@/lib/logger', () => ({ logger: { error: vi.fn(), info: vi.fn() } }))
 vi.mock('drizzle-orm', () => ({ eq: vi.fn(), desc: vi.fn(), and: vi.fn(), isNull: vi.fn() }))
 
@@ -197,7 +189,8 @@ describe('POST /api/chat', () => {
       anthropic: { cacheControl: { type: 'ephemeral' } },
     })
     expect(sys[1]!.providerOptions).toBeUndefined()
-    expect(Object.keys(args.tools!)).toHaveLength(19)
+    // Advisor drops the direct event-create pair (createEvent/createEvents) — 12 registry tools − 2.
+    expect(Object.keys(args.tools!)).toHaveLength(10)
   })
 
   it('persisted: concatenated system content stays byte-equivalent to the prior single message', async () => {

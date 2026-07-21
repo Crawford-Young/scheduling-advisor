@@ -5,7 +5,12 @@ import { Badge, Button, Card, CardContent, Input } from '@/lib/ui'
 
 export interface ActionConfirmCardProps {
   readonly action: string
-  readonly entityType: 'habit' | 'goal' | 'event'
+  // 'habit' | 'goal' are legacy — proposeAction stopped emitting them at the
+  // A7 chat/tools rewrite, but old persisted messages still render this
+  // card with those values, so they stay in the union. 'activity' is the
+  // A7-era addition (A9 hardening — was reachable only via `as any` at
+  // tool-result-renderer.tsx, so tsc never caught the missing union member).
+  readonly entityType: 'habit' | 'goal' | 'event' | 'activity'
   readonly date?: string
   readonly time?: string
   readonly detail?: string
@@ -19,6 +24,7 @@ const entityBadgeClass: Record<ActionConfirmCardProps['entityType'], string> = {
   habit: 'border-blue-500/30 bg-blue-500/10 text-blue-500',
   goal: 'border-purple-500/30 bg-purple-500/10 text-purple-500',
   event: 'border-green-500/30 bg-green-500/10 text-green-500',
+  activity: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
 }
 
 export function ActionConfirmCard({

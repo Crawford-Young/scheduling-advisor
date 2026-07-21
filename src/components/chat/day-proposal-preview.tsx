@@ -27,7 +27,7 @@ export interface DayProposalPreviewProps {
   readonly state: PreviewState
   // Set when the proposal is a recurring series — surfaces a "repeats …" badge on
   // the anchor-day column. The column still shows only the anchor occurrence; the
-  // full series lands on the calendar after createTask's fan-out.
+  // full set of occurrences lands on the calendar after the createEvents fan-out.
   readonly recurrence?: RecurrenceFrequency
 }
 

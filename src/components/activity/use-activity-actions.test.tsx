@@ -2,37 +2,93 @@ import * as React from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { useActivityActions, type ActivityCardActionsProps } from './use-activity-actions'
+import {
+  useActivityActions,
+  useEventActions,
+  type ActivityActionsRow,
+  type EventActionsRow,
+} from './use-activity-actions'
 
 const refreshMock = vi.fn()
-const updateTaskMock = vi.fn().mockResolvedValue({ data: {} })
-const updateSeriesMock = vi.fn().mockResolvedValue({ data: {} })
-const deleteTaskMock = vi.fn().mockResolvedValue({ data: { success: true } })
-const deleteSeriesMock = vi.fn().mockResolvedValue({ data: { success: true } })
-const recordCompletionMock = vi.fn().mockResolvedValue({ data: {} })
+const updateActivityMock = vi.fn().mockResolvedValue({ data: {} })
+const deleteActivityMock = vi.fn().mockResolvedValue({ data: { success: true } })
+const updateEventMock = vi.fn().mockResolvedValue({ data: {} })
+const deleteEventMock = vi.fn().mockResolvedValue({ data: { success: true } })
 const toastErrorMock = vi.fn()
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: refreshMock }),
 }))
 
-vi.mock('@/server/actions/tasks', () => ({
-  updateTask: (input: unknown) => updateTaskMock(input),
-  deleteTask: (input: unknown) => deleteTaskMock(input),
+vi.mock('@/server/actions/activities', () => ({
+  updateActivity: (input: unknown) => updateActivityMock(input),
+  deleteActivity: (input: unknown) => deleteActivityMock(input),
 }))
 
-vi.mock('@/server/actions/series-mutations', () => ({
-  updateSeries: (input: unknown) => updateSeriesMock(input),
-  deleteSeries: (input: unknown) => deleteSeriesMock(input),
+vi.mock('@/server/actions/events', () => ({
+  updateEvent: (input: unknown) => updateEventMock(input),
+  deleteEvent: (input: unknown) => deleteEventMock(input),
 }))
 
-vi.mock('@/server/actions/consistency', () => ({
-  recordCompletion: (input: unknown) => recordCompletionMock(input),
-}))
+interface MockTemplateValues {
+  readonly title: string
+  readonly color?: string | null
+  readonly description?: string | null
+  readonly defaultLocation?: string | null
+  readonly minDurationMin: number
+  readonly maxDurationMin: number
+  readonly weeklyTargetSessions: number
+  readonly schedule: ReadonlyArray<{ day: number; startMinutes: number; durationMin: number }>
+}
 
-// @/lib/ui — AlertDialog family + toast + the library ActivityFormDialog (mocked to surface data props).
+interface MockEventValues {
+  readonly title: string
+  readonly startAt?: string | null
+  readonly endAt?: string | null
+  readonly allDay?: boolean
+  readonly color?: string | null
+  readonly location?: string | null
+  readonly description?: string | null
+}
+
+const TEMPLATE_SUBMIT: MockTemplateValues = {
+  title: 'Edited running',
+  color: 'violet',
+  description: 'cardio edited',
+  defaultLocation: 'Track',
+  minDurationMin: 25,
+  maxDurationMin: 55,
+  weeklyTargetSessions: 4,
+  schedule: [{ day: 2, startMinutes: 400, durationMin: 50 }],
+}
+
+// Optional fields omitted → exercises the ?? null fallbacks in updateActivity.
+const TEMPLATE_SUBMIT_MIN: MockTemplateValues = {
+  title: 'Minimal',
+  minDurationMin: 20,
+  maxDurationMin: 40,
+  weeklyTargetSessions: 2,
+  schedule: [],
+}
+
+const EVENT_SUBMIT: MockEventValues = {
+  title: 'Edited event',
+  startAt: '2026-07-02T09:30:00.000Z',
+  endAt: '2026-07-02T10:30:00.000Z',
+  allDay: false,
+  color: 'blue',
+  location: 'Office',
+  description: 'notes',
+}
+
+// Minimal edit (all optional fields omitted) → exercises the ?? null fallbacks.
+const EVENT_SUBMIT_MIN: MockEventValues = { title: 'Minimal event' }
+
 vi.mock('@/lib/ui', () => ({
   toast: { error: (...args: unknown[]) => toastErrorMock(...args) },
+  Button: ({ children, ...props }: React.ComponentProps<'button'>) => (
+    <button {...props}>{children}</button>
+  ),
   AlertDialog: ({ open, children }: { open: boolean; children: React.ReactNode }) =>
     open ? <div role="alertdialog">{children}</div> : null,
   AlertDialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -44,795 +100,435 @@ vi.mock('@/lib/ui', () => ({
   AlertDialogAction: ({ children, ...props }: React.ComponentProps<'button'>) => (
     <button {...props}>{children}</button>
   ),
-  // Library ActivityFormDialog — renders key props as visible text so contract bugs surface.
-  ActivityFormDialog: ({
+  // Library ActivityTemplateDialog — surfaces data props as text so contract bugs surface.
+  ActivityTemplateDialog: ({
     open,
+    onOpenChange,
     onSubmit,
-    initialType,
-    lockType,
-    use24h,
     initialValues,
+    use24h,
   }: {
     open: boolean
-    onSubmit: (values: unknown) => void
-    initialType?: string
-    lockType?: boolean
+    onOpenChange: (open: boolean) => void
+    onSubmit: (values: MockTemplateValues) => void
+    initialValues?: Partial<MockTemplateValues>
     use24h?: boolean
-    initialValues?: {
-      type?: string
-      title?: string
-      targetDate?: string
-      startAt?: string
-      endAt?: string
-      recurrence?: string
-      recurrenceCount?: number
-      recurrenceDays?: readonly string[]
-      color?: string | null
-      location?: string | null
-      description?: string | null
-      allDay?: boolean
-    }
   }) =>
     open ? (
-      <div data-testid="activity-form-dialog">
-        <span data-testid="dialog-initial-type">{initialType}</span>
-        <span data-testid="dialog-lock-type">{String(lockType)}</span>
-        <span data-testid="dialog-use24h">{String(use24h)}</span>
-        <span data-testid="dialog-target-date">{initialValues?.targetDate ?? ''}</span>
-        <span data-testid="dialog-start-at">{initialValues?.startAt ?? ''}</span>
-        <span data-testid="dialog-end-at">{initialValues?.endAt ?? ''}</span>
-        <span data-testid="dialog-recurrence">{initialValues?.recurrence ?? ''}</span>
-        <span data-testid="dialog-recurrence-count">
-          {initialValues?.recurrenceCount !== undefined
-            ? String(initialValues.recurrenceCount)
-            : ''}
-        </span>
-        <span data-testid="dialog-recurrence-days">
-          {(initialValues?.recurrenceDays ?? []).join(',')}
-        </span>
-        <span data-testid="dialog-color">{initialValues?.color ?? ''}</span>
-        <span data-testid="dialog-location">{initialValues?.location ?? ''}</span>
-        <span data-testid="dialog-description">{initialValues?.description ?? ''}</span>
-        <span data-testid="dialog-all-day">{String(initialValues?.allDay ?? '')}</span>
-        {/* Series-shaped submit: full payload, non-empty recurrenceDays included so
-            both sides of the recurrenceDays?.length ternary get exercised. Used by
-            both the grouped (full-payload) test and the becomingSeries tests. */}
-        <button
-          type="button"
-          onClick={() =>
-            onSubmit({
-              type: 'task',
-              title: 'Series edited task',
-              startAt: '2026-07-01T09:00:00.000Z',
-              endAt: '2026-07-01T10:00:00.000Z',
-              recurrence: 'weekly',
-              recurrenceCount: 8,
-              recurrenceDays: ['Mon', 'Wed'],
-              color: null,
-              location: null,
-              description: null,
-              allDay: false,
-              social: { activityType: 'solo', visibility: 'only_me' },
-            })
-          }
-        >
-          submit-series-edit
+      <div role="dialog" aria-label="activity-template">
+        <span data-testid="tpl-title">{initialValues?.title ?? ''}</span>
+        <span data-testid="tpl-color">{initialValues?.color ?? ''}</span>
+        <span data-testid="tpl-description">{initialValues?.description ?? ''}</span>
+        <span data-testid="tpl-default-location">{initialValues?.defaultLocation ?? ''}</span>
+        <span data-testid="tpl-min">{String(initialValues?.minDurationMin ?? '')}</span>
+        <span data-testid="tpl-max">{String(initialValues?.maxDurationMin ?? '')}</span>
+        <span data-testid="tpl-weekly">{String(initialValues?.weeklyTargetSessions ?? '')}</span>
+        <span data-testid="tpl-schedule-len">{String(initialValues?.schedule?.length ?? '')}</span>
+        <span data-testid="tpl-use24h">{String(use24h ?? '')}</span>
+        <button type="button" onClick={() => onSubmit(TEMPLATE_SUBMIT)}>
+          template-save
         </button>
-        {/* Grouped-row edit to a NON-series frequency with no count/days emitted —
-            exercises isSeriesFrequency's false branch and the recurrenceCount ?? null
-            fallback on a grouped row (the server decides field-vs-pattern). */}
-        <button
-          type="button"
-          onClick={() =>
-            onSubmit({
-              type: 'task',
-              title: 'Series cleared freq',
-              startAt: '2026-07-01T09:00:00.000Z',
-              endAt: '2026-07-01T10:00:00.000Z',
-              recurrence: 'yearly',
-              color: null,
-              location: null,
-              description: null,
-              allDay: false,
-              social: { activityType: 'solo', visibility: 'only_me' },
-            })
-          }
-        >
-          submit-series-nonseries-freq
+        <button type="button" onClick={() => onSubmit(TEMPLATE_SUBMIT_MIN)}>
+          template-save-min
         </button>
-        {/* Grouped-row all-day edit — startAt/endAt null exercises the
-            `values.startAt ?? undefined` / `values.endAt ?? null` fallback sides
-            of the updateSeries payload. */}
-        <button
-          type="button"
-          onClick={() =>
-            onSubmit({
-              type: 'task',
-              title: 'Series all-day',
-              startAt: null,
-              endAt: null,
-              recurrence: 'weekly',
-              recurrenceCount: 4,
-              color: null,
-              location: null,
-              description: null,
-              allDay: true,
-              social: { activityType: 'solo', visibility: 'only_me' },
-            })
-          }
-        >
-          submit-series-allday
+        <button type="button" onClick={() => onOpenChange(false)}>
+          template-close
         </button>
-        <button
-          type="button"
-          onClick={() =>
-            onSubmit(
-              initialType === 'task'
-                ? // Emit null startAt/endAt when initial allDay is true (covers ?? null branches)
-                  initialValues?.allDay === true
-                  ? {
-                      type: 'task',
-                      title: 'Edited all-day task',
-                      startAt: null,
-                      endAt: null,
-                      recurrence: null,
-                      color: null,
-                      location: null,
-                      description: null,
-                      allDay: true,
-                      social: { activityType: 'solo', visibility: 'only_me' },
-                    }
-                  : {
-                      type: 'task',
-                      title: 'Edited task',
-                      startAt: '2026-07-01T09:00:00.000Z',
-                      endAt: '2026-07-01T10:00:00.000Z',
-                      recurrence: null,
-                      color: null,
-                      location: null,
-                      description: null,
-                      allDay: false,
-                      social: { activityType: 'solo', visibility: 'only_me' },
-                    }
-                : {
-                    type: 'goal',
-                    title: 'Edited goal',
-                    // Emit undefined when no initial targetDate to cover toIsoTargetDate(null) branch
-                    targetDate: initialValues?.targetDate !== undefined ? '2026-07-01' : undefined,
-                    location: null,
-                    description: null,
-                    social: { activityType: 'solo', visibility: 'only_me' },
-                  },
-            )
-          }
-        >
-          submit-edit
+      </div>
+    ) : null,
+  // Library EventFormDialog — surfaces data props as text.
+  EventFormDialog: ({
+    open,
+    onOpenChange,
+    onSubmit,
+    initialValues,
+    use24h,
+  }: {
+    open: boolean
+    onOpenChange: (open: boolean) => void
+    onSubmit: (values: MockEventValues) => void
+    initialValues?: Partial<MockEventValues>
+    use24h?: boolean
+  }) =>
+    open ? (
+      <div role="dialog" aria-label="event-form">
+        <span data-testid="evt-title">{initialValues?.title ?? ''}</span>
+        <span data-testid="evt-start">{initialValues?.startAt ?? ''}</span>
+        <span data-testid="evt-end">{initialValues?.endAt ?? ''}</span>
+        <span data-testid="evt-all-day">{String(initialValues?.allDay ?? '')}</span>
+        <span data-testid="evt-color">{initialValues?.color ?? ''}</span>
+        <span data-testid="evt-location">{initialValues?.location ?? ''}</span>
+        <span data-testid="evt-description">{initialValues?.description ?? ''}</span>
+        <span data-testid="evt-use24h">{String(use24h ?? '')}</span>
+        <button type="button" onClick={() => onSubmit(EVENT_SUBMIT)}>
+          event-save
+        </button>
+        <button type="button" onClick={() => onSubmit(EVENT_SUBMIT_MIN)}>
+          event-save-min
+        </button>
+        <button type="button" onClick={() => onOpenChange(false)}>
+          event-close
         </button>
       </div>
     ) : null,
 }))
 
-/** Minimal host that exposes the hook's return values as clickable buttons for tests. */
-function ActivityActionsHarness(props: ActivityCardActionsProps): React.JSX.Element {
-  const { isComplete, completeLabel, isPending, handleComplete, openEdit, openDelete, dialogs } =
-    useActivityActions(props)
+const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone
 
+function makeActivity(over: Partial<ActivityActionsRow> = {}): ActivityActionsRow {
+  return {
+    id: 'act-1',
+    title: 'Running',
+    color: 'blue',
+    description: 'cardio',
+    defaultLocation: 'Park',
+    minDurationMin: 30,
+    maxDurationMin: 60,
+    weeklyTargetSessions: 3,
+    schedule: [{ day: 1, startMinutes: 420, durationMin: 45 }],
+    timeZone: 'America/New_York',
+    ...over,
+  }
+}
+
+function makeEvent(over: Partial<EventActionsRow> = {}): EventActionsRow {
+  return {
+    id: 'evt-1',
+    title: 'Dentist',
+    startAt: '2026-07-02T09:00:00.000Z',
+    endAt: '2026-07-02T10:00:00.000Z',
+    allDay: false,
+    color: 'red',
+    location: 'Clinic',
+    description: 'checkup',
+    status: 'pending',
+    ...over,
+  }
+}
+
+/** Host exposing the activity hook's controls as buttons. */
+function ActivityHarness(props: {
+  activity: ActivityActionsRow
+  use24h?: boolean
+  initialEditOpen?: boolean
+}): React.JSX.Element {
+  const { isPending, openEdit, openDelete, dialogs } = useActivityActions(props)
   return (
     <>
-      <div className="flex items-center gap-1">
-        {!isComplete && (
-          <button onClick={handleComplete} disabled={isPending}>
-            {completeLabel}
-          </button>
-        )}
-        <button aria-label={`Edit ${props.type}`} onClick={openEdit}>
-          edit
-        </button>
-        <button aria-label={`Delete ${props.type}`} onClick={openDelete}>
-          delete
-        </button>
-      </div>
+      <button onClick={openEdit} disabled={isPending}>
+        edit-activity
+      </button>
+      <button onClick={openDelete}>delete-activity</button>
       {dialogs}
     </>
   )
 }
 
-const goalProps = {
-  taskId: 'goal-1',
-  type: 'goal' as const,
-  title: 'Run a marathon',
-  status: 'in_progress' as const,
-  targetDate: '2026-08-01',
-  social: { activityType: 'solo' as const, visibility: 'only_me' as const },
+/** Host exposing the one-off-event hook's controls as buttons. */
+function EventHarness(props: { event: EventActionsRow; use24h?: boolean }): React.JSX.Element {
+  const { isComplete, completeLabel, isPending, handleComplete, openEdit, openDelete, dialogs } =
+    useEventActions(props)
+  return (
+    <>
+      <span data-testid="is-complete">{String(isComplete)}</span>
+      <button onClick={handleComplete} disabled={isPending}>
+        {completeLabel}
+      </button>
+      <button onClick={openEdit}>edit-event</button>
+      <button onClick={openDelete}>delete-event</button>
+      {dialogs}
+    </>
+  )
 }
 
-describe('useActivityActions', () => {
+const DELETE_ACTIVITY_TITLE = 'Delete this activity?'
+// Intended wording, written independently of the component (repo copy rule).
+const DELETE_ACTIVITY_DESCRIPTION = 'Deletes future pending events; past events are kept'
+
+describe('useActivityActions (activity templates)', () => {
   beforeEach(() => {
     refreshMock.mockClear()
-    updateTaskMock.mockClear()
-    updateSeriesMock.mockClear()
-    deleteTaskMock.mockClear()
-    deleteSeriesMock.mockClear()
-    deleteSeriesMock.mockResolvedValue({ data: { success: true } })
-    recordCompletionMock.mockClear()
+    updateActivityMock.mockClear().mockResolvedValue({ data: {} })
+    deleteActivityMock.mockClear().mockResolvedValue({ data: { success: true } })
     toastErrorMock.mockClear()
   })
 
-  it('marks a non-recurring goal/task complete via updateTask', async () => {
+  it('opens the template dialog seeded from the current activity row', async () => {
     const user = userEvent.setup()
-    render(<ActivityActionsHarness {...goalProps} />)
-    await user.click(screen.getByRole('button', { name: /mark complete/i }))
+    render(<ActivityHarness activity={makeActivity()} use24h />)
+    await user.click(screen.getByRole('button', { name: 'edit-activity' }))
+
+    expect(screen.getByTestId('tpl-title')).toHaveTextContent('Running')
+    expect(screen.getByTestId('tpl-color')).toHaveTextContent('blue')
+    expect(screen.getByTestId('tpl-description')).toHaveTextContent('cardio')
+    expect(screen.getByTestId('tpl-default-location')).toHaveTextContent('Park')
+    expect(screen.getByTestId('tpl-min')).toHaveTextContent('30')
+    expect(screen.getByTestId('tpl-max')).toHaveTextContent('60')
+    expect(screen.getByTestId('tpl-weekly')).toHaveTextContent('3')
+    expect(screen.getByTestId('tpl-schedule-len')).toHaveTextContent('1')
+    expect(screen.getByTestId('tpl-use24h')).toHaveTextContent('true')
+  })
+
+  it('auto-opens the dialog when initialEditOpen is set (deep-link path)', () => {
+    render(<ActivityHarness activity={makeActivity()} initialEditOpen />)
+    expect(screen.getByRole('dialog', { name: 'activity-template' })).toBeInTheDocument()
+    expect(screen.getByTestId('tpl-title')).toHaveTextContent('Running')
+  })
+
+  it('saves an edit via updateActivity with the mapped payload and browser time zone', async () => {
+    const user = userEvent.setup()
+    render(<ActivityHarness activity={makeActivity()} />)
+    await user.click(screen.getByRole('button', { name: 'edit-activity' }))
+    await user.click(screen.getByRole('button', { name: 'template-save' }))
+
     await waitFor(() =>
-      expect(updateTaskMock).toHaveBeenCalledWith({ id: 'goal-1', status: 'completed' }),
-    )
-    expect(recordCompletionMock).not.toHaveBeenCalled()
-  })
-
-  it('logs a recurring task via recordCompletion (not updateTask)', async () => {
-    const user = userEvent.setup()
-    render(
-      <ActivityActionsHarness
-        taskId="task-rec-1"
-        type="task"
-        title="Meditate"
-        status="pending"
-        recurrence="daily"
-        social={{ activityType: 'solo', visibility: 'only_me' }}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /log today/i }))
-    await waitFor(() => expect(recordCompletionMock).toHaveBeenCalledWith({ taskId: 'task-rec-1' }))
-    expect(updateTaskMock).not.toHaveBeenCalled()
-  })
-
-  it('hides the complete action when already completed', () => {
-    render(<ActivityActionsHarness {...goalProps} status="completed" />)
-    expect(screen.queryByRole('button', { name: /mark complete/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /log today/i })).not.toBeInTheDocument()
-  })
-
-  it('edit opens ActivityFormDialog with lockType and initialType', async () => {
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...goalProps} />)
-    await user.click(screen.getByRole('button', { name: /edit goal/i }))
-    expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
-    expect(screen.getByTestId('dialog-initial-type')).toHaveTextContent('goal')
-    expect(screen.getByTestId('dialog-lock-type')).toHaveTextContent('true')
-  })
-
-  it('threads the use24h preference into the edit dialog', async () => {
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...goalProps} use24h />)
-    await user.click(screen.getByRole('button', { name: /edit goal/i }))
-    expect(screen.getByTestId('dialog-use24h')).toHaveTextContent('true')
-  })
-
-  it('goal edit initialValues passes date-only targetDate (not a full ISO)', async () => {
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...goalProps} />)
-    await user.click(screen.getByRole('button', { name: /edit goal/i }))
-    // Must be YYYY-MM-DD — a full ISO datetime triggers the goal-date-wipe trap in the dialog
-    const dateText = screen.getByTestId('dialog-target-date').textContent
-    expect(dateText).toBe('2026-08-01')
-    expect(dateText).not.toMatch(/T\d{2}:\d{2}:\d{2}/)
-  })
-
-  it('converts date-only targetDate to noon-UTC ISO on goal edit save (goals never route to updateSeries)', async () => {
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...goalProps} />)
-    await user.click(screen.getByRole('button', { name: /edit goal/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-edit' }))
-    await waitFor(() =>
-      expect(updateTaskMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'goal-1',
-          title: 'Edited goal',
-          targetDate: '2026-07-01T12:00:00.000Z',
-        }),
-      ),
-    )
-    expect(updateSeriesMock).not.toHaveBeenCalled()
-  })
-
-  it('task edit sends startAt/endAt without a targetDate field', async () => {
-    const user = userEvent.setup()
-    render(
-      <ActivityActionsHarness
-        taskId="task-9"
-        type="task"
-        title="Ship it"
-        status="pending"
-        startAt="2026-07-01T09:00:00.000Z"
-        social={{ activityType: 'solo', visibility: 'only_me' }}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-edit' }))
-    await waitFor(() =>
-      expect(updateTaskMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'task-9',
-          startAt: '2026-07-01T09:00:00.000Z',
-          endAt: '2026-07-01T10:00:00.000Z',
-        }),
-      ),
-    )
-    // Tasks must NOT send targetDate — it belongs only to goals
-    expect((updateTaskMock.mock.calls[0] as unknown[][])[0]).not.toHaveProperty('targetDate')
-  })
-
-  it('passes rich props (color, location, description, allDay) to dialog initialValues', async () => {
-    const user = userEvent.setup()
-    render(
-      <ActivityActionsHarness
-        taskId="task-rich"
-        type="task"
-        title="Rich task"
-        status="pending"
-        startAt="2026-07-01T09:00:00.000Z"
-        endAt="2026-07-01T10:00:00.000Z"
-        color="blue"
-        location="Coffee shop"
-        description="Some notes"
-        allDay={false}
-        social={{ activityType: 'solo', visibility: 'only_me' }}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    expect(screen.getByTestId('dialog-color')).toHaveTextContent('blue')
-    expect(screen.getByTestId('dialog-location')).toHaveTextContent('Coffee shop')
-    expect(screen.getByTestId('dialog-description')).toHaveTextContent('Some notes')
-    expect(screen.getByTestId('dialog-all-day')).toHaveTextContent('false')
-    expect(screen.getByTestId('dialog-start-at')).toHaveTextContent('2026-07-01T09:00:00.000Z')
-    expect(screen.getByTestId('dialog-end-at')).toHaveTextContent('2026-07-01T10:00:00.000Z')
-  })
-
-  it('all-day task edit sends null startAt/endAt (covers ?? null null-side branch)', async () => {
-    const user = userEvent.setup()
-    render(
-      <ActivityActionsHarness
-        taskId="task-allday"
-        type="task"
-        title="All day thing"
-        status="pending"
-        allDay={true}
-        social={{ activityType: 'solo', visibility: 'only_me' }}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-edit' }))
-    await waitFor(() =>
-      expect(updateTaskMock).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'task-allday', startAt: null, endAt: null, allDay: true }),
-      ),
-    )
-  })
-
-  it('goal edit with no targetDate prop sends null targetDate (covers toIsoTargetDate null branch)', async () => {
-    const user = userEvent.setup()
-    render(
-      <ActivityActionsHarness
-        taskId="goal-nodate"
-        type="goal"
-        title="Someday goal"
-        status="pending"
-        social={{ activityType: 'solo', visibility: 'only_me' }}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /edit goal/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-edit' }))
-    await waitFor(() =>
-      expect(updateTaskMock).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'goal-nodate', targetDate: null }),
-      ),
-    )
-  })
-
-  it('shows toast.error when non-recurring complete fails', async () => {
-    updateTaskMock.mockResolvedValueOnce({ error: 'Unauthorized' })
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...goalProps} />)
-    await user.click(screen.getByRole('button', { name: /mark complete/i }))
-    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not mark complete'))
-    expect(refreshMock).not.toHaveBeenCalled()
-  })
-
-  it('shows toast.error when recurring complete fails', async () => {
-    recordCompletionMock.mockResolvedValueOnce({ error: 'Unauthorized' })
-    const user = userEvent.setup()
-    render(
-      <ActivityActionsHarness
-        taskId="task-rec-2"
-        type="task"
-        title="Stretch"
-        status="pending"
-        recurrence="weekly"
-        social={{ activityType: 'solo', visibility: 'only_me' }}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /log today/i }))
-    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not log completion'))
-    expect(refreshMock).not.toHaveBeenCalled()
-  })
-
-  it('shows toast.error when edit save fails', async () => {
-    updateTaskMock.mockResolvedValueOnce({ error: 'Not found' })
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...goalProps} />)
-    await user.click(screen.getByRole('button', { name: /edit goal/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-edit' }))
-    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not save activity'))
-    expect(refreshMock).not.toHaveBeenCalled()
-  })
-
-  // Series semantics v2 (wave 2.6 S5): a GROUPED row (recurrenceGroupId set) always
-  // routes through updateSeries — the SERVER decides field-vs-pattern. An UNGROUPED
-  // row edited to a series frequency (becomingSeries) also routes through
-  // updateSeries (materializes a fresh group). Goals never route to updateSeries.
-  const seriesTaskProps = {
-    taskId: 'task-series-1',
-    type: 'task' as const,
-    title: 'Weekly review',
-    status: 'pending' as const,
-    startAt: '2026-07-01T09:00:00.000Z',
-    endAt: '2026-07-01T10:00:00.000Z',
-    recurrence: 'weekly',
-    recurrenceCount: 4,
-    social: { activityType: 'solo' as const, visibility: 'only_me' as const },
-  }
-
-  const groupedSeriesProps = {
-    ...seriesTaskProps,
-    taskId: 'task-grouped-1',
-    recurrenceGroupId: 'group-1',
-    recurrenceDays: ['Mon', 'Wed'] as const,
-  }
-
-  it('seeds recurrenceCount into the edit dialog initialValues from the row', async () => {
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...seriesTaskProps} />)
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    expect(screen.getByTestId('dialog-recurrence-count')).toHaveTextContent('4')
-    expect(screen.getByTestId('dialog-recurrence')).toHaveTextContent('weekly')
-  })
-
-  it('seeds recurrenceDays into the edit dialog initialValues from the row', async () => {
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...groupedSeriesProps} />)
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    expect(screen.getByTestId('dialog-recurrence-days')).toHaveTextContent('Mon,Wed')
-  })
-
-  it('routes a grouped activity edit through updateSeries with the full payload (never updateTask)', async () => {
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...groupedSeriesProps} />)
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-series-edit' }))
-    await waitFor(() =>
-      expect(updateSeriesMock).toHaveBeenCalledWith({
-        taskId: 'task-grouped-1',
-        title: 'Series edited task',
-        startAt: '2026-07-01T09:00:00.000Z',
-        endAt: '2026-07-01T10:00:00.000Z',
-        color: null,
-        location: null,
-        description: null,
-        allDay: false,
-        recurrence: 'weekly',
-        recurrenceDays: ['Mon', 'Wed'],
-        recurrenceCount: 8,
-        // S12: the edit stamps the browser IANA zone group-wide.
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      expect(updateActivityMock).toHaveBeenCalledWith({
+        id: 'act-1',
+        title: 'Edited running',
+        color: 'violet',
+        description: 'cardio edited',
+        defaultLocation: 'Track',
+        minDurationMin: 25,
+        maxDurationMin: 55,
+        weeklyTargetSessions: 4,
+        schedule: [{ day: 2, startMinutes: 400, durationMin: 50 }],
+        timeZone: BROWSER_TZ,
       }),
     )
-    expect(updateTaskMock).not.toHaveBeenCalled()
     expect(refreshMock).toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: 'activity-template' })).not.toBeInTheDocument()
   })
 
-  it('routes a grouped row edited to a non-series frequency with recurrence/count nulled', async () => {
+  it('maps omitted optional template fields to null on save', async () => {
     const user = userEvent.setup()
-    render(<ActivityActionsHarness {...groupedSeriesProps} />)
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-series-nonseries-freq' }))
+    render(<ActivityHarness activity={makeActivity()} />)
+    await user.click(screen.getByRole('button', { name: 'edit-activity' }))
+    await user.click(screen.getByRole('button', { name: 'template-save-min' }))
+
     await waitFor(() =>
-      expect(updateSeriesMock).toHaveBeenCalledWith(
+      expect(updateActivityMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          taskId: 'task-grouped-1',
-          recurrence: null,
-          recurrenceCount: null,
+          id: 'act-1',
+          title: 'Minimal',
+          color: null,
+          description: null,
+          defaultLocation: null,
+          schedule: [],
         }),
       ),
     )
-    expect(updateTaskMock).not.toHaveBeenCalled()
   })
 
-  it('threads null startAt/endAt through updateSeries for an all-day grouped edit', async () => {
+  it('shows a toast and does not refresh when the edit save fails', async () => {
+    updateActivityMock.mockResolvedValueOnce({ error: 'Not found' })
     const user = userEvent.setup()
-    render(<ActivityActionsHarness {...groupedSeriesProps} />)
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-series-allday' }))
-    await waitFor(() =>
-      expect(updateSeriesMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          taskId: 'task-grouped-1',
-          startAt: undefined,
-          endAt: null,
-          allDay: true,
-        }),
-      ),
-    )
-    expect(updateTaskMock).not.toHaveBeenCalled()
-  })
+    render(<ActivityHarness activity={makeActivity()} />)
+    await user.click(screen.getByRole('button', { name: 'edit-activity' }))
+    await user.click(screen.getByRole('button', { name: 'template-save' }))
 
-  it('routes an already-recurring but ungrouped task edit through updateSeries (becomingSeries)', async () => {
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...seriesTaskProps} />)
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-series-edit' }))
-    await waitFor(() =>
-      expect(updateSeriesMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          taskId: 'task-series-1',
-          recurrence: 'weekly',
-          recurrenceCount: 8,
-          recurrenceDays: ['Mon', 'Wed'],
-        }),
-      ),
-    )
-    expect(updateTaskMock).not.toHaveBeenCalled()
-    expect(refreshMock).toHaveBeenCalled()
-  })
-
-  it('routes making a non-recurring, ungrouped task recurring through updateSeries (materialize)', async () => {
-    const user = userEvent.setup()
-    render(
-      <ActivityActionsHarness
-        taskId="task-oneoff"
-        type="task"
-        title="One off"
-        status="pending"
-        startAt="2026-07-01T09:00:00.000Z"
-        social={{ activityType: 'solo', visibility: 'only_me' }}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-series-edit' }))
-    await waitFor(() =>
-      expect(updateSeriesMock).toHaveBeenCalledWith(
-        expect.objectContaining({ taskId: 'task-oneoff', recurrence: 'weekly' }),
-      ),
-    )
-    expect(updateTaskMock).not.toHaveBeenCalled()
-    expect(refreshMock).toHaveBeenCalled()
-  })
-
-  it('keeps clearing recurrence on a recurring, ungrouped task on updateTask (series → one-off)', async () => {
-    const user = userEvent.setup()
-    render(
-      <ActivityActionsHarness
-        taskId="task-clear"
-        type="task"
-        title="Weekly review"
-        status="pending"
-        startAt="2026-07-01T09:00:00.000Z"
-        recurrence="weekly"
-        social={{ activityType: 'solo', visibility: 'only_me' }}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    // submit-edit emits recurrence: null for a task → recurrence cleared.
-    await user.click(screen.getByRole('button', { name: 'submit-edit' }))
-    await waitFor(() => expect(updateTaskMock).toHaveBeenCalled())
-    expect(updateSeriesMock).not.toHaveBeenCalled()
-  })
-
-  it('keeps a row-shaped-only, ungrouped task edit on updateTask (not updateSeries)', async () => {
-    const user = userEvent.setup()
-    render(
-      <ActivityActionsHarness
-        taskId="task-plain"
-        type="task"
-        title="One-off"
-        status="pending"
-        startAt="2026-07-01T09:00:00.000Z"
-        social={{ activityType: 'solo', visibility: 'only_me' }}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-edit' }))
-    await waitFor(() => expect(updateTaskMock).toHaveBeenCalled())
-    expect(updateSeriesMock).not.toHaveBeenCalled()
-  })
-
-  it('completes a grouped recurring task via recordCompletion — never routes through updateSeries', async () => {
-    const user = userEvent.setup()
-    render(
-      <ActivityActionsHarness
-        taskId="task-grouped-complete"
-        type="task"
-        title="Meditate"
-        status="pending"
-        recurrence="daily"
-        recurrenceGroupId="group-9"
-        social={{ activityType: 'solo', visibility: 'only_me' }}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /log today/i }))
-    await waitFor(() =>
-      expect(recordCompletionMock).toHaveBeenCalledWith({ taskId: 'task-grouped-complete' }),
-    )
-    expect(updateSeriesMock).not.toHaveBeenCalled()
-    expect(updateTaskMock).not.toHaveBeenCalled()
-  })
-
-  it('shows toast.error when a grouped series edit fails to persist', async () => {
-    updateSeriesMock.mockResolvedValueOnce({ error: 'Not a series' })
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...groupedSeriesProps} />)
-    await user.click(screen.getByRole('button', { name: /edit task/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-series-edit' }))
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not save activity'))
     expect(refreshMock).not.toHaveBeenCalled()
   })
 
-  it('shows toast.error when delete fails (no refresh)', async () => {
-    deleteTaskMock.mockResolvedValueOnce({ error: 'Not found' })
+  it('re-seeds the dialog from the current row on close then reopen (freshness)', async () => {
     const user = userEvent.setup()
-    render(<ActivityActionsHarness {...goalProps} />)
-    await user.click(screen.getByRole('button', { name: /delete goal/i }))
-    await user.click(screen.getByRole('button', { name: /confirm delete/i }))
+    const { rerender } = render(<ActivityHarness activity={makeActivity()} />)
+    await user.click(screen.getByRole('button', { name: 'edit-activity' }))
+    expect(screen.getByTestId('tpl-title')).toHaveTextContent('Running')
+    await user.click(screen.getByRole('button', { name: 'template-close' }))
+    expect(screen.queryByRole('dialog', { name: 'activity-template' })).not.toBeInTheDocument()
+
+    // Row changes underneath (e.g. a refresh landed new data), then reopen.
+    rerender(<ActivityHarness activity={makeActivity({ title: 'Swimming', minDurationMin: 45 })} />)
+    await user.click(screen.getByRole('button', { name: 'edit-activity' }))
+    expect(screen.getByTestId('tpl-title')).toHaveTextContent('Swimming')
+    expect(screen.getByTestId('tpl-min')).toHaveTextContent('45')
+  })
+
+  it('re-seeds a deep-linked auto-open dialog from the current row (freshness)', () => {
+    const { rerender } = render(<ActivityHarness activity={makeActivity()} initialEditOpen />)
+    expect(screen.getByTestId('tpl-title')).toHaveTextContent('Running')
+    rerender(<ActivityHarness activity={makeActivity({ title: 'Cycling' })} initialEditOpen />)
+    expect(screen.getByTestId('tpl-title')).toHaveTextContent('Cycling')
+  })
+
+  it('seeds empty optional fields when the activity has null color/description/location', async () => {
+    const user = userEvent.setup()
+    render(
+      <ActivityHarness
+        activity={makeActivity({ color: null, description: null, defaultLocation: null })}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'edit-activity' }))
+    expect(screen.getByTestId('tpl-color')).toHaveTextContent('')
+    expect(screen.getByTestId('tpl-description')).toHaveTextContent('')
+    expect(screen.getByTestId('tpl-default-location')).toHaveTextContent('')
+  })
+
+  it('opens the delete dialog with the child-event-semantics copy', async () => {
+    const user = userEvent.setup()
+    render(<ActivityHarness activity={makeActivity()} />)
+    await user.click(screen.getByRole('button', { name: 'delete-activity' }))
+    expect(screen.getByText(DELETE_ACTIVITY_TITLE)).toBeInTheDocument()
+    expect(screen.getByText(DELETE_ACTIVITY_DESCRIPTION)).toBeInTheDocument()
+  })
+
+  it('confirms delete via deleteActivity and refreshes', async () => {
+    const user = userEvent.setup()
+    render(<ActivityHarness activity={makeActivity()} />)
+    await user.click(screen.getByRole('button', { name: 'delete-activity' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm delete' }))
+    await waitFor(() => expect(deleteActivityMock).toHaveBeenCalledWith({ id: 'act-1' }))
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('shows a toast and does not refresh when delete fails', async () => {
+    deleteActivityMock.mockResolvedValueOnce({ error: 'Not found' })
+    const user = userEvent.setup()
+    render(<ActivityHarness activity={makeActivity()} />)
+    await user.click(screen.getByRole('button', { name: 'delete-activity' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm delete' }))
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not delete activity'))
     expect(refreshMock).not.toHaveBeenCalled()
   })
+})
 
-  it('deletes via deleteTask and refreshes', async () => {
+describe('useEventActions (one-off events)', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    updateEventMock.mockClear().mockResolvedValue({ data: {} })
+    deleteEventMock.mockClear().mockResolvedValue({ data: { success: true } })
+    toastErrorMock.mockClear()
+  })
+
+  it('opens the event dialog seeded from the current event row', async () => {
     const user = userEvent.setup()
-    render(<ActivityActionsHarness {...goalProps} />)
-    await user.click(screen.getByRole('button', { name: /delete goal/i }))
-    await user.click(screen.getByRole('button', { name: /confirm delete/i }))
-    await waitFor(() => expect(deleteTaskMock).toHaveBeenCalledWith({ id: 'goal-1' }))
+    render(<EventHarness event={makeEvent()} use24h />)
+    await user.click(screen.getByRole('button', { name: 'edit-event' }))
+    expect(screen.getByTestId('evt-title')).toHaveTextContent('Dentist')
+    expect(screen.getByTestId('evt-start')).toHaveTextContent('2026-07-02T09:00:00.000Z')
+    expect(screen.getByTestId('evt-end')).toHaveTextContent('2026-07-02T10:00:00.000Z')
+    expect(screen.getByTestId('evt-location')).toHaveTextContent('Clinic')
+    expect(screen.getByTestId('evt-use24h')).toHaveTextContent('true')
+  })
+
+  it('seeds empty optional fields when the event has null start/end/color/location/description', async () => {
+    const user = userEvent.setup()
+    render(
+      <EventHarness
+        event={makeEvent({
+          startAt: null,
+          endAt: null,
+          color: null,
+          location: null,
+          description: null,
+        })}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'edit-event' }))
+    expect(screen.getByTestId('evt-start')).toHaveTextContent('')
+    expect(screen.getByTestId('evt-end')).toHaveTextContent('')
+    expect(screen.getByTestId('evt-color')).toHaveTextContent('')
+    expect(screen.getByTestId('evt-location')).toHaveTextContent('')
+    expect(screen.getByTestId('evt-description')).toHaveTextContent('')
+  })
+
+  it('saves an event edit via updateEvent with the mapped payload', async () => {
+    const user = userEvent.setup()
+    render(<EventHarness event={makeEvent()} />)
+    await user.click(screen.getByRole('button', { name: 'edit-event' }))
+    await user.click(screen.getByRole('button', { name: 'event-save' }))
+    await waitFor(() =>
+      expect(updateEventMock).toHaveBeenCalledWith({
+        id: 'evt-1',
+        title: 'Edited event',
+        startAt: '2026-07-02T09:30:00.000Z',
+        endAt: '2026-07-02T10:30:00.000Z',
+        allDay: false,
+        color: 'blue',
+        location: 'Office',
+        description: 'notes',
+      }),
+    )
     expect(refreshMock).toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: 'event-form' })).not.toBeInTheDocument()
   })
 
-  // S11: a grouped occurrence's delete offers a 3-way scope choice; an
-  // ungrouped target (goalProps above) keeps the existing 2-way confirm.
-  it('ungrouped delete keeps the single "Confirm delete" action, no scope buttons', async () => {
+  it('maps omitted optional event fields to null/false on save', async () => {
     const user = userEvent.setup()
-    render(<ActivityActionsHarness {...goalProps} />)
-    await user.click(screen.getByRole('button', { name: /delete goal/i }))
-    expect(screen.getByRole('button', { name: /^confirm delete$/i })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /this event only/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /entire series/i })).not.toBeInTheDocument()
+    render(<EventHarness event={makeEvent()} />)
+    await user.click(screen.getByRole('button', { name: 'edit-event' }))
+    await user.click(screen.getByRole('button', { name: 'event-save-min' }))
+    await waitFor(() =>
+      expect(updateEventMock).toHaveBeenCalledWith({
+        id: 'evt-1',
+        title: 'Minimal event',
+        startAt: null,
+        endAt: null,
+        allDay: false,
+        color: null,
+        location: null,
+        description: null,
+      }),
+    )
   })
 
-  it('grouped delete offers "This event only" and "Entire series" instead of a single confirm', async () => {
+  it('shows a toast and does not refresh when the event edit fails', async () => {
+    updateEventMock.mockResolvedValueOnce({ error: 'Not found' })
     const user = userEvent.setup()
-    render(<ActivityActionsHarness {...groupedSeriesProps} />)
-    await user.click(screen.getByRole('button', { name: /delete task/i }))
-    expect(screen.getByRole('button', { name: /this event only/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /entire series/i })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^confirm delete$/i })).not.toBeInTheDocument()
-  })
-
-  it('"This event only" deletes the single occurrence via deleteTask', async () => {
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...groupedSeriesProps} />)
-    await user.click(screen.getByRole('button', { name: /delete task/i }))
-    await user.click(screen.getByRole('button', { name: /this event only/i }))
-    await waitFor(() => expect(deleteTaskMock).toHaveBeenCalledWith({ id: 'task-grouped-1' }))
-    expect(deleteSeriesMock).not.toHaveBeenCalled()
-    expect(refreshMock).toHaveBeenCalled()
-  })
-
-  it('"Entire series" deletes the whole group via deleteSeries', async () => {
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...groupedSeriesProps} />)
-    await user.click(screen.getByRole('button', { name: /delete task/i }))
-    await user.click(screen.getByRole('button', { name: /entire series/i }))
-    await waitFor(() => expect(deleteSeriesMock).toHaveBeenCalledWith({ groupId: 'group-1' }))
-    expect(deleteTaskMock).not.toHaveBeenCalled()
-    expect(refreshMock).toHaveBeenCalled()
-  })
-
-  it('shows toast.error when "Entire series" delete fails (no refresh)', async () => {
-    deleteSeriesMock.mockResolvedValueOnce({ error: 'Not found' })
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...groupedSeriesProps} />)
-    await user.click(screen.getByRole('button', { name: /delete task/i }))
-    await user.click(screen.getByRole('button', { name: /entire series/i }))
-    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not delete series'))
+    render(<EventHarness event={makeEvent()} />)
+    await user.click(screen.getByRole('button', { name: 'edit-event' }))
+    await user.click(screen.getByRole('button', { name: 'event-save' }))
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not save event'))
     expect(refreshMock).not.toHaveBeenCalled()
   })
 
-  // S14: when the consuming table supplies an onDeleteSeries orchestrator (the
-  // optimistic hidden-group overlay), the hook delegates the whole "Entire
-  // series" action to it instead of running its own inline deleteSeries — the
-  // table owns the instant removal + refresh + error reconciliation.
-  it('delegates "Entire series" to onDeleteSeries when provided (no inline deleteSeries)', async () => {
-    const onDeleteSeries = vi.fn()
+  it('marks a pending event complete via updateEvent({ status: completed })', async () => {
     const user = userEvent.setup()
-    render(<ActivityActionsHarness {...groupedSeriesProps} onDeleteSeries={onDeleteSeries} />)
-    await user.click(screen.getByRole('button', { name: /delete task/i }))
-    await user.click(screen.getByRole('button', { name: /entire series/i }))
-    expect(onDeleteSeries).toHaveBeenCalledWith('group-1')
-    expect(deleteSeriesMock).not.toHaveBeenCalled()
+    render(<EventHarness event={makeEvent({ status: 'pending' })} />)
+    expect(screen.getByTestId('is-complete')).toHaveTextContent('false')
+    await user.click(screen.getByRole('button', { name: 'Mark complete' }))
+    await waitFor(() =>
+      expect(updateEventMock).toHaveBeenCalledWith({ id: 'evt-1', status: 'completed' }),
+    )
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('marks a completed event pending via updateEvent({ status: pending })', async () => {
+    const user = userEvent.setup()
+    render(<EventHarness event={makeEvent({ status: 'completed' })} />)
+    expect(screen.getByTestId('is-complete')).toHaveTextContent('true')
+    await user.click(screen.getByRole('button', { name: 'Mark pending' }))
+    await waitFor(() =>
+      expect(updateEventMock).toHaveBeenCalledWith({ id: 'evt-1', status: 'pending' }),
+    )
+  })
+
+  it('shows a toast and does not refresh when the complete toggle fails', async () => {
+    updateEventMock.mockResolvedValueOnce({ error: 'Unauthorized' })
+    const user = userEvent.setup()
+    render(<EventHarness event={makeEvent()} />)
+    await user.click(screen.getByRole('button', { name: 'Mark complete' }))
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not update event'))
     expect(refreshMock).not.toHaveBeenCalled()
   })
 
-  // Task 2 (activities-series-grouping): collapsed series row props —
-  // completionTaskId (✓ target override) and seriesDeleteOnly (delete dialog
-  // offers only "Entire series"). Copy constants are the INTENDED wording
-  // from the brief, not derived from render output.
-  const SERIES_DELETE_TITLE = 'Delete this series?'
-  const SERIES_DELETE_DESCRIPTION =
-    'This removes every occurrence of the series. This cannot be undone.'
-
-  it('routes ✓ to recordCompletion with completionTaskId when provided', async () => {
+  it('deletes a one-off event via deleteEvent and refreshes', async () => {
     const user = userEvent.setup()
-    render(
-      <ActivityActionsHarness
-        taskId="rep-1"
-        type="task"
-        title="Meditate"
-        status="pending"
-        recurrence="daily"
-        completionTaskId="today-1"
-        social={{ activityType: 'solo', visibility: 'only_me' }}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /log today/i }))
-    await waitFor(() => expect(recordCompletionMock).toHaveBeenCalledWith({ taskId: 'today-1' }))
+    render(<EventHarness event={makeEvent()} />)
+    await user.click(screen.getByRole('button', { name: 'delete-event' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm delete' }))
+    await waitFor(() => expect(deleteEventMock).toHaveBeenCalledWith({ id: 'evt-1' }))
+    expect(refreshMock).toHaveBeenCalled()
   })
 
-  it('falls back to taskId for ✓ when completionTaskId is absent', async () => {
+  it('shows a toast and does not refresh when the event delete fails', async () => {
+    deleteEventMock.mockResolvedValueOnce({ error: 'Not found' })
     const user = userEvent.setup()
-    render(
-      <ActivityActionsHarness
-        taskId="rep-1"
-        type="task"
-        title="Meditate"
-        status="pending"
-        recurrence="daily"
-        social={{ activityType: 'solo', visibility: 'only_me' }}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /log today/i }))
-    await waitFor(() => expect(recordCompletionMock).toHaveBeenCalledWith({ taskId: 'rep-1' }))
-  })
-
-  it('seriesDeleteOnly delete dialog offers only Entire series with series copy', async () => {
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...groupedSeriesProps} seriesDeleteOnly />)
-    await user.click(screen.getByRole('button', { name: /delete task/i }))
-    expect(screen.getByText(SERIES_DELETE_TITLE)).toBeInTheDocument()
-    expect(screen.getByText(SERIES_DELETE_DESCRIPTION)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Confirm delete entire series' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Confirm delete this event only' })).toBeNull()
-  })
-
-  it('seriesDeleteOnly Entire series confirm delegates to onDeleteSeries with the group id', async () => {
-    const onDeleteSeries = vi.fn()
-    const user = userEvent.setup()
-    render(
-      <ActivityActionsHarness
-        {...groupedSeriesProps}
-        seriesDeleteOnly
-        onDeleteSeries={onDeleteSeries}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /delete task/i }))
-    await user.click(screen.getByRole('button', { name: 'Confirm delete entire series' }))
-    expect(onDeleteSeries).toHaveBeenCalledWith('group-1')
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
-  })
-
-  it('grouped delete without seriesDeleteOnly keeps both choices (regression)', async () => {
-    const user = userEvent.setup()
-    render(<ActivityActionsHarness {...groupedSeriesProps} />)
-    await user.click(screen.getByRole('button', { name: /delete task/i }))
-    expect(
-      screen.getByRole('button', { name: 'Confirm delete this event only' }),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Confirm delete entire series' })).toBeInTheDocument()
+    render(<EventHarness event={makeEvent()} />)
+    await user.click(screen.getByRole('button', { name: 'delete-event' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm delete' }))
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not delete event'))
+    expect(refreshMock).not.toHaveBeenCalled()
   })
 })

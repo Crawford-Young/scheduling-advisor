@@ -7,11 +7,11 @@ describe('buildSystemPrompt', () => {
     expect(sys).not.toMatch(/\d{4}-\d{2}-\d{2}/)
   })
 
-  it('directs events through proposeEvent, never proposeAction or createCalendarEvent', () => {
+  it('directs events through proposeEvent, never proposeAction or createEvent directly', () => {
     const sys = buildSystemPrompt()
     expect(sys).toMatch(/`proposeEvent`/)
     expect(sys).toMatch(/never.*`proposeAction`.*entityType.*event/i)
-    expect(sys).toMatch(/never.*`createCalendarEvent`/i)
+    expect(sys).toMatch(/never.*`createEvent`/i)
   })
 
   it('documents [CONFIRMED] semantics: the event already exists, do not call a creation tool', () => {
@@ -21,9 +21,12 @@ describe('buildSystemPrompt', () => {
     expect(sys).toMatch(/do not call any creation tool/i)
   })
 
-  it('no longer lists createCalendarEvent as an advisor mutation tool', () => {
+  it('no longer lists the direct event-create tools as advisor mutation tools', () => {
     const sys = buildSystemPrompt()
-    expect(sys).not.toContain('createCalendarEvent(title, start, end)')
+    // Calendar events are created via proposeEvent's approval card, so createEvent/
+    // createEvents are not presented as directly-callable mutation tools.
+    expect(sys).not.toContain('createEvent(title, startAt')
+    expect(sys).not.toContain('createEvents(events[])')
   })
 
   it('lists proposeEvent among the propose tools', () => {

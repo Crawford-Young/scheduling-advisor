@@ -11,24 +11,24 @@ describe('SplashAnimation', () => {
   })
 
   it('renders Cy text', () => {
-    render(<SplashAnimation checkInDone={false} onComplete={() => {}} quote={mockQuote} />)
+    render(<SplashAnimation onComplete={() => {}} quote={mockQuote} />)
     expect(screen.getByText(/Cy/)).toBeInTheDocument()
   })
 
   it('renders bond text', () => {
-    render(<SplashAnimation checkInDone={true} onComplete={() => {}} quote={mockQuote} />)
+    render(<SplashAnimation onComplete={() => {}} quote={mockQuote} />)
     expect(screen.getByText(/bond/)).toBeInTheDocument()
   })
 
   it('has loading status role', () => {
-    render(<SplashAnimation checkInDone={false} onComplete={() => {}} quote={mockQuote} />)
+    render(<SplashAnimation onComplete={() => {}} quote={mockQuote} />)
     expect(screen.getByRole('status')).toBeInTheDocument()
   })
 
   it('advances through split → signal → done phases', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const onComplete = vi.fn()
-    render(<SplashAnimation checkInDone={false} onComplete={onComplete} quote={mockQuote} />)
+    render(<SplashAnimation onComplete={onComplete} quote={mockQuote} />)
     expect(screen.getByRole('status')).toBeInTheDocument()
 
     act(() => {
@@ -48,9 +48,9 @@ describe('SplashAnimation', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
-  it('signal phase with checkInDone true renders glow', () => {
+  it('renders the signal glow on the bond span in the signal phase (unconditional)', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    render(<SplashAnimation checkInDone={true} onComplete={() => {}} quote={mockQuote} />)
+    render(<SplashAnimation onComplete={() => {}} quote={mockQuote} />)
 
     act(() => {
       vi.advanceTimersByTime(400)
@@ -58,24 +58,37 @@ describe('SplashAnimation', () => {
     act(() => {
       vi.advanceTimersByTime(600)
     })
-    expect(screen.getByRole('status')).toBeInTheDocument()
+
+    expect(screen.getByText(/bond/)).toHaveStyle({
+      textShadow: '0 0 20px rgba(16, 185, 129, 0.8)',
+    })
+  })
+
+  it('renders full opacity on the bond span before and during the signal phase', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    render(<SplashAnimation onComplete={() => {}} quote={mockQuote} />)
+
+    expect(screen.getByText(/bond/)).toHaveStyle({ opacity: '1' })
+
+    act(() => {
+      vi.advanceTimersByTime(400)
+    })
+    act(() => {
+      vi.advanceTimersByTime(600)
+    })
+
+    expect(screen.getByText(/bond/)).toHaveStyle({ opacity: '1' })
   })
 
   it('renders attribution when provided', () => {
     render(
-      <SplashAnimation
-        checkInDone={false}
-        onComplete={() => {}}
-        quote={{ text: 'quote', attribution: 'Author' }}
-      />,
+      <SplashAnimation onComplete={() => {}} quote={{ text: 'quote', attribution: 'Author' }} />,
     )
     expect(screen.getByText(/Author/)).toBeInTheDocument()
   })
 
   it('passes axe', async () => {
-    const { container } = render(
-      <SplashAnimation checkInDone={true} onComplete={() => {}} quote={mockQuote} />,
-    )
+    const { container } = render(<SplashAnimation onComplete={() => {}} quote={mockQuote} />)
     expect(await axe(container)).toHaveNoViolations()
   })
 })

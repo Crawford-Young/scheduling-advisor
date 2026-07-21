@@ -8,12 +8,11 @@ import {
   primaryKey,
   json,
   jsonb,
-  unique,
   index,
   boolean,
 } from 'drizzle-orm/pg-core'
 import type { CalendarDayOverrides } from '@/lib/schemas/calendar-prefs'
-import type { DayOfWeek } from '@/lib/schemas/task'
+import type { ActivityScheduleSlot } from '@/lib/schemas/activity'
 
 // ── Auth.js v5 required tables ────────────────────────────────────────────────
 
@@ -73,84 +72,6 @@ export const verificationTokens = pgTable(
 )
 
 // ── App tables ─────────────────────────────────────────────────────────────────
-
-export const tasks = pgTable('tasks', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  userId: text('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  title: text('title').notNull(),
-  type: text('type', { enum: ['task', 'goal'] }).notNull(),
-  recurrence: text('recurrence'),
-  // Shared identity for every row produced by a single fan-out/create call —
-  // null for a non-recurring single insert. See src/server/actions/tasks.ts.
-  recurrenceGroupId: uuid('recurrence_group_id'),
-  recurrenceDays: jsonb('recurrence_days').$type<readonly DayOfWeek[]>(),
-  recurrenceCount: integer('recurrence_count'),
-  // IANA time zone the series was created/edited in (wave 2.6 S12). Null on
-  // legacy rows and non-series inserts — generation falls back to UTC day math.
-  // Stamped group-wide so `extendSeries` (no client payload) reads it from rows.
-  timeZone: text('time_zone'),
-  status: text('status', { enum: ['pending', 'in_progress', 'completed'] })
-    .notNull()
-    .default('pending'),
-  targetDate: timestamp('target_date', { mode: 'date' }),
-  startAt: timestamp('start_at', { withTimezone: true, mode: 'date' }),
-  endAt: timestamp('end_at', { withTimezone: true, mode: 'date' }),
-  location: text('location'),
-  description: text('description'),
-  color: text('color'),
-  allDay: boolean('all_day').notNull().default(false),
-  activityType: text('activity_type', { enum: ['solo', 'group'] })
-    .notNull()
-    .default('solo'),
-  visibility: text('visibility', {
-    enum: ['everyone', 'friends', 'busy', 'only_me'],
-  })
-    .notNull()
-    .default('only_me'),
-  joinability: text('joinability', { enum: ['open', 'request', 'closed'] }),
-  maxParticipants: integer('max_participants'),
-  locked: boolean('locked').notNull().default(false),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
-
-// Records a series occurrence that the user explicitly deleted, so the rolling
-// auto-extend sweep (src/server/actions/series-mutations.ts `extendSeries`) never
-// resurrects it. Keyed by (recurrence_group_id, slot_start) — one tombstone per
-// deleted slot. Cleared wholesale when the series is deleted or its pattern is
-// rewritten (a fresh start voids old per-slot deletions).
-export const seriesSlotTombstones = pgTable(
-  'series_slot_tombstones',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: text('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    recurrenceGroupId: uuid('recurrence_group_id').notNull(),
-    slotStart: timestamp('slot_start', { withTimezone: true, mode: 'date' }).notNull(),
-  },
-  (t) => [unique().on(t.recurrenceGroupId, t.slotStart)],
-)
-
-export const checkIns = pgTable(
-  'check_ins',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: text('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'set null' }),
-    scheduledAt: timestamp('scheduled_at', { mode: 'date' }).notNull(),
-    completedAt: timestamp('completed_at', { mode: 'date' }),
-    skippedAt: timestamp('skipped_at', { mode: 'date' }),
-    reflectionText: text('reflection_text'),
-    rating: integer('rating'),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
-  },
-  (t) => [unique().on(t.userId, t.taskId, t.scheduledAt)],
-)
 
 export const pushSubscriptions = pgTable('push_subscriptions', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -231,3 +152,56 @@ export const tokenLedger = pgTable(
   },
   (t) => [index('token_ledger_user_id_idx').on(t.userId)],
 )
+
+// ── Activity model (Wave 3) ──────────────────────────────────────────────────
+// The old `tasks`/`seriesSlotTombstones`/`checkIns` model was dropped in the
+// A8 teardown migration (0019). `activities` is a TEMPLATE (min/max session
+// length, weekly session target, per-day schedule); `events` are independent
+// originals — no shared-field sync, no grouped deletes. See
+// docs/scheduling-advisor/specs/2026-07-15-activity-abstraction-design.md.
+
+export const activities = pgTable('activities', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  color: text('color'),
+  description: text('description'),
+  defaultLocation: text('default_location'),
+  minDurationMin: integer('min_duration_min').notNull(),
+  maxDurationMin: integer('max_duration_min').notNull(),
+  weeklyTargetSessions: integer('weekly_target_sessions').notNull(),
+  schedule: jsonb('schedule').$type<readonly ActivityScheduleSlot[]>().notNull().default([]),
+  // IANA zone the per-day schedule times are local wall-clock in; null falls
+  // back to UTC in generation (mirrors tasks.timeZone, wave 2.6 S12).
+  timeZone: text('time_zone'),
+  // Sliding-window generation high-water mark: the sweep only creates events
+  // with slotStart > generatedThrough, then advances it to the window end.
+  generatedThrough: timestamp('generated_through', { withTimezone: true, mode: 'date' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+export const events = pgTable('events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  // Nullable: null = standalone event. Deleting the parent activity orphans
+  // (SET NULL) rather than cascades — an original event outlives its template.
+  activityId: uuid('activity_id').references(() => activities.id, { onDelete: 'set null' }),
+  title: text('title').notNull(),
+  description: text('description'),
+  location: text('location'),
+  startAt: timestamp('start_at', { withTimezone: true, mode: 'date' }),
+  endAt: timestamp('end_at', { withTimezone: true, mode: 'date' }),
+  allDay: boolean('all_day').notNull().default(false),
+  status: text('status', { enum: ['pending', 'completed'] })
+    .notNull()
+    .default('pending'),
+  locked: boolean('locked').notNull().default(false),
+  color: text('color'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
