@@ -1,106 +1,114 @@
 import { tool, jsonSchema, type CoreTool } from 'ai'
 import { z } from 'zod'
-import { getCalendarService } from '@/server/services'
-import { getUserTasks } from '@/server/queries/tasks'
-import { getUserCheckIns } from '@/server/queries/check-ins'
-import {
-  markItemComplete,
-  markItemSkipped,
-  rescheduleItem,
-  createHabit,
-  createGoal,
-  createTask,
-  updateItem,
-} from '@/server/actions/items'
+import { and, asc, eq, gte, lt } from 'drizzle-orm'
+import { db } from '@/db'
+import { events } from '@/db/schema'
+import { localWeekBounds } from '@/lib/weekly-fit'
+import { getUserActivities } from '@/server/queries/activities'
+import { createActivity } from '@/server/actions/activities'
+import { createEvent, updateEvent, deleteEvent } from '@/server/actions/events'
+import { createEvents } from '@/server/actions/chat-mutations'
 
 export const CHAT_TOOL_NAMES = [
-  'getCalendarEvents',
-  'getUserTasks',
-  'getUserCheckIns',
-  'showTaskCard',
-  'showHabitCard',
-  'showGoalCard',
-  'showScheduleSuggestion',
-  'showReflectionCard',
-  'showWeekCalendar',
-  'showLifeBalance',
+  'getWeekSchedule',
+  'getActivities',
+  'createActivity',
+  'createEvent',
+  'createEvents',
+  'updateEvent',
+  'deleteEvent',
   'proposeAction',
   'proposeEvent',
-  'markItemComplete',
-  'markItemSkipped',
-  'rescheduleItem',
-  'createCalendarEvent',
-  'createHabit',
-  'createGoal',
-  'createTask',
-  'updateItem',
+  'showWeekCalendar',
+  'showScheduleSuggestion',
+  'showLifeBalance',
 ] as const
 
 export type ChatToolName = (typeof CHAT_TOOL_NAMES)[number]
 export type ChatToolSet = Record<ChatToolName, CoreTool>
 
+const MINUTES_IN_DAY = 1440
+
+const scheduleSlotSchema = z.object({
+  day: z.number().int().min(0).max(6).describe('weekday, 0=Sunday … 6=Saturday'),
+  startMinutes: z
+    .number()
+    .int()
+    .min(0)
+    .max(MINUTES_IN_DAY - 1)
+    .describe('minutes since local midnight'),
+  durationMin: z.number().int().positive(),
+})
+
+const eventInputSchema = z.object({
+  title: z.string(),
+  activityId: z.string().optional().describe('link this event to an activity template'),
+  startAt: z.string().optional().describe('ISO 8601 start instant'),
+  endAt: z.string().optional().describe('ISO 8601 end instant'),
+  allDay: z.boolean().optional(),
+  color: z.string().optional(),
+  location: z.string().optional(),
+  description: z.string().optional(),
+})
+
+/**
+ * Chat tool factory. `userId` is the route's already-authenticated session id
+ * (never client-supplied) and is used ONLY to scope the getWeekSchedule read;
+ * every mutation tool delegates to a 'use server' action that re-derives
+ * identity from auth() itself.
+ */
 export function buildChatTools(userId: string): ChatToolSet {
   return {
     // ── Data tools ──────────────────────────────────────────────────────────
-    getCalendarEvents: tool({
-      description: 'Get calendar events for a date range',
-      parameters: z.object({ start: z.string(), end: z.string() }),
-      execute: async ({ start, end }) => {
-        const service = await getCalendarService()
-        return service.getEvents(userId, new Date(start), new Date(end))
+    getWeekSchedule: tool({
+      description:
+        "Get this user's events and activity templates for the week containing the given date. Prefer the context block for the current week; call this only for other weeks.",
+      parameters: z.object({
+        weekStart: z.string().describe('ISO date of any day inside the desired week'),
+      }),
+      execute: async ({ weekStart }) => {
+        const { start, end } = localWeekBounds(new Date(weekStart))
+        const [weekEvents, activities] = await Promise.all([
+          db
+            .select()
+            .from(events)
+            .where(
+              and(eq(events.userId, userId), gte(events.startAt, start), lt(events.startAt, end)),
+            )
+            .orderBy(asc(events.startAt)),
+          getUserActivities(),
+        ])
+        return { weekStart: start.toISOString(), activities, events: weekEvents }
       },
     }),
-    getUserTasks: tool({
-      description: 'Get the user tasks, goals, and habits',
+    getActivities: tool({
+      description: 'Get all of this user’s activity templates (recurring session definitions).',
       parameters: z.object({}),
-      execute: async () => getUserTasks(),
-    }),
-    getUserCheckIns: tool({
-      description: 'Get recent user check-ins',
-      parameters: z.object({}),
-      execute: async () => getUserCheckIns(),
+      execute: async () => getUserActivities(),
     }),
     // ── Display tools ───────────────────────────────────────────────────────
-    showTaskCard: tool({
-      description: 'Display a task card',
+    showWeekCalendar: tool({
+      description: 'Display a week calendar view',
       parameters: jsonSchema({
         type: 'object',
         properties: {
-          taskId: { type: 'string' },
-          title: { type: 'string' },
-          type: { type: 'string', enum: ['task', 'goal', 'habit'] },
-          status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] },
-          nextSlot: { type: 'string' },
+          weekStart: { type: 'string' },
+          events: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                title: { type: 'string' },
+                start: { type: 'string' },
+                end: { type: 'string' },
+                type: { type: 'string', enum: ['calendar', 'event', 'activity'] },
+              },
+              required: ['id', 'title', 'start', 'end', 'type'],
+            },
+          },
         },
-        required: ['taskId', 'title', 'type', 'status'],
-      }),
-      execute: async (props) => props,
-    }),
-    showHabitCard: tool({
-      description: 'Display a habit tracking card',
-      parameters: jsonSchema({
-        type: 'object',
-        properties: {
-          taskId: { type: 'string' },
-          title: { type: 'string' },
-          streak: { type: 'number' },
-          status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] },
-        },
-        required: ['taskId', 'title', 'streak', 'status'],
-      }),
-      execute: async (props) => props,
-    }),
-    showGoalCard: tool({
-      description: 'Display a goal progress card',
-      parameters: jsonSchema({
-        type: 'object',
-        properties: {
-          taskId: { type: 'string' },
-          title: { type: 'string' },
-          status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] },
-          targetDate: { type: 'string' },
-        },
-        required: ['taskId', 'title', 'status'],
+        required: ['weekStart', 'events'],
       }),
       execute: async (props) => props,
     }),
@@ -128,46 +136,9 @@ export function buildChatTools(userId: string): ChatToolSet {
       }),
       execute: async (props) => props,
     }),
-    showReflectionCard: tool({
-      description: 'Display a check-in reflection prompt',
-      parameters: jsonSchema({
-        type: 'object',
-        properties: {
-          taskId: { type: 'string' },
-          title: { type: 'string' },
-          prompt: { type: 'string' },
-        },
-        required: ['taskId', 'title', 'prompt'],
-      }),
-      execute: async (props) => props,
-    }),
-    showWeekCalendar: tool({
-      description: 'Display a week calendar view',
-      parameters: jsonSchema({
-        type: 'object',
-        properties: {
-          weekStart: { type: 'string' },
-          events: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                id: { type: 'string' },
-                title: { type: 'string' },
-                start: { type: 'string' },
-                end: { type: 'string' },
-                type: { type: 'string', enum: ['calendar', 'task', 'goal', 'habit'] },
-              },
-              required: ['id', 'title', 'start', 'end', 'type'],
-            },
-          },
-        },
-        required: ['weekStart', 'events'],
-      }),
-      execute: async (props) => props,
-    }),
     showLifeBalance: tool({
-      description: 'Display a life balance pie chart',
+      description:
+        'Display a life balance pie chart. Populate categories from the minutes spent across this week’s events and activities.',
       parameters: jsonSchema({
         type: 'object',
         properties: {
@@ -194,7 +165,7 @@ export function buildChatTools(userId: string): ChatToolSet {
         'Propose an action for user confirmation before executing. ALWAYS call this before any mutation. Renders an ActionConfirmCard in the UI.',
       parameters: z.object({
         action: z.string(),
-        entityType: z.enum(['habit', 'goal', 'event']),
+        entityType: z.enum(['activity', 'event']),
         entityId: z.string().optional(),
         date: z.string().optional(),
         time: z.string().optional(),
@@ -204,7 +175,7 @@ export function buildChatTools(userId: string): ChatToolSet {
     }),
     proposeEvent: tool({
       description:
-        'Propose a calendar event for user approval. ALWAYS use this for calendar events instead of proposeAction/createCalendarEvent. Renders an approval card with a day preview. The event is created only after the user approves. For a repeated/recurring request ("every weekday", "daily for a month"), make ONE call with the recurrence fields — NEVER multiple proposeEvent calls for individual occurrences. Set `recurrence` to daily/weekly/monthly. recurrenceCount: for weekly = number of WEEKS the pattern repeats; for daily = number of days; for monthly = number of months. Use recurrenceDays only for weekly. `date` is the first occurrence.',
+        'Propose a calendar event for user approval. ALWAYS use this for calendar events instead of proposeAction/createEvent. Renders an approval card with a day preview. The event is created only after the user approves. For a repeated/recurring request ("every weekday", "daily for a month"), make ONE call with the recurrence fields — NEVER multiple proposeEvent calls for individual occurrences. Set `recurrence` to daily/weekly/monthly. recurrenceCount: for weekly = number of WEEKS the pattern repeats; for daily = number of days; for monthly = number of months. Use recurrenceDays only for weekly. `date` is the first occurrence.',
       parameters: z
         .object({
           title: z.string().min(1),
@@ -222,81 +193,47 @@ export function buildChatTools(userId: string): ChatToolSet {
       execute: async (props) => props,
     }),
     // ── Mutation tools (only after [CONFIRM]) ───────────────────────────────
-    markItemComplete: tool({
+    createActivity: tool({
       description:
-        'Mark a habit, goal, or task complete for a given date. Supports past dates for retroactive check-ins.',
-      parameters: z.object({
-        taskId: z.string(),
-        date: z.string().describe('YYYY-MM-DD format'),
-      }),
-      execute: async ({ taskId, date }) => markItemComplete({ taskId, date }),
-    }),
-    markItemSkipped: tool({
-      description: 'Mark a habit, goal, or task skipped for a given date.',
-      parameters: z.object({
-        taskId: z.string(),
-        date: z.string().describe('YYYY-MM-DD format'),
-      }),
-      execute: async ({ taskId, date }) => markItemSkipped({ taskId, date }),
-    }),
-    rescheduleItem: tool({
-      description: 'Move a task, goal, or habit to a new date and optional time.',
-      parameters: z.object({
-        taskId: z.string(),
-        newDate: z.string().describe('YYYY-MM-DD format'),
-        newTime: z.string().optional(),
-      }),
-      execute: async ({ taskId, newDate, newTime }) => rescheduleItem({ taskId, newDate, newTime }),
-    }),
-    createCalendarEvent: tool({
-      description: 'Create a calendar event',
-      parameters: z.object({ title: z.string(), start: z.string(), end: z.string() }),
-      execute: async ({ title, start, end }) => {
-        const service = await getCalendarService()
-        return service.createEvent(userId, { title, start: new Date(start), end: new Date(end) })
-      },
-    }),
-    createHabit: tool({
-      description: 'Create a new recurring habit',
+        'Create a recurring activity template. It fans out into concrete events on the user’s calendar per its weekly schedule.',
       parameters: z.object({
         title: z.string(),
-        startDate: z.string(),
-        time: z.string().optional(),
-        visibility: z.enum(['everyone', 'friends', 'busy', 'only_me']),
+        color: z.string().optional(),
+        description: z.string().optional(),
+        defaultLocation: z.string().optional(),
+        minDurationMin: z.number().int().positive(),
+        maxDurationMin: z.number().int().positive(),
+        weeklyTargetSessions: z.number().int().positive(),
+        schedule: z.array(scheduleSlotSchema),
+        timeZone: z.string().optional().describe('IANA zone the schedule times are wall-clock in'),
       }),
-      execute: async (props) => createHabit(props),
+      execute: async (props) => createActivity(props),
     }),
-    createGoal: tool({
-      description: 'Create a new goal with a target date',
-      parameters: z.object({
-        title: z.string(),
-        targetDate: z.string(),
-        visibility: z.enum(['everyone', 'friends', 'busy', 'only_me']),
-      }),
-      execute: async (props) => createGoal(props),
+    createEvent: tool({
+      description: 'Create a single standalone event on the calendar.',
+      parameters: eventInputSchema,
+      execute: async (props) => createEvent(props),
     }),
-    createTask: tool({
-      description: 'Create a new task',
-      parameters: z.object({
-        title: z.string(),
-        dueDate: z.string(),
-        dueTime: z.string().optional(),
-        visibility: z.enum(['everyone', 'friends', 'busy', 'only_me']),
-      }),
-      execute: async (props) => createTask(props),
+    createEvents: tool({
+      description:
+        'Create several independent events in one call (e.g. a workout on Mon/Wed/Fri). Each event is its own standalone row — there is no recurrence linkage between them.',
+      parameters: z.object({ events: z.array(eventInputSchema).min(1) }),
+      execute: async (props) => createEvents(props),
     }),
-    updateItem: tool({
-      description: 'Edit an existing task, goal, or habit',
-      parameters: z.object({
-        taskId: z.string(),
-        fields: z.object({
-          title: z.string().optional(),
-          status: z.enum(['pending', 'in_progress', 'completed']).optional(),
-          targetDate: z.string().optional(),
-          visibility: z.enum(['everyone', 'friends', 'busy', 'only_me']).optional(),
-        }),
+    updateEvent: tool({
+      description:
+        'Edit a single event. Only the provided fields change; siblings are never touched.',
+      parameters: eventInputSchema.partial().extend({
+        id: z.string(),
+        status: z.enum(['pending', 'completed']).optional(),
+        locked: z.boolean().optional(),
       }),
-      execute: async ({ taskId, fields }) => updateItem({ taskId, fields }),
+      execute: async (props) => updateEvent(props),
+    }),
+    deleteEvent: tool({
+      description: 'Delete a single event.',
+      parameters: z.object({ id: z.string() }),
+      execute: async (props) => deleteEvent(props),
     }),
   }
 }

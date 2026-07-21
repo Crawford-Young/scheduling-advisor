@@ -3,15 +3,19 @@ import * as React from 'react'
 import { Check, X } from 'lucide-react'
 import type { Message } from 'ai'
 import { Badge, Button, Card, CardContent, Input } from '@/lib/ui'
-import { createTask } from '@/server/actions/tasks'
-import type { DayOfWeek } from '@/lib/schemas/task'
+import { createEvent } from '@/server/actions/events'
+import { createEvents } from '@/server/actions/chat-mutations'
+import {
+  expandProposalOccurrences,
+  WEEKDAY_ORDER,
+  type DayOfWeek,
+  type RecurrenceFrequency,
+} from '@/lib/chat/proposal-occurrences'
 
-/** The recurrence frequencies createTask fans out (matches the proposeEvent tool enum). */
-export type RecurrenceFrequency = 'daily' | 'weekly' | 'monthly'
+// Re-exported so existing importers (tool-result-renderer, day-proposal-preview)
+// keep pulling the recurrence type from the card.
+export type { RecurrenceFrequency }
 
-// Ordered weekday tokens — index order drives the contiguous-range collapse in
-// the recurrence summary (e.g. Mon…Fri → "Mon–Fri").
-const WEEKDAY_ORDER: readonly DayOfWeek[] = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 // Smallest run of consecutive weekdays rendered as a "First–Last" range rather
 // than a middot-joined list.
 const MIN_RANGE_LENGTH = 3
@@ -27,10 +31,10 @@ function formatWeekdays(days: readonly DayOfWeek[]): string {
   return sorted.join(' · ')
 }
 
-// The count segment's unit noun per frequency — matches createTask's actual
-// fan-out semantics (src/server/actions/tasks.ts): weekly's recurrenceCount is
-// a WEEK count (weeks × selected weekdays), while daily/monthly's is a plain
-// occurrence count in that frequency's own unit.
+// The count segment's unit noun per frequency — matches the proposeEvent
+// recurrence semantics: weekly's recurrenceCount is a WEEK count (weeks ×
+// selected weekdays), while daily/monthly's is a plain occurrence count in that
+// frequency's own unit.
 const COUNT_UNIT: Record<RecurrenceFrequency, string> = {
   weekly: 'weeks',
   daily: 'days',
@@ -95,26 +99,31 @@ export function EventProposalCard({
 
   async function handleConfirm(): Promise<void> {
     setSubmitting(true)
-    const [y, mo, d] = date.split('-').map(Number)
-    const [sh, sm] = start.split(':').map(Number)
-    const [eh, em] = end.split(':').map(Number)
-    const startAt = new Date(y!, mo! - 1, d!, sh!, sm!).toISOString()
-    const endAt = new Date(y!, mo! - 1, d!, eh!, em!).toISOString()
-    const result = await createTask({
+    // Expand the proposal into standalone events (no series linkage — the old
+    // tasks fan-out is gone). A single event calls createEvent; a recurrence
+    // fans out into N independent rows and calls createEvents.
+    const occurrences = expandProposalOccurrences({
       title,
-      type: 'task',
-      startAt,
-      endAt,
-      description: description ?? null,
-      // Recurrence keys are omitted entirely for a single event so createTask
-      // takes its non-fan-out path unchanged; when present, its existing series
-      // fan-out creates the whole series.
+      date,
+      start,
+      end,
+      ...(description !== undefined && { description }),
       ...(recurrence !== undefined && { recurrence }),
       ...(recurrenceDays !== undefined && { recurrenceDays }),
       ...(recurrenceCount !== undefined && { recurrenceCount }),
     })
+    const anchor = occurrences[0]!
+    const result =
+      occurrences.length === 1
+        ? await createEvent(anchor)
+        : await createEvents({ events: occurrences })
     setSubmitting(false)
     if ('error' in result) {
+      setState('error')
+      return
+    }
+    const created = Array.isArray(result.data) ? result.data[0] : result.data
+    if (!created) {
       setState('error')
       return
     }
@@ -124,7 +133,7 @@ export function EventProposalCard({
       role: 'user',
       content: `[CONFIRMED] ${title} — ${date} ${start}–${end}${recurringNote}`,
     })
-    onConfirmed({ id: result.data.id, title, start: startAt, end: endAt })
+    onConfirmed({ id: created.id, title, start: anchor.startAt, end: anchor.endAt })
   }
 
   function handleDenyClick(): void {

@@ -1,13 +1,13 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import ActivitiesPage from './page'
 
 const authMock = vi.fn()
-const getUserTasksMock = vi.fn()
+const getUserActivitiesMock = vi.fn()
+const getUserEventsMock = vi.fn()
+const getStandaloneUpcomingEventsMock = vi.fn()
 const safeDeleteExpiredEventsMock = vi.fn()
-const safeExtendSeriesMock = vi.fn()
+const safeGenerateEventsMock = vi.fn()
 const getCalendarPrefsMock = vi.fn()
 
 vi.mock('@/auth', () => ({ auth: () => authMock() }))
@@ -18,16 +18,21 @@ vi.mock('next/navigation', () => ({
   }),
 }))
 
-vi.mock('@/server/queries/tasks', () => ({
-  getUserTasks: () => getUserTasksMock(),
+vi.mock('@/server/queries/activities', () => ({
+  getUserActivities: () => getUserActivitiesMock(),
+}))
+
+vi.mock('@/server/queries/events', () => ({
+  getUserEvents: () => getUserEventsMock(),
+  getStandaloneUpcomingEvents: () => getStandaloneUpcomingEventsMock(),
 }))
 
 vi.mock('@/server/actions/event-ttl', () => ({
   safeDeleteExpiredEvents: () => safeDeleteExpiredEventsMock(),
 }))
 
-vi.mock('@/server/actions/series-mutations', () => ({
-  safeExtendSeries: () => safeExtendSeriesMock(),
+vi.mock('@/server/actions/event-generation', () => ({
+  safeGenerateEvents: () => safeGenerateEventsMock(),
 }))
 
 vi.mock('@/server/queries/calendar-prefs', () => ({
@@ -47,59 +52,53 @@ vi.mock('@/components/activity/activity-create-button', () => ({
 interface MockActivityRow {
   id: string
   title: string
-  type: string
-  status: string
-  dateIso: string | null
-  dateLabel: string
-  recurrence: string | null
-  recurrenceCount: number | null
-  recurrenceDays: readonly string[] | null
-  recurrenceGroupId: string | null
-  location: string | null
-  description: string | null
-  color: string | null
-  allDay: boolean
-  streak: number
-  startAt: string | null
-  endAt: string | null
-  targetDate: string | null
-  activityType: string
-  visibility: string
-  joinability: string | null
-  maxParticipants: number | null
-  isSeries: boolean
-  todayOccurrenceId: string | null
-  todayOccurrenceStatus: string | null
+  schedule: ReadonlyArray<{ day: number; startMinutes: number; durationMin: number }>
+  weeklyTargetSessions: number
+  completedThisWeek: number
+  nextEventIso: string | null
 }
 
-// Render each row's data props so page-side row-building contract bugs surface.
 vi.mock('@/components/activity/activity-table', () => ({
-  ActivityTable: ({ items, use24h }: { items: MockActivityRow[]; use24h?: boolean }) => (
-    <div data-testid="activity-table" data-use24h={String(use24h)}>
+  ActivityTable: ({
+    items,
+    use24h,
+    initialEditId,
+  }: {
+    items: MockActivityRow[]
+    use24h?: boolean
+    initialEditId?: string | null
+  }) => (
+    <div
+      data-testid="activity-table"
+      data-use24h={String(use24h)}
+      data-initial-edit-id={initialEditId ?? ''}
+    >
       {items.map((row) => (
         <div
           key={row.id}
           data-testid="activity-row"
-          data-type={row.type}
-          data-task-id={row.id}
-          data-date-iso={row.dateIso ?? ''}
-          data-target-date={row.targetDate ?? ''}
-          data-recurrence-count={row.recurrenceCount !== null ? String(row.recurrenceCount) : ''}
-          data-recurrence-days={(row.recurrenceDays ?? []).join(',')}
-          data-recurrence-group-id={row.recurrenceGroupId ?? ''}
-          data-streak={String(row.streak)}
-          data-color={row.color ?? ''}
-          data-location={row.location ?? ''}
-          data-description={row.description ?? ''}
-          data-all-day={String(row.allDay)}
-          data-activity-type={row.activityType}
-          data-visibility={row.visibility}
-          data-is-series={String(row.isSeries)}
-          data-today-occurrence-id={row.todayOccurrenceId ?? ''}
-          data-today-occurrence-status={row.todayOccurrenceStatus ?? ''}
+          data-activity-id={row.id}
+          data-schedule-len={String(row.schedule.length)}
+          data-weekly-target={String(row.weeklyTargetSessions)}
+          data-completed={String(row.completedThisWeek)}
+          data-next-event={row.nextEventIso ?? ''}
         >
           <span>{row.title}</span>
-          <span data-testid="row-date-label">{row.dateLabel}</span>
+        </div>
+      ))}
+    </div>
+  ),
+  OneOffEventsTable: ({
+    items,
+    use24h,
+  }: {
+    items: { id: string; title: string; status: string }[]
+    use24h?: boolean
+  }) => (
+    <div data-testid="one-off-table" data-use24h={String(use24h)}>
+      {items.map((row) => (
+        <div key={row.id} data-testid="one-off-row" data-event-id={row.id} data-status={row.status}>
+          <span>{row.title}</span>
         </div>
       ))}
     </div>
@@ -114,46 +113,60 @@ vi.mock('@/lib/ui', () => ({
   EmptyState: ({ message }: { message: string }) => <p>{message}</p>,
 }))
 
-interface TaskOverrides {
+type ActivityOverrides = {
   id?: string
   title?: string
-  type?: 'task' | 'goal'
-  status?: 'pending' | 'in_progress' | 'completed'
-  startAt?: Date | null
-  targetDate?: Date | null
-  recurrence?: string | null
-  recurrenceCount?: number | null
-  recurrenceDays?: readonly string[] | null
-  recurrenceGroupId?: string | null
+  schedule?: ReadonlyArray<{ day: number; startMinutes: number; durationMin: number }>
+  weeklyTargetSessions?: number
   color?: string | null
-  location?: string | null
-  description?: string | null
-  allDay?: boolean
   timeZone?: string | null
 }
 
-function makeTask(over: TaskOverrides = {}) {
+function makeActivity(over: ActivityOverrides = {}) {
   return {
-    id: 'id-1',
-    title: 'Item',
-    type: 'task' as const,
-    status: 'pending' as const,
-    startAt: new Date('2026-06-20T09:00:00.000Z'),
-    endAt: new Date('2026-06-20T10:00:00.000Z'),
-    recurrence: null,
-    recurrenceCount: null,
-    recurrenceDays: null,
-    recurrenceGroupId: null,
-    targetDate: null,
+    id: 'act-1',
+    userId: 'user-1',
+    title: 'Running',
     color: null,
-    location: null,
     description: null,
-    allDay: false,
-    activityType: 'solo',
-    visibility: 'only_me',
-    joinability: null,
-    maxParticipants: null,
+    defaultLocation: null,
+    minDurationMin: 30,
+    maxDurationMin: 60,
+    weeklyTargetSessions: 3,
+    schedule: [{ day: 1, startMinutes: 420, durationMin: 45 }],
     timeZone: null,
+    generatedThrough: null,
+    createdAt: new Date('2026-06-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-06-01T00:00:00.000Z'),
+    ...over,
+  }
+}
+
+type EventOverrides = {
+  id?: string
+  activityId?: string | null
+  title?: string
+  startAt?: Date | null
+  endAt?: Date | null
+  status?: 'pending' | 'completed'
+}
+
+function makeEvent(over: EventOverrides = {}) {
+  return {
+    id: 'evt-1',
+    userId: 'user-1',
+    activityId: 'act-1',
+    title: 'Run session',
+    description: null,
+    location: null,
+    startAt: new Date('2026-06-22T13:00:00.000Z'),
+    endAt: new Date('2026-06-22T14:00:00.000Z'),
+    allDay: false,
+    status: 'pending' as const,
+    locked: false,
+    color: null,
+    createdAt: new Date('2026-06-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-06-01T00:00:00.000Z'),
     ...over,
   }
 }
@@ -162,12 +175,16 @@ function makeSession() {
   return { user: { id: 'user-1' } }
 }
 
+const VALID_UUID = '11111111-1111-4111-8111-111111111111'
+
 describe('ActivitiesPage', () => {
   beforeEach(() => {
     authMock.mockReset()
-    getUserTasksMock.mockReset()
+    getUserActivitiesMock.mockReset().mockResolvedValue([])
+    getUserEventsMock.mockReset().mockResolvedValue([])
+    getStandaloneUpcomingEventsMock.mockReset().mockResolvedValue([])
     safeDeleteExpiredEventsMock.mockReset().mockResolvedValue(undefined)
-    safeExtendSeriesMock.mockReset().mockResolvedValue(undefined)
+    safeGenerateEventsMock.mockReset().mockResolvedValue(undefined)
     getCalendarPrefsMock.mockReset().mockResolvedValue(null)
   })
 
@@ -175,436 +192,196 @@ describe('ActivitiesPage', () => {
     vi.useRealTimers()
   })
 
-  it('sweeps safeExtendSeries after safeDeleteExpiredEvents and before getUserTasks', async () => {
-    authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([])
-    await ActivitiesPage({ searchParams: Promise.resolve({}) })
-    const deleteOrder = safeDeleteExpiredEventsMock.mock.invocationCallOrder[0]!
-    const extendOrder = safeExtendSeriesMock.mock.invocationCallOrder[0]!
-    const tasksOrder = getUserTasksMock.mock.invocationCallOrder[0]!
-    expect(deleteOrder).toBeLessThan(extendOrder)
-    expect(extendOrder).toBeLessThan(tasksOrder)
-  })
-
-  it('no longer imports the ActivityCreate quick-add bar', () => {
-    const src = readFileSync(join(process.cwd(), 'src/app/(app)/activities/page.tsx'), 'utf8')
-    expect(src).not.toMatch(/@\/components\/activity\/activity-create['"]/)
-    expect(src).not.toMatch(/<ActivityCreate\s*\/>/)
-    expect(src).toContain('ActivityFilters')
-    expect(src).toContain('ActivityCreateButton')
-  })
-
   it('redirects to /login when unauthenticated', async () => {
     authMock.mockResolvedValue(null)
     await expect(ActivitiesPage({ searchParams: Promise.resolve({}) })).rejects.toThrow('REDIRECT')
   })
 
-  it('shows all activity types when no filter is set', async () => {
+  it('sweeps safeDeleteExpiredEvents then safeGenerateEvents before querying activities', async () => {
     authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({ id: 't1', title: 'A task', type: 'task' }),
-      makeTask({ id: 'g1', title: 'A goal', type: 'goal' }),
+    await ActivitiesPage({ searchParams: Promise.resolve({}) })
+    const deleteOrder = safeDeleteExpiredEventsMock.mock.invocationCallOrder[0]!
+    const genOrder = safeGenerateEventsMock.mock.invocationCallOrder[0]!
+    const activitiesOrder = getUserActivitiesMock.mock.invocationCallOrder[0]!
+    expect(deleteOrder).toBeLessThan(genOrder)
+    expect(genOrder).toBeLessThan(activitiesOrder)
+  })
+
+  it('renders one row per activity', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserActivitiesMock.mockResolvedValue([
+      makeActivity({ id: 'a', title: 'Running' }),
+      makeActivity({ id: 'b', title: 'Reading' }),
     ])
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
     expect(screen.getAllByTestId('activity-row')).toHaveLength(2)
   })
 
-  it('filters to goals only via ?type=goal', async () => {
+  it('filters activities by ?q= (case-insensitive title match)', async () => {
     authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({ id: 't1', title: 'A task', type: 'task' }),
-      makeTask({ id: 'g1', title: 'A goal', type: 'goal' }),
+    getUserActivitiesMock.mockResolvedValue([
+      makeActivity({ id: 'a', title: 'Morning gym session' }),
+      makeActivity({ id: 'b', title: 'Read a book' }),
     ])
-    render(await ActivitiesPage({ searchParams: Promise.resolve({ type: 'goal' }) }))
-    const cards = screen.getAllByTestId('activity-row')
-    expect(cards).toHaveLength(1)
-    expect(cards[0]).toHaveAttribute('data-type', 'goal')
-  })
-
-  it('falls back to all for an unknown filter value', async () => {
-    authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({ id: 't1', type: 'task' }),
-      makeTask({ id: 'g1', type: 'goal' }),
-    ])
-    render(await ActivitiesPage({ searchParams: Promise.resolve({ type: 'bogus' }) }))
-    expect(screen.getAllByTestId('activity-row')).toHaveLength(2)
-  })
-
-  it('?type=habit falls back to all (habit is no longer a valid filter)', async () => {
-    authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({ id: 't1', type: 'task' }),
-      makeTask({ id: 'g1', type: 'goal' }),
-    ])
-    render(await ActivitiesPage({ searchParams: Promise.resolve({ type: 'habit' }) }))
-    expect(screen.getAllByTestId('activity-row')).toHaveLength(2)
-  })
-
-  it('filters by ?status=completed', async () => {
-    authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({ id: 't1', title: 'Done task', type: 'task', status: 'completed' }),
-      makeTask({ id: 't2', title: 'Pending task', type: 'task', status: 'pending' }),
-    ])
-    render(await ActivitiesPage({ searchParams: Promise.resolve({ status: 'completed' }) }))
-    const cards = screen.getAllByTestId('activity-row')
-    expect(cards).toHaveLength(1)
-    expect(screen.getByText('Done task')).toBeInTheDocument()
-  })
-
-  it('filters by ?q= with case-insensitive title match', async () => {
-    authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({ id: 't1', title: 'Morning gym session', type: 'task' }),
-      makeTask({ id: 't2', title: 'Read a book', type: 'task' }),
-    ])
-    render(await ActivitiesPage({ searchParams: Promise.resolve({ q: 'gym' }) }))
-    const cards = screen.getAllByTestId('activity-row')
-    expect(cards).toHaveLength(1)
-    expect(screen.getByText('Morning gym session')).toBeInTheDocument()
-  })
-
-  it('?recurring=1 shows only tasks where recurrence is not null', async () => {
-    authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({ id: 't1', title: 'One-off task', type: 'task', recurrence: null }),
-      makeTask({ id: 't2', title: 'Recurring task', type: 'task', recurrence: 'daily' }),
-    ])
-    render(await ActivitiesPage({ searchParams: Promise.resolve({ recurring: '1' }) }))
-    const cards = screen.getAllByTestId('activity-row')
-    expect(cards).toHaveLength(1)
-    expect(screen.getByText('Recurring task')).toBeInTheDocument()
-  })
-
-  it('combined params are ANDed together', async () => {
-    authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({ id: 'g1', title: 'Gym goal', type: 'goal', status: 'pending' }),
-      makeTask({ id: 't1', title: 'Gym task', type: 'task', status: 'pending' }),
-      makeTask({ id: 'g2', title: 'Run goal', type: 'goal', status: 'completed' }),
-    ])
-    render(await ActivitiesPage({ searchParams: Promise.resolve({ type: 'goal', q: 'gym' }) }))
-    const cards = screen.getAllByTestId('activity-row')
-    expect(cards).toHaveLength(1)
-    expect(screen.getByText('Gym goal')).toBeInTheDocument()
-  })
-
-  it('filtered empty result shows EmptyState and OpenChatButton', async () => {
-    authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([makeTask({ id: 't1', title: 'A task', type: 'task' })])
-    render(await ActivitiesPage({ searchParams: Promise.resolve({ q: 'nonexistent' }) }))
-    expect(screen.getByText(/no activities yet/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /plan with ai/i })).toBeInTheDocument()
-  })
-
-  it('builds a type-specific date label and streak per row', async () => {
-    authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({ id: 'g1', type: 'goal', targetDate: new Date('2026-08-01T12:00:00.000Z') }),
-      makeTask({ id: 'r1', type: 'task', recurrence: 'weekly' }),
-      makeTask({ id: 't1', type: 'task', startAt: null }),
-    ])
-    render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
-
+    render(await ActivitiesPage({ searchParams: Promise.resolve({ q: 'GYM' }) }))
     const rows = screen.getAllByTestId('activity-row')
-    const byId = (id: string): HTMLElement => rows.find((r) => r.dataset.taskId === id)!
-
-    // Goal: date-only target conversion + label; goals always carry streak 0
-    const goal = byId('g1')
-    expect(within(goal).getByTestId('row-date-label')).toHaveTextContent('Target: 2026-08-01')
-    expect(goal).toHaveAttribute('data-target-date', '2026-08-01')
-    expect(goal).toHaveAttribute('data-streak', '0')
-
-    // Recurring one-off (no group id) task: streak always 0 post-collapse
-    expect(byId('r1')).toHaveAttribute('data-streak', '0')
-
-    // Non-recurring task with no start time falls back to "No time set"
-    expect(within(byId('t1')).getByTestId('row-date-label')).toHaveTextContent('No time set')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toHaveAttribute('data-activity-id', 'a')
   })
 
-  it('assembles rich fields and social props into each row', async () => {
+  it('computes weekly fit (completed this local week) per activity', async () => {
+    vi.useFakeTimers()
+    // A Wednesday; the local week runs Sun 06-21 .. Sun 06-28.
+    vi.setSystemTime(new Date('2026-06-24T12:00:00.000Z'))
     authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({
-        id: 't-rich',
-        type: 'task',
-        color: 'blue',
-        location: 'Coffee shop',
-        description: 'Some notes',
-        allDay: true,
+    getUserActivitiesMock.mockResolvedValue([
+      makeActivity({ id: 'act-1', weeklyTargetSessions: 3 }),
+    ])
+    getUserEventsMock.mockResolvedValue([
+      makeEvent({
+        id: 'e1',
+        activityId: 'act-1',
+        status: 'completed',
+        startAt: new Date('2026-06-22T13:00:00.000Z'),
+      }),
+      makeEvent({
+        id: 'e2',
+        activityId: 'act-1',
+        status: 'completed',
+        startAt: new Date('2026-06-23T13:00:00.000Z'),
+      }),
+      // pending in-week — not counted
+      makeEvent({
+        id: 'e3',
+        activityId: 'act-1',
+        status: 'pending',
+        startAt: new Date('2026-06-24T13:00:00.000Z'),
+      }),
+      // completed but different activity — not counted
+      makeEvent({
+        id: 'e4',
+        activityId: 'other',
+        status: 'completed',
+        startAt: new Date('2026-06-22T13:00:00.000Z'),
       }),
     ])
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
     const row = screen.getByTestId('activity-row')
-    expect(row).toHaveAttribute('data-task-id', 't-rich')
-    expect(row).toHaveAttribute('data-color', 'blue')
-    expect(row).toHaveAttribute('data-location', 'Coffee shop')
-    expect(row).toHaveAttribute('data-description', 'Some notes')
-    expect(row).toHaveAttribute('data-all-day', 'true')
-    expect(row).toHaveAttribute('data-activity-type', 'solo')
-    expect(row).toHaveAttribute('data-visibility', 'only_me')
+    expect(row).toHaveAttribute('data-completed', '2')
+    expect(row).toHaveAttribute('data-weekly-target', '3')
   })
 
-  // S9: the row query already returns recurrenceCount + recurrenceDays; the page
-  // must surface them on each ActivityRow so the table can seed the edit dialog.
-  it('surfaces recurrenceCount and recurrenceDays from the row onto each activity row', async () => {
+  it('derives the next event as the earliest future start for that activity', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-24T12:00:00.000Z'))
     authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({
-        id: 't-series',
-        type: 'task',
-        recurrence: 'weekly',
-        recurrenceCount: 6,
-        recurrenceDays: ['Mon', 'Wed'],
-      }),
+    getUserActivitiesMock.mockResolvedValue([makeActivity({ id: 'act-1' })])
+    getUserEventsMock.mockResolvedValue([
+      // past — ignored
+      makeEvent({ id: 'e0', activityId: 'act-1', startAt: new Date('2026-06-20T13:00:00.000Z') }),
+      makeEvent({ id: 'e1', activityId: 'act-1', startAt: new Date('2026-06-27T13:00:00.000Z') }),
+      makeEvent({ id: 'e2', activityId: 'act-1', startAt: new Date('2026-06-25T13:00:00.000Z') }),
+      // other activity — ignored
+      makeEvent({ id: 'e3', activityId: 'other', startAt: new Date('2026-06-24T18:00:00.000Z') }),
     ])
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
     const row = screen.getByTestId('activity-row')
-    expect(row).toHaveAttribute('data-recurrence-count', '6')
-    expect(row).toHaveAttribute('data-recurrence-days', 'Mon,Wed')
+    expect(row).toHaveAttribute('data-next-event', '2026-06-25T13:00:00.000Z')
   })
 
-  // S5: recurrenceGroupId threads down the prop chain (page → ActivityRow →
-  // ActivityRowActions → useActivityActions) so grouped edits route through
-  // updateSeries. Null when the task row carries no group id.
-  it('surfaces recurrenceGroupId from the task row onto each activity row', async () => {
+  it('sets next event to empty when the activity has no future events', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-24T12:00:00.000Z'))
     authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({ id: 't-grouped', type: 'task', recurrenceGroupId: 'group-7' }),
-      makeTask({ id: 't-ungrouped', type: 'task', recurrenceGroupId: null }),
+    getUserActivitiesMock.mockResolvedValue([makeActivity({ id: 'act-1' })])
+    getUserEventsMock.mockResolvedValue([
+      makeEvent({ id: 'e0', activityId: 'act-1', startAt: new Date('2026-06-20T13:00:00.000Z') }),
+      makeEvent({ id: 'e1', activityId: 'act-1', startAt: null }),
     ])
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
-    const rows = screen.getAllByTestId('activity-row')
-    const byId = (id: string): HTMLElement => rows.find((r) => r.dataset.taskId === id)!
-    expect(byId('t-grouped')).toHaveAttribute('data-recurrence-group-id', 'group-7')
-    expect(byId('t-ungrouped')).toHaveAttribute('data-recurrence-group-id', '')
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-next-event', '')
   })
 
-  it('threads use24h=true from calendar prefs into the create button and table', async () => {
+  it('passes a validated ?edit uuid owned by the user as initialEditId', async () => {
     authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([makeTask({ id: 't1', type: 'task' })])
-    getCalendarPrefsMock.mockResolvedValue({ use24h: true })
-    render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
-    expect(screen.getByTestId('activity-create-button')).toHaveAttribute('data-use24h', 'true')
-    expect(screen.getByTestId('activity-table')).toHaveAttribute('data-use24h', 'true')
+    getUserActivitiesMock.mockResolvedValue([makeActivity({ id: VALID_UUID, title: 'Running' })])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({ edit: VALID_UUID }) }))
+    expect(screen.getByTestId('activity-table')).toHaveAttribute('data-initial-edit-id', VALID_UUID)
   })
 
-  it('defaults use24h to false when there is no calendar prefs row', async () => {
+  it('ignores a non-uuid ?edit value', async () => {
     authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([makeTask({ id: 't1', type: 'task' })])
-    getCalendarPrefsMock.mockResolvedValue(null)
+    getUserActivitiesMock.mockResolvedValue([makeActivity({ id: 'act-1' })])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({ edit: 'not-a-uuid' }) }))
+    expect(screen.getByTestId('activity-table')).toHaveAttribute('data-initial-edit-id', '')
+  })
+
+  it('ignores a valid ?edit uuid that the user does not own', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserActivitiesMock.mockResolvedValue([makeActivity({ id: 'act-1' })])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({ edit: VALID_UUID }) }))
+    expect(screen.getByTestId('activity-table')).toHaveAttribute('data-initial-edit-id', '')
+  })
+
+  it('renders the one-off events section when standalone events exist', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserActivitiesMock.mockResolvedValue([makeActivity()])
+    getStandaloneUpcomingEventsMock.mockResolvedValue([
+      makeEvent({ id: 'so-1', activityId: null, title: 'Dentist', status: 'pending' }),
+    ])
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
-    expect(screen.getByTestId('activity-create-button')).toHaveAttribute('data-use24h', 'false')
-    expect(screen.getByTestId('activity-table')).toHaveAttribute('data-use24h', 'false')
+    const section = screen.getByTestId('one-off-table')
+    expect(within(section).getByText('Dentist')).toBeInTheDocument()
+    expect(within(section).getByTestId('one-off-row')).toHaveAttribute('data-status', 'pending')
+  })
+
+  it('omits the one-off section when there are no standalone events', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserActivitiesMock.mockResolvedValue([makeActivity()])
+    getStandaloneUpcomingEventsMock.mockResolvedValue([])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
+    expect(screen.queryByTestId('one-off-table')).not.toBeInTheDocument()
   })
 
   it('shows the empty state when there are no activities', async () => {
     authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([])
+    getUserActivitiesMock.mockResolvedValue([])
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
     expect(screen.getByText(/no activities yet/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /plan with ai/i })).toBeInTheDocument()
+    expect(screen.queryByTestId('activity-table')).not.toBeInTheDocument()
   })
 
-  it('collapses a recurrence group to one series row', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-06-20T12:00:00.000Z'))
+  it('threads use24h=true from calendar prefs into the tables and create button', async () => {
     authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({
-        id: 'g-yesterday',
-        title: 'Series',
-        recurrence: 'daily',
-        recurrenceGroupId: 'g1',
-        startAt: new Date('2026-06-19T09:00:00.000Z'),
-        status: 'completed',
-      }),
-      makeTask({
-        id: 'g-today',
-        title: 'Series',
-        recurrence: 'daily',
-        recurrenceGroupId: 'g1',
-        startAt: new Date('2026-06-20T09:00:00.000Z'),
-      }),
-      makeTask({
-        id: 'g-tomorrow',
-        title: 'Series',
-        recurrence: 'daily',
-        recurrenceGroupId: 'g1',
-        startAt: new Date('2026-06-21T09:00:00.000Z'),
-      }),
-      makeTask({ id: 'one-off', title: 'Solo task', recurrenceGroupId: null }),
-    ])
+    getUserActivitiesMock.mockResolvedValue([makeActivity()])
+    getStandaloneUpcomingEventsMock.mockResolvedValue([makeEvent({ id: 'so-1', activityId: null })])
+    getCalendarPrefsMock.mockResolvedValue({ use24h: true })
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
-
-    const rows = screen.getAllByTestId('activity-row')
-    expect(rows).toHaveLength(2)
-    const seriesRow = rows.find((r) => r.dataset.isSeries === 'true')!
-    expect(seriesRow).toHaveAttribute('data-today-occurrence-id', 'g-today')
-    expect(within(seriesRow).getByTestId('row-date-label')).toHaveTextContent(/^Daily · next /)
+    expect(screen.getByTestId('activity-create-button')).toHaveAttribute('data-use24h', 'true')
+    expect(screen.getByTestId('activity-table')).toHaveAttribute('data-use24h', 'true')
+    expect(screen.getByTestId('one-off-table')).toHaveAttribute('data-use24h', 'true')
   })
 
-  it('labels an ended series and nulls its sort key', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-06-20T12:00:00.000Z'))
+  it('defaults use24h to false when there is no calendar prefs row', async () => {
     authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({
-        id: 'g-3',
-        title: 'Series',
-        recurrence: 'daily',
-        recurrenceGroupId: 'g1',
-        startAt: new Date('2026-06-17T09:00:00.000Z'),
-        status: 'completed',
-      }),
-      makeTask({
-        id: 'g-2',
-        title: 'Series',
-        recurrence: 'daily',
-        recurrenceGroupId: 'g1',
-        startAt: new Date('2026-06-18T09:00:00.000Z'),
-        status: 'completed',
-      }),
-      makeTask({
-        id: 'g-1',
-        title: 'Series',
-        recurrence: 'daily',
-        recurrenceGroupId: 'g1',
-        startAt: new Date('2026-06-19T09:00:00.000Z'),
-        status: 'completed',
+    getUserActivitiesMock.mockResolvedValue([makeActivity()])
+    getCalendarPrefsMock.mockResolvedValue(null)
+    render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
+    expect(screen.getByTestId('activity-table')).toHaveAttribute('data-use24h', 'false')
+  })
+
+  it('passes the activity schedule through to each row', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserActivitiesMock.mockResolvedValue([
+      makeActivity({
+        schedule: [
+          { day: 1, startMinutes: 420, durationMin: 45 },
+          { day: 3, startMinutes: 420, durationMin: 45 },
+        ],
       }),
     ])
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
-
-    const row = screen.getByTestId('activity-row')
-    expect(within(row).getByTestId('row-date-label')).toHaveTextContent('Daily · Ended')
-    expect(row).toHaveAttribute('data-date-iso', '')
-  })
-
-  it('applies the status filter to the series representative status', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-06-20T12:00:00.000Z'))
-    authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({
-        id: 'g-today',
-        title: 'Series',
-        recurrence: 'daily',
-        recurrenceGroupId: 'g1',
-        startAt: new Date('2026-06-20T09:00:00.000Z'),
-        status: 'pending',
-      }),
-      makeTask({
-        id: 'solo-completed',
-        title: 'Done solo',
-        recurrenceGroupId: null,
-        status: 'completed',
-      }),
-    ])
-    render(await ActivitiesPage({ searchParams: Promise.resolve({ status: 'completed' }) }))
-
-    const rows = screen.getAllByTestId('activity-row')
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toHaveAttribute('data-task-id', 'solo-completed')
-  })
-
-  it('recurring filter keeps series rows and recurring one-offs only', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-06-20T12:00:00.000Z'))
-    authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({
-        id: 'g-today',
-        title: 'Series',
-        recurrence: 'daily',
-        recurrenceGroupId: 'g1',
-        startAt: new Date('2026-06-20T09:00:00.000Z'),
-      }),
-      makeTask({
-        id: 'solo-none',
-        title: 'No recurrence solo',
-        recurrenceGroupId: null,
-        recurrence: null,
-      }),
-      makeTask({
-        id: 'solo-yearly',
-        title: 'Yearly solo',
-        recurrenceGroupId: null,
-        recurrence: 'yearly',
-      }),
-    ])
-    render(await ActivitiesPage({ searchParams: Promise.resolve({ recurring: '1' }) }))
-
-    const rows = screen.getAllByTestId('activity-row')
-    const ids = rows.map((r) => r.dataset.taskId)
-    expect(ids).toHaveLength(2)
-    expect(ids).toContain('g-today')
-    expect(ids).toContain('solo-yearly')
-    expect(ids).not.toContain('solo-none')
-  })
-
-  it('series row streak is the group current streak', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-06-20T12:00:00.000Z'))
-    authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({
-        id: 'g-2days-ago',
-        title: 'Series',
-        recurrence: 'daily',
-        recurrenceGroupId: 'g1',
-        startAt: new Date('2026-06-18T09:00:00.000Z'),
-        status: 'completed',
-      }),
-      makeTask({
-        id: 'g-yesterday',
-        title: 'Series',
-        recurrence: 'daily',
-        recurrenceGroupId: 'g1',
-        startAt: new Date('2026-06-19T09:00:00.000Z'),
-        status: 'completed',
-      }),
-      makeTask({
-        id: 'g-today',
-        title: 'Series',
-        recurrence: 'daily',
-        recurrenceGroupId: 'g1',
-        startAt: new Date('2026-06-20T09:00:00.000Z'),
-        status: 'pending',
-      }),
-    ])
-    render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
-
-    const row = screen.getByTestId('activity-row')
-    expect(row).toHaveAttribute('data-streak', '2')
-  })
-
-  it('q filter matches series title before collapse', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-06-20T12:00:00.000Z'))
-    authMock.mockResolvedValue(makeSession())
-    getUserTasksMock.mockResolvedValue([
-      makeTask({
-        id: 'g-today',
-        title: 'Special series run',
-        recurrence: 'daily',
-        recurrenceGroupId: 'g1',
-        startAt: new Date('2026-06-20T09:00:00.000Z'),
-      }),
-      makeTask({
-        id: 'g-tomorrow',
-        title: 'Special series run',
-        recurrence: 'daily',
-        recurrenceGroupId: 'g1',
-        startAt: new Date('2026-06-21T09:00:00.000Z'),
-      }),
-      makeTask({ id: 'other', title: 'Unrelated errand', recurrenceGroupId: null }),
-    ])
-    render(await ActivitiesPage({ searchParams: Promise.resolve({ q: 'special' }) }))
-
-    const rows = screen.getAllByTestId('activity-row')
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toHaveAttribute('data-is-series', 'true')
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-schedule-len', '2')
   })
 })

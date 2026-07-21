@@ -10,7 +10,11 @@ import { ToolResultRenderer } from '@/components/chat/tool-result-renderer'
 const MAX_TRANSCRIPT_MESSAGES = 6
 const CHAT_ROUTE = '/chat'
 const QUICK_SCHEDULE_MODE = 'quick-schedule'
-const SUCCESS_TOOL_NAMES: ReadonlySet<string> = new Set(['createCalendarEvent', 'createTask'])
+// A9 hardening: was ['createCalendarEvent', 'createTask'] — both killed by
+// the A7 chat/tools rewrite, so the success UI could never fire on the real
+// quick-schedule path. The tools quick-schedule mode can actually invoke are
+// createEvent (single) and createEvents (mass) — src/lib/chat/tools.ts.
+const SUCCESS_TOOL_NAMES: ReadonlySet<string> = new Set(['createEvent', 'createEvents'])
 const QUICK_ADD_PLACEHOLDER = 'Quick add — "dinner Fri 7pm"'
 const CHAT_ERROR_MESSAGE = "Cy couldn't respond. Try again."
 const RETRY_LABEL = 'Retry'

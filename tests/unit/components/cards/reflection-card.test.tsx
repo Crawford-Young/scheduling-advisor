@@ -1,12 +1,7 @@
-﻿import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { axe } from 'jest-axe'
 import { ReflectionCard, reflectionCardPropsSchema } from '@/components/cards/reflection-card'
-
-vi.mock('@/server/actions/check-ins', () => ({
-  completeCheckIn: vi.fn().mockResolvedValue({ data: { id: 'ci-1' } }),
-}))
 
 const baseProps = {
   checkInId: '550e8400-e29b-41d4-a716-446655440000',
@@ -15,8 +10,6 @@ const baseProps = {
 }
 
 describe('ReflectionCard', () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it('renders prompt text', () => {
     render(<ReflectionCard {...baseProps} />)
     expect(screen.getByText('How did your run go today?')).toBeInTheDocument()
@@ -27,35 +20,20 @@ describe('ReflectionCard', () => {
     expect(screen.getByText('Run 5k')).toBeInTheDocument()
   })
 
-  it('Save button is disabled until rating selected', async () => {
-    render(<ReflectionCard {...baseProps} />)
-    expect(screen.getByText('Save reflection').closest('button')).toBeDisabled()
+  it('does not render a task title when not provided', () => {
+    render(<ReflectionCard {...baseProps} taskTitle={undefined} />)
+    expect(screen.queryByText('Run 5k')).not.toBeInTheDocument()
   })
 
-  it('enables Save button after rating selected', async () => {
+  it('renders no interactive controls (display-only, save capability removed)', () => {
     render(<ReflectionCard {...baseProps} />)
-    await userEvent.click(screen.getByRole('button', { name: '3' }))
-    expect(screen.getByText('Save reflection').closest('button')).not.toBeDisabled()
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
   })
 
-  it('calls completeCheckIn with rating and reflection on submit', async () => {
-    const { completeCheckIn } = await import('@/server/actions/check-ins')
+  it('shows the reflections-no-longer-collected notice', () => {
     render(<ReflectionCard {...baseProps} />)
-    await userEvent.click(screen.getByRole('button', { name: '4' }))
-    await userEvent.type(screen.getByPlaceholderText(/optional/i), 'Felt great!')
-    await userEvent.click(screen.getByText('Save reflection'))
-    expect(completeCheckIn).toHaveBeenCalledWith({
-      id: baseProps.checkInId,
-      rating: 4,
-      reflectionText: 'Felt great!',
-    })
-  })
-
-  it('shows confirmation after save', async () => {
-    render(<ReflectionCard {...baseProps} />)
-    await userEvent.click(screen.getByRole('button', { name: '5' }))
-    await userEvent.click(screen.getByText('Save reflection'))
-    expect(await screen.findByText(/Reflection saved/)).toBeInTheDocument()
+    expect(screen.getByText('Reflections are no longer collected.')).toBeInTheDocument()
   })
 
   it('passes axe accessibility check', async () => {

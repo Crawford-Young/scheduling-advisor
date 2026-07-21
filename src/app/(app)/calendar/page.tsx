@@ -1,12 +1,11 @@
 import * as React from 'react'
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
-import { getUserTasks } from '@/server/queries/tasks'
-import { getTaskStreaks } from '@/server/queries/consistency'
+import { getUserEvents } from '@/server/queries/events'
+import { getUserActivities } from '@/server/queries/activities'
 import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
 import { safeDeleteExpiredEvents } from '@/server/actions/event-ttl'
-import { safeExtendSeries } from '@/server/actions/series-mutations'
-import { reportSeriesDrift } from '@/lib/series-consistency'
+import { safeGenerateEvents } from '@/server/actions/event-generation'
 import { CalendarClient } from '@/components/calendar/calendar-client'
 import {
   DEFAULT_WAKE_MINUTES,
@@ -27,74 +26,71 @@ export default async function CalendarPage({
   const session = await auth()
   if (!session?.user?.id) redirect('/login')
 
-  const userId = session.user.id
   const { week } = await searchParams
   const weekStart = resolveWeekStart(week)
 
   const prefs = await getCalendarPrefs()
   // Prefs are minutes-since-midnight; CalendarClient still consumes whole hours.
-  // Convert at this boundary until A9 makes the calendar grid minute-aware.
+  // Convert at this boundary until the calendar grid becomes minute-aware.
   const wakeMinutes = prefs?.workingHoursStart ?? DEFAULT_WAKE_MINUTES
   const sleepMinutes = prefs?.workingHoursEnd ?? DEFAULT_SLEEP_MINUTES
   const wakeHour = Math.floor(wakeMinutes / MINUTES_PER_HOUR)
   const sleepHour = Math.ceil(sleepMinutes / MINUTES_PER_HOUR)
 
-  // resolveDayWindows emits minutes-since-midnight (A2.1 persistence); the
-  // library's dayWindows expect fractional HOURS (L4.1). Convert at this single
-  // boundary. WeekCalendarView ignores the hour/sleep window props when
-  // dayWindows is present, but passing both is the documented compatible path.
+  // resolveDayWindows emits minutes-since-midnight; the library's dayWindows
+  // expect fractional HOURS. Convert at this single boundary.
   const dayWindows = resolveDayWindows(prefs).map((w) => ({
     wake: w.wake / MINUTES_PER_HOUR,
     sleep: w.sleep / MINUTES_PER_HOUR,
   }))
 
+  // TTL sweep, then the sliding-window generation sweep (both read-path safe),
+  // BEFORE reading events so the fresh window is visible on this render.
   await safeDeleteExpiredEvents()
-  await safeExtendSeries()
-  const allTasks = await getUserTasks()
-  reportSeriesDrift(allTasks)
+  await safeGenerateEvents()
 
-  const taskIds = allTasks.map((t) => t.id)
-  const streakMap = await getTaskStreaks(userId, taskIds)
+  const dbEvents = await getUserEvents()
+  const activities = await getUserActivities()
 
-  const events = allTasks
-    .filter((t) => t.targetDate !== null || t.startAt !== null)
-    .map((t) => {
-      const dateStr = t.startAt
-        ? t.startAt.toISOString().slice(0, 10)
-        : t.targetDate!.toISOString().slice(0, 10)
-      const startTime = t.startAt?.toISOString() ?? `${dateStr}T09:00:00`
-      const endTime = t.endAt?.toISOString() ?? `${dateStr}T10:00:00`
-      return {
-        id: t.id,
-        title: t.title,
-        start: startTime,
-        end: endTime,
-        type: t.type as 'task' | 'goal',
-        status: t.status,
-        streak: streakMap[t.id] ?? 0,
-        activityType: t.activityType,
-        visibility: t.visibility,
-        color: t.color ?? null,
-        allDay: t.allDay ?? false,
-        location: t.location ?? null,
-        description: t.description ?? null,
-        recurrence: t.recurrence ?? null,
-        // Persisted weekday set seeds the chip edit popover's Days picker.
-        recurrenceDays: t.recurrenceDays ?? null,
-        // Persisted lock flag seeds the chip's lock state (A2.4).
-        locked: t.locked,
-        // Recurrence-group id (wave 2.6 S4): non-null means the row belongs to
-        // a fanned recurrence group, driving calendar-client's updateSeries
-        // routing instead of the per-occurrence updateTask/rescheduleTask paths.
-        recurrenceGroupId: t.recurrenceGroupId ?? null,
-      }
-    })
+  // Only timed events render on the grid; a null startAt/endAt is unschedulable.
+  const events = dbEvents
+    .filter((e) => e.startAt !== null && e.endAt !== null)
+    .map((e) => ({
+      id: e.id,
+      title: e.title,
+      start: e.startAt!.toISOString(),
+      end: e.endAt!.toISOString(),
+      color: e.color ?? null,
+      allDay: e.allDay,
+      location: e.location ?? null,
+      description: e.description ?? null,
+      status: e.status,
+      locked: e.locked,
+      activityId: e.activityId ?? null,
+    }))
+
+  // Full activity templates threaded to CalendarClient: they feed both the
+  // drag-create popover's picker AND the in-calendar "Edit activity" flow
+  // (which seeds ActivityTemplateDialog / updateActivity).
+  const activityOptions = activities.map((a) => ({
+    id: a.id,
+    title: a.title,
+    color: a.color ?? null,
+    description: a.description,
+    defaultLocation: a.defaultLocation,
+    minDurationMin: a.minDurationMin,
+    maxDurationMin: a.maxDurationMin,
+    weeklyTargetSessions: a.weeklyTargetSessions,
+    schedule: a.schedule,
+    timeZone: a.timeZone,
+  }))
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <CalendarClient
         weekStart={weekStart}
         events={events}
+        activities={activityOptions}
         wakeHour={wakeHour}
         sleepHour={sleepHour}
         dayWindows={dayWindows}

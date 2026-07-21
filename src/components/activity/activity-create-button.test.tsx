@@ -5,23 +5,53 @@ import { ActivityCreateButton } from './activity-create-button'
 
 const refreshMock = vi.fn()
 const toastErrorMock = vi.fn()
-const createTaskMock = vi.fn().mockResolvedValue({ data: { id: 'new-id' } })
+const createActivityMock = vi.fn().mockResolvedValue({ data: { id: 'act-new' } })
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: refreshMock }),
 }))
 
-vi.mock('@/server/actions/tasks', () => ({
-  createTask: (input: unknown) => createTaskMock(input),
+vi.mock('@/server/actions/activities', () => ({
+  createActivity: (input: unknown) => createActivityMock(input),
 }))
 
-// @/lib/ui — Button + toast + the library ActivityFormDialog (mocked to surface data props).
+interface MockTemplateValues {
+  readonly title: string
+  readonly color?: string | null
+  readonly description?: string | null
+  readonly defaultLocation?: string | null
+  readonly minDurationMin: number
+  readonly maxDurationMin: number
+  readonly weeklyTargetSessions: number
+  readonly schedule: ReadonlyArray<{ day: number; startMinutes: number; durationMin: number }>
+}
+
+const FULL_TEMPLATE: MockTemplateValues = {
+  title: 'Running',
+  color: 'blue',
+  description: 'cardio',
+  defaultLocation: 'Park',
+  minDurationMin: 30,
+  maxDurationMin: 60,
+  weeklyTargetSessions: 3,
+  schedule: [{ day: 1, startMinutes: 420, durationMin: 45 }],
+}
+
+// Optional fields omitted → exercises the ?? null fallbacks.
+const MIN_TEMPLATE: MockTemplateValues = {
+  title: 'Reading',
+  minDurationMin: 20,
+  maxDurationMin: 40,
+  weeklyTargetSessions: 2,
+  schedule: [],
+}
+
 vi.mock('@/lib/ui', () => ({
   Button: ({ children, ...props }: React.ComponentProps<'button'>) => (
     <button {...props}>{children}</button>
   ),
   toast: { error: (msg: string) => toastErrorMock(msg) },
-  ActivityFormDialog: ({
+  ActivityTemplateDialog: ({
     open,
     isPending,
     use24h,
@@ -30,202 +60,97 @@ vi.mock('@/lib/ui', () => ({
     open: boolean
     isPending?: boolean
     use24h?: boolean
-    onSubmit: (values: unknown) => void
+    onSubmit: (values: MockTemplateValues) => void
   }) =>
     open ? (
-      <div data-testid="activity-form-dialog">
+      <div role="dialog" aria-label="activity-template">
         <span data-testid="dialog-pending">{String(isPending)}</span>
         <span data-testid="dialog-use24h">{String(use24h)}</span>
-        <button
-          type="button"
-          onClick={() =>
-            onSubmit({
-              type: 'goal',
-              title: 'New goal',
-              targetDate: '2026-09-01',
-              social: { activityType: 'solo', visibility: 'only_me' },
-            })
-          }
-        >
-          submit-new-goal
+        <button type="button" onClick={() => onSubmit(FULL_TEMPLATE)}>
+          submit-full
         </button>
-        <button
-          type="button"
-          onClick={() =>
-            onSubmit({
-              type: 'goal',
-              title: 'Dateless goal',
-              targetDate: null,
-              social: { activityType: 'solo', visibility: 'only_me' },
-            })
-          }
-        >
-          submit-goal-no-date
-        </button>
-        <button
-          type="button"
-          onClick={() =>
-            onSubmit({
-              type: 'task',
-              title: 'New task',
-              startAt: '2026-09-01T09:00:00.000Z',
-              endAt: null,
-              recurrence: null,
-              social: { activityType: 'solo', visibility: 'only_me' },
-            })
-          }
-        >
-          submit-new-task
-        </button>
-        <button
-          type="button"
-          onClick={() =>
-            onSubmit({
-              type: 'task',
-              title: 'Weekly workout',
-              startAt: '2026-09-01T09:00:00.000Z',
-              endAt: '2026-09-01T10:00:00.000Z',
-              recurrence: 'weekly',
-              recurrenceCount: 3,
-              recurrenceDays: ['Tue', 'Thu', 'Sat'],
-              color: 'blue',
-              location: 'Gym',
-              description: 'Leg day',
-              allDay: false,
-              social: { activityType: 'solo', visibility: 'only_me' },
-            })
-          }
-        >
-          submit-weekly-task
+        <button type="button" onClick={() => onSubmit(MIN_TEMPLATE)}>
+          submit-min
         </button>
       </div>
     ) : null,
 }))
 
+const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone
+
 describe('ActivityCreateButton', () => {
   beforeEach(() => {
     refreshMock.mockClear()
     toastErrorMock.mockClear()
-    createTaskMock.mockClear().mockResolvedValue({ data: { id: 'new-id' } })
+    createActivityMock.mockClear().mockResolvedValue({ data: { id: 'act-new' } })
   })
 
-  it('opens the app ActivityFormDialog when New is clicked', async () => {
+  it('opens the template dialog when New is clicked', async () => {
     const user = userEvent.setup()
     render(<ActivityCreateButton />)
-    expect(screen.queryByTestId('activity-form-dialog')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'activity-template' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /new/i }))
-    expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'activity-template' })).toBeInTheDocument()
   })
 
-  it('threads the use24h preference into the library dialog', async () => {
+  it('threads the use24h preference into the dialog', async () => {
     const user = userEvent.setup()
     render(<ActivityCreateButton use24h />)
     await user.click(screen.getByRole('button', { name: /new/i }))
     expect(screen.getByTestId('dialog-use24h')).toHaveTextContent('true')
   })
 
-  it('routes a goal submission to createTask with a noon-UTC ISO targetDate', async () => {
+  it('creates an activity with the mapped payload and browser time zone', async () => {
     const user = userEvent.setup()
     render(<ActivityCreateButton />)
     await user.click(screen.getByRole('button', { name: /new/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-new-goal' }))
+    await user.click(screen.getByRole('button', { name: 'submit-full' }))
 
     await waitFor(() =>
-      expect(createTaskMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'goal',
-          title: 'New goal',
-          targetDate: '2026-09-01T12:00:00.000Z',
-        }),
-      ),
+      expect(createActivityMock).toHaveBeenCalledWith({
+        title: 'Running',
+        color: 'blue',
+        description: 'cardio',
+        defaultLocation: 'Park',
+        minDurationMin: 30,
+        maxDurationMin: 60,
+        weeklyTargetSessions: 3,
+        schedule: [{ day: 1, startMinutes: 420, durationMin: 45 }],
+        timeZone: BROWSER_TZ,
+      }),
     )
     expect(refreshMock).toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: 'activity-template' })).not.toBeInTheDocument()
   })
 
-  it('routes a goal with no target date to createTask with a null targetDate', async () => {
+  it('maps omitted optional fields to null on create', async () => {
     const user = userEvent.setup()
     render(<ActivityCreateButton />)
     await user.click(screen.getByRole('button', { name: /new/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-goal-no-date' }))
+    await user.click(screen.getByRole('button', { name: 'submit-min' }))
 
     await waitFor(() =>
-      expect(createTaskMock).toHaveBeenCalledWith(
+      expect(createActivityMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'goal',
-          title: 'Dateless goal',
-          targetDate: null,
+          title: 'Reading',
+          color: null,
+          description: null,
+          defaultLocation: null,
+          schedule: [],
         }),
       ),
     )
   })
 
-  it('routes a task submission to createTask with a null targetDate', async () => {
+  it('keeps the dialog open and surfaces a toast when createActivity errors', async () => {
+    createActivityMock.mockResolvedValueOnce({ error: 'Unauthorized' })
     const user = userEvent.setup()
     render(<ActivityCreateButton />)
     await user.click(screen.getByRole('button', { name: /new/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-new-task' }))
-
-    await waitFor(() =>
-      expect(createTaskMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'task',
-          title: 'New task',
-          startAt: '2026-09-01T09:00:00.000Z',
-          targetDate: null,
-        }),
-      ),
-    )
-    expect(refreshMock).toHaveBeenCalled()
-  })
-
-  it('threads recurrenceDays, color, location, description, and allDay to createTask', async () => {
-    const user = userEvent.setup()
-    render(<ActivityCreateButton />)
-    await user.click(screen.getByRole('button', { name: /new/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-weekly-task' }))
-
-    await waitFor(() =>
-      expect(createTaskMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'task',
-          title: 'Weekly workout',
-          recurrence: 'weekly',
-          recurrenceCount: 3,
-          recurrenceDays: ['Tue', 'Thu', 'Sat'],
-          color: 'blue',
-          location: 'Gym',
-          description: 'Leg day',
-          allDay: false,
-        }),
-      ),
-    )
-    expect(refreshMock).toHaveBeenCalled()
-  })
-
-  it('stamps the browser IANA timeZone on the createTask payload', async () => {
-    const user = userEvent.setup()
-    render(<ActivityCreateButton />)
-    await user.click(screen.getByRole('button', { name: /new/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-weekly-task' }))
-
-    await waitFor(() =>
-      expect(createTaskMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        }),
-      ),
-    )
-  })
-
-  it('keeps the dialog open and surfaces a toast when createTask returns an error', async () => {
-    createTaskMock.mockResolvedValueOnce({ error: 'Unauthorized' })
-    const user = userEvent.setup()
-    render(<ActivityCreateButton />)
-    await user.click(screen.getByRole('button', { name: /new/i }))
-    await user.click(screen.getByRole('button', { name: 'submit-new-task' }))
+    await user.click(screen.getByRole('button', { name: 'submit-full' }))
 
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not create activity'))
     expect(refreshMock).not.toHaveBeenCalled()
-    expect(screen.getByTestId('activity-form-dialog')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'activity-template' })).toBeInTheDocument()
   })
 })

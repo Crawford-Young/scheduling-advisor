@@ -8,28 +8,20 @@ const ADVISOR_HISTORY_LIMIT = 50
 const ADVISOR_MAX_STEPS = 5
 
 // Explicit literal allowlist — NOT an alias of CHAT_TOOL_NAMES. Advisor drops
-// createCalendarEvent (events go through proposeEvent for user approval) and
-// gains proposeEvent.
+// the direct event-creation tools (createEvent/createEvents): calendar events
+// go through proposeEvent for user approval, whose card creates them. It keeps
+// createActivity/updateEvent/deleteEvent (proposeAction-gated) and proposeEvent.
 const ADVISOR_TOOL_NAMES: readonly ChatToolName[] = [
-  'getCalendarEvents',
-  'getUserTasks',
-  'getUserCheckIns',
-  'showTaskCard',
-  'showHabitCard',
-  'showGoalCard',
-  'showScheduleSuggestion',
-  'showReflectionCard',
+  'getWeekSchedule',
+  'getActivities',
   'showWeekCalendar',
+  'showScheduleSuggestion',
   'showLifeBalance',
   'proposeAction',
   'proposeEvent',
-  'markItemComplete',
-  'markItemSkipped',
-  'rescheduleItem',
-  'createHabit',
-  'createGoal',
-  'createTask',
-  'updateItem',
+  'createActivity',
+  'updateEvent',
+  'deleteEvent',
 ] as const
 
 export const advisorMode: ModeConfig = {

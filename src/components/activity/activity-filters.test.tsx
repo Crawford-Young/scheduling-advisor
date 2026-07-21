@@ -15,53 +15,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/lib/ui', () => ({
   Input: (props: React.ComponentProps<'input'>) => <input {...props} />,
-  Label: ({ children, ...rest }: React.ComponentProps<'label'>) => (
-    <label {...rest}>{children}</label>
-  ),
-  Switch: ({
-    checked,
-    onCheckedChange,
-    ...rest
-  }: {
-    checked: boolean
-    onCheckedChange: (checked: boolean) => void
-  } & React.ComponentProps<'input'>) => (
-    <input
-      type="checkbox"
-      role="switch"
-      checked={checked}
-      onChange={(e) => onCheckedChange(e.target.checked)}
-      {...rest}
-    />
-  ),
-  Select: ({
-    value,
-    onValueChange,
-    children,
-  }: {
-    value: string
-    onValueChange: (value: string) => void
-    children: React.ReactNode
-  }) => (
-    <select value={value} onChange={(e) => onValueChange(e.target.value)}>
-      {children}
-    </select>
-  ),
-  SelectTrigger: () => null,
-  SelectValue: () => null,
-  SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
-    <option value={value}>{children}</option>
-  ),
 }))
-
-function typeSelect(): HTMLSelectElement {
-  return screen.getByRole('option', { name: 'All types' }).closest('select') as HTMLSelectElement
-}
-
-function statusSelect(): HTMLSelectElement {
-  return screen.getByRole('option', { name: 'All statuses' }).closest('select') as HTMLSelectElement
-}
 
 function searchInput(): HTMLInputElement {
   return screen.getByRole('textbox') as HTMLInputElement
@@ -111,6 +65,16 @@ describe('ActivityFilters', () => {
     expect(replaceMock).toHaveBeenCalledWith('/activities')
   })
 
+  it('preserves other existing params when updating the search', () => {
+    vi.useFakeTimers()
+    currentParams = new URLSearchParams('week=2026-07-13')
+    render(<ActivityFilters />)
+    fireEvent.change(searchInput(), { target: { value: 'gym' } })
+
+    vi.advanceTimersByTime(DEBOUNCE_MS)
+    expect(replaceMock).toHaveBeenCalledWith('/activities?week=2026-07-13&q=gym')
+  })
+
   it('does not fire the debounced replace if unmounted before the delay', () => {
     vi.useFakeTimers()
     const { unmount } = render(<ActivityFilters />)
@@ -130,51 +94,16 @@ describe('ActivityFilters', () => {
     expect(replaceMock).not.toHaveBeenCalled()
   })
 
-  it('replaces ?type= when the type select changes', () => {
+  it('reflects the current q param in the input', () => {
+    currentParams = new URLSearchParams('q=bar')
     render(<ActivityFilters />)
-    fireEvent.change(typeSelect(), { target: { value: 'goal' } })
-    expect(replaceMock).toHaveBeenCalledWith('/activities?type=goal')
-  })
-
-  it('replaces ?status= when the status select changes', () => {
-    render(<ActivityFilters />)
-    fireEvent.change(statusSelect(), { target: { value: 'in_progress' } })
-    expect(replaceMock).toHaveBeenCalledWith('/activities?status=in_progress')
-  })
-
-  it('replaces ?recurring=1 when the recurring toggle is switched on', () => {
-    render(<ActivityFilters />)
-    fireEvent.click(screen.getByRole('switch'))
-    expect(replaceMock).toHaveBeenCalledWith('/activities?recurring=1')
-  })
-
-  it('removes the recurring param when the toggle is switched off', () => {
-    currentParams = new URLSearchParams('recurring=1')
-    render(<ActivityFilters />)
-    fireEvent.click(screen.getByRole('switch'))
-    expect(replaceMock).toHaveBeenCalledWith('/activities')
-  })
-
-  it('preserves existing params when changing one control', () => {
-    currentParams = new URLSearchParams('q=foo')
-    render(<ActivityFilters />)
-    fireEvent.change(typeSelect(), { target: { value: 'goal' } })
-    expect(replaceMock).toHaveBeenCalledWith('/activities?q=foo&type=goal')
-  })
-
-  it('reflects the current params in each control', () => {
-    currentParams = new URLSearchParams('type=goal&status=completed&q=bar&recurring=1')
-    render(<ActivityFilters />)
-    expect(typeSelect().value).toBe('goal')
-    expect(statusSelect().value).toBe('completed')
     expect(searchInput().value).toBe('bar')
-    expect((screen.getByRole('switch') as HTMLInputElement).checked).toBe(true)
   })
 
-  it('selecting the "all" option removes the type param', () => {
-    currentParams = new URLSearchParams('type=goal')
+  it('no longer renders type, status, or recurring controls', () => {
     render(<ActivityFilters />)
-    fireEvent.change(typeSelect(), { target: { value: 'all' } })
-    expect(replaceMock).toHaveBeenCalledWith('/activities')
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('option')).not.toBeInTheDocument()
   })
 })

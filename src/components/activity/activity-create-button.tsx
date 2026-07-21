@@ -3,45 +3,31 @@ import * as React from 'react'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
-import { ActivityFormDialog, Button, toast, type ActivityFormValues } from '@/lib/ui'
-import { createTask } from '@/server/actions/tasks'
-
-const TARGET_DATE_TIME_SUFFIX = 'T12:00:00.000Z'
-
-/**
- * Converts the dialog's date-only `YYYY-MM-DD` `targetDate` into a noon-UTC ISO
- * string. A full ISO datetime into the goal-date schema yields Invalid Date and
- * silently wipes the target — see AGENTS.md (goal-date-wipe trap).
- */
-function toIsoTargetDate(dateOnly: string | null | undefined): string | null {
-  return dateOnly ? new Date(`${dateOnly}${TARGET_DATE_TIME_SUFFIX}`).toISOString() : null
-}
+import { ActivityTemplateDialog, Button, toast, type ActivityTemplateValues } from '@/lib/ui'
+import { createActivity } from '@/server/actions/activities'
 
 export interface ActivityCreateButtonProps {
-  /** Display task times as 24-hour instead of 12-hour with AM/PM. */
+  /** Display schedule times as 24-hour instead of 12-hour with AM/PM. */
   readonly use24h?: boolean
 }
 
+/** "New" button that opens the ActivityTemplateDialog and creates an activity template. */
 export function ActivityCreateButton({ use24h }: ActivityCreateButtonProps): React.JSX.Element {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
 
-  function handleSubmit(values: ActivityFormValues): void {
+  function handleSubmit(values: ActivityTemplateValues): void {
     startTransition(async () => {
-      const result = await createTask({
-        type: values.type,
+      const result = await createActivity({
         title: values.title,
-        recurrence: values.recurrence ?? null,
-        recurrenceCount: values.recurrenceCount,
-        recurrenceDays: values.recurrenceDays,
-        startAt: values.startAt ?? null,
-        endAt: values.endAt ?? null,
-        targetDate: values.type === 'goal' ? toIsoTargetDate(values.targetDate) : null,
         color: values.color ?? null,
-        location: values.location ?? null,
         description: values.description ?? null,
-        allDay: values.allDay,
+        defaultLocation: values.defaultLocation ?? null,
+        minDurationMin: values.minDurationMin,
+        maxDurationMin: values.maxDurationMin,
+        weeklyTargetSessions: values.weeklyTargetSessions,
+        schedule: values.schedule,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       })
       if ('error' in result) {
@@ -60,7 +46,7 @@ export function ActivityCreateButton({ use24h }: ActivityCreateButtonProps): Rea
         New
       </Button>
 
-      <ActivityFormDialog
+      <ActivityTemplateDialog
         open={open}
         onOpenChange={setOpen}
         onSubmit={handleSubmit}

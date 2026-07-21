@@ -1,222 +1,128 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('@/auth', () => ({ auth: vi.fn().mockResolvedValue({ user: { id: 'user-1' } }) }))
 
-vi.mock('@/server/queries/tasks', () => ({
-  getUserTasks: vi.fn().mockResolvedValue([
-    {
-      id: 'task-1',
-      title: 'Morning Run',
-      type: 'habit',
-      status: 'pending',
-      startAt: new Date('2026-06-01T07:00:00Z'),
-      targetDate: null,
-    },
-    {
-      id: 'goal-1',
-      title: 'Finish proposal',
-      type: 'goal',
-      status: 'pending',
-      startAt: null,
-      targetDate: new Date('2026-06-15T00:00:00Z'),
-    },
-  ]),
-}))
+vi.mock('@/server/queries/activities', () => ({ getUserActivities: vi.fn() }))
+vi.mock('@/server/queries/events', () => ({ getUserEvents: vi.fn() }))
+vi.mock('@/server/queries/tokens', () => ({ getTokenBalance: vi.fn().mockResolvedValue(847) }))
 
-vi.mock('@/server/queries/check-ins', () => ({
-  getUserCheckIns: vi.fn().mockResolvedValue([
-    {
-      taskId: 'task-1',
-      scheduledAt: new Date('2026-06-01T00:00:00Z'),
-      completedAt: new Date('2026-06-01T07:15:00Z'),
-      skippedAt: null,
-    },
-  ]),
-}))
-
-vi.mock('@/server/queries/tokens', () => ({
-  getTokenBalance: vi.fn().mockResolvedValue(847),
-}))
-
+import { getUserActivities } from '@/server/queries/activities'
+import { getUserEvents } from '@/server/queries/events'
+import { getTokenBalance } from '@/server/queries/tokens'
 import { buildContextBlock } from '@/lib/chat/context-builder'
 
-describe('buildContextBlock', () => {
+// Local-constructed dates so the local-wall-clock week math in computeWeeklyFit
+// resolves identically on any host timezone (CI runs UTC).
+const NOW = new Date(2026, 5, 3, 12, 0) // Wed 2026-06-03 12:00 local
+const IN_WEEK = new Date(2026, 5, 4, 9, 0) // Thu 2026-06-04 09:00 local
+const OUT_OF_WEEK = new Date(2026, 5, 24, 9, 0) // three weeks later
+
+function activity(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'act-1',
+    title: 'Morning Run',
+    minDurationMin: 30,
+    maxDurationMin: 45,
+    weeklyTargetSessions: 3,
+    schedule: [{ day: 1, startMinutes: 420, durationMin: 30 }],
+    ...overrides,
+  }
+}
+
+function event(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'evt-1',
+    activityId: null,
+    title: 'Dentist',
+    startAt: IN_WEEK,
+    endAt: new Date(IN_WEEK.getTime() + 60 * 60 * 1000),
+    allDay: false,
+    status: 'pending',
+    ...overrides,
+  }
+}
+
+describe('buildContextBlock (activity model)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(getUserActivities).mockResolvedValue([] as never)
+    vi.mocked(getUserEvents).mockResolvedValue([] as never)
+    vi.mocked(getTokenBalance).mockResolvedValue(847)
+  })
+
   it('includes date, timezone, and credit balance', async () => {
-    const ctx = await buildContextBlock('America/New_York', new Date('2026-06-01T12:00:00Z'))
-    expect(ctx).toContain('2026-06-01')
-    expect(ctx).toContain('America/New_York')
+    const ctx = await buildContextBlock('America/New_York', NOW)
+    expect(ctx).toContain('Timezone: America/New_York')
     expect(ctx).toContain('847')
+    expect(ctx).toMatch(/Date: \d{4}-\d{2}-\d{2}/)
   })
 
-  it('lists only items scheduled or due today', async () => {
-    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
-    expect(ctx).toContain('[habit:task-1]')
+  it('lists each activity with duration bounds, weekly target and this-week fit', async () => {
+    vi.mocked(getUserActivities).mockResolvedValueOnce([activity()] as never)
+    vi.mocked(getUserEvents).mockResolvedValueOnce([
+      event({ id: 'done-1', activityId: 'act-1', status: 'completed', startAt: IN_WEEK }),
+    ] as never)
+    const ctx = await buildContextBlock('UTC', NOW)
     expect(ctx).toContain('Morning Run')
-    expect(ctx).not.toContain('[goal:goal-1]') // due 2026-06-15, not today
-    expect(ctx).not.toContain('Finish proposal')
+    expect(ctx).toContain('30-45m')
+    expect(ctx).toContain('target 3/wk')
+    expect(ctx).toContain('this week 1/3')
   })
 
-  it('excludes tasks scheduled on another day', async () => {
-    const { getUserTasks } = await import('@/server/queries/tasks')
-    vi.mocked(getUserTasks).mockResolvedValueOnce([
-      {
-        id: 'task-tomorrow',
-        title: 'Tomorrow thing',
-        type: 'task',
-        status: 'pending',
-        startAt: new Date('2026-06-02T07:00:00Z'),
-        targetDate: null,
-      },
+  it('renders each activity schedule slot as weekday, time and duration', async () => {
+    vi.mocked(getUserActivities).mockResolvedValueOnce([
+      activity({ schedule: [{ day: 1, startMinutes: 420, durationMin: 30 }] }),
     ] as never)
-    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
-    expect(ctx).not.toContain('Tomorrow thing')
-    expect(ctx).toContain('(none)')
+    const ctx = await buildContextBlock('UTC', NOW)
+    expect(ctx).toContain('Mon 07:00 (30m)')
   })
 
-  it('includes date-only items due today', async () => {
-    const { getUserTasks } = await import('@/server/queries/tasks')
-    vi.mocked(getUserTasks).mockResolvedValueOnce([
-      {
-        id: 'goal-today',
-        title: 'Due today goal',
-        type: 'goal',
-        status: 'pending',
-        startAt: null,
-        targetDate: new Date('2026-06-01T12:00:00Z'),
-      },
+  it('summarises an activity with no schedule slots as "no fixed slots"', async () => {
+    vi.mocked(getUserActivities).mockResolvedValueOnce([activity({ schedule: [] })] as never)
+    const ctx = await buildContextBlock('UTC', NOW)
+    expect(ctx).toContain('no fixed slots')
+  })
+
+  it('renders an all-day event without a wall-clock time', async () => {
+    vi.mocked(getUserEvents).mockResolvedValueOnce([
+      event({ id: 'ad', title: 'Conference', allDay: true, startAt: IN_WEEK }),
     ] as never)
-    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
-    expect(ctx).toContain('[goal:goal-today] Due today goal')
-    expect(ctx).toContain('due 2026-06-01')
+    const ctx = await buildContextBlock('UTC', NOW)
+    expect(ctx).toMatch(/Conference.*all day/)
   })
 
-  it('renders times as user-timezone wall-clock, not UTC', async () => {
-    const { getUserTasks } = await import('@/server/queries/tasks')
-    vi.mocked(getUserTasks).mockResolvedValueOnce([
-      {
-        id: 'task-evening',
-        title: 'Evening thing',
-        type: 'task',
-        status: 'pending',
-        startAt: new Date('2026-06-01T23:30:00Z'), // 19:30 EDT same local day
-        targetDate: null,
-      },
+  it('lists this-week events and excludes events outside the week', async () => {
+    vi.mocked(getUserEvents).mockResolvedValueOnce([
+      event({ id: 'this', title: 'This week thing', startAt: IN_WEEK }),
+      event({ id: 'later', title: 'Later thing', startAt: OUT_OF_WEEK }),
     ] as never)
-    const ctx = await buildContextBlock('America/New_York', new Date('2026-06-01T12:00:00Z'))
-    expect(ctx).toContain('19:30')
-    expect(ctx).not.toContain('23:30')
-    expect(ctx).not.toContain('UTC')
+    const ctx = await buildContextBlock('UTC', NOW)
+    expect(ctx).toContain('This week thing')
+    expect(ctx).not.toContain('Later thing')
   })
 
-  it('judges "today" in the user timezone, not UTC date', async () => {
-    const { getUserTasks } = await import('@/server/queries/tasks')
-    vi.mocked(getUserTasks).mockResolvedValueOnce([
-      {
-        id: 'task-late',
-        title: 'Late tonight',
-        type: 'task',
-        status: 'pending',
-        startAt: new Date('2026-06-02T01:00:00Z'), // 21:00 EDT 2026-06-01 — today locally
-        targetDate: null,
-      },
+  it('marks a completed event as done and a pending event as pending', async () => {
+    vi.mocked(getUserEvents).mockResolvedValueOnce([
+      event({ id: 'a', title: 'Finished', status: 'completed' }),
+      event({ id: 'b', title: 'Upcoming', status: 'pending' }),
     ] as never)
-    const ctx = await buildContextBlock('America/New_York', new Date('2026-06-01T12:00:00Z'))
-    expect(ctx).toContain('Late tonight')
-    expect(ctx).toContain('21:00')
+    const ctx = await buildContextBlock('UTC', NOW)
+    expect(ctx).toMatch(/Finished.*done/)
+    expect(ctx).toMatch(/Upcoming.*pending/)
   })
 
-  it('marks completed items as done', async () => {
-    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
-    expect(ctx).toContain('Morning Run')
-    expect(ctx).toMatch(/Morning Run.*done|done.*Morning Run/)
+  it('shows (none) for both blocks when there is no data', async () => {
+    const ctx = await buildContextBlock('UTC', NOW)
+    expect(ctx).toContain('Activities')
+    expect(ctx).toContain("This week's events")
+    expect((ctx.match(/\(none\)/g) ?? []).length).toBe(2)
   })
 
-  it('marks uncompleted items as pending', async () => {
-    const { getUserTasks } = await import('@/server/queries/tasks')
-    vi.mocked(getUserTasks).mockResolvedValueOnce([
-      {
-        id: 'goal-1',
-        title: 'Finish proposal',
-        type: 'goal',
-        status: 'pending',
-        startAt: null,
-        targetDate: new Date('2026-06-01T12:00:00Z'),
-      },
-    ] as never)
-    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
-    expect(ctx).toContain('Finish proposal')
-    expect(ctx).toContain('pending')
-  })
-
-  it('shows (none) when no tasks', async () => {
-    const { getUserTasks } = await import('@/server/queries/tasks')
-    vi.mocked(getUserTasks).mockResolvedValueOnce([])
-    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
-    expect(ctx).toContain('(none)')
-  })
-
-  it('marks skipped check-in as skipped', async () => {
-    const { getUserCheckIns } = await import('@/server/queries/check-ins')
-    vi.mocked(getUserCheckIns).mockResolvedValueOnce([
-      {
-        taskId: 'task-1',
-        scheduledAt: new Date('2026-06-01T00:00:00Z'),
-        completedAt: null,
-        skippedAt: new Date('2026-06-01T08:00:00Z'),
-      },
-    ] as never)
-    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
-    expect(ctx).toContain('skipped')
-  })
-
-  it('includes check-in with null taskId without error', async () => {
-    const { getUserCheckIns } = await import('@/server/queries/check-ins')
-    vi.mocked(getUserCheckIns).mockResolvedValueOnce([
-      {
-        taskId: null,
-        scheduledAt: new Date('2026-06-01T00:00:00Z'),
-        completedAt: null,
-        skippedAt: null,
-      },
-    ] as never)
-    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
-    expect(ctx).toContain('--- Current Context ---')
-  })
-
-  it('uses empty string for userId when unauthenticated', async () => {
+  it('uses an empty userId when unauthenticated and still renders the header', async () => {
     const { auth } = await import('@/auth')
     vi.mocked(auth).mockResolvedValueOnce(null as never)
-    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
+    const ctx = await buildContextBlock('UTC', NOW)
     expect(ctx).toContain('--- Current Context ---')
-  })
-
-  it('marks pending check-in (no completedAt or skippedAt) as pending', async () => {
-    const { getUserCheckIns } = await import('@/server/queries/check-ins')
-    vi.mocked(getUserCheckIns).mockResolvedValueOnce([
-      {
-        taskId: 'task-1',
-        scheduledAt: new Date('2026-06-01T00:00:00Z'),
-        completedAt: null,
-        skippedAt: null,
-      },
-    ] as never)
-    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
-    expect(ctx).toContain('pending')
-  })
-
-  it('shows task with no startAt or targetDate as pending with no time', async () => {
-    const { getUserTasks } = await import('@/server/queries/tasks')
-    vi.mocked(getUserTasks).mockResolvedValueOnce([
-      {
-        id: 'task-x',
-        title: 'Floating task',
-        type: 'task',
-        status: 'pending',
-        startAt: null,
-        targetDate: null,
-      },
-    ] as never)
-    const ctx = await buildContextBlock('UTC', new Date('2026-06-01T12:00:00Z'))
-    expect(ctx).toContain('[task:task-x] Floating task — pending')
+    expect(getTokenBalance).toHaveBeenCalledWith('')
   })
 })

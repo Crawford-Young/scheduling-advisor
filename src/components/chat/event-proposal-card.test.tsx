@@ -2,7 +2,8 @@ import * as React from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { EventProposalCard } from './event-proposal-card'
-import { createTask } from '@/server/actions/tasks'
+import { createEvent } from '@/server/actions/events'
+import { createEvents } from '@/server/actions/chat-mutations'
 
 vi.mock('@/lib/ui', () => ({
   Card: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -14,9 +15,11 @@ vi.mock('@/lib/ui', () => ({
   Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
 }))
 
-vi.mock('@/server/actions/tasks', () => ({ createTask: vi.fn() }))
+vi.mock('@/server/actions/events', () => ({ createEvent: vi.fn() }))
+vi.mock('@/server/actions/chat-mutations', () => ({ createEvents: vi.fn() }))
 
-const createTaskMock = vi.mocked(createTask)
+const createEventMock = vi.mocked(createEvent)
+const createEventsMock = vi.mocked(createEvents)
 
 // Local-wall-clock ISO — constructed the SAME way the component does so the
 // assertion holds in any host TZ (CI is UTC, dev is Eastern). Never a literal.
@@ -34,15 +37,19 @@ function baseProps() {
   }
 }
 
+type CreateEventResult = Awaited<ReturnType<typeof createEvent>>
+type CreateEventsResult = Awaited<ReturnType<typeof createEvents>>
+
 describe('EventProposalCard', () => {
   beforeEach(() => {
-    createTaskMock.mockReset()
-    createTaskMock.mockResolvedValue({
-      data: {
-        id: 'task-1',
-        title: 'Standup',
-      },
-    } as Awaited<ReturnType<typeof createTask>>)
+    createEventMock.mockReset()
+    createEventsMock.mockReset()
+    createEventMock.mockResolvedValue({
+      data: { id: 'event-1', title: 'Standup' },
+    } as CreateEventResult)
+    createEventsMock.mockResolvedValue({
+      data: [{ id: 'event-1', title: 'Standup' }],
+    } as CreateEventsResult)
   })
 
   it('renders the title and a deterministic time label', () => {
@@ -105,7 +112,7 @@ describe('EventProposalCard', () => {
     expect(screen.queryByText(/^Repeats/)).not.toBeInTheDocument()
   })
 
-  it('passes recurrence fields to createTask on confirm for a weekly series', async () => {
+  it('fans a weekly series into independent events via createEvents on confirm', async () => {
     render(
       <EventProposalCard
         {...baseProps()}
@@ -115,29 +122,36 @@ describe('EventProposalCard', () => {
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
-    await waitFor(() =>
-      expect(createTaskMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: 'Standup',
-          type: 'task',
-          startAt: EXPECTED_START,
-          endAt: EXPECTED_END,
-          recurrence: 'weekly',
-          recurrenceDays: ['Mon', 'Fri'],
-          recurrenceCount: 8,
-        }),
-      ),
-    )
+    await waitFor(() => expect(createEventsMock).toHaveBeenCalled())
+    // 2 weekdays × 8 weeks = 16 standalone events, no series linkage.
+    const arg = createEventsMock.mock.calls[0]![0] as { events: readonly unknown[] }
+    expect(arg.events).toHaveLength(16)
+    arg.events.forEach((e) => expect(e).toMatchObject({ title: 'Standup' }))
+    expect(createEventMock).not.toHaveBeenCalled()
   })
 
-  it('omits the recurrence keys from the createTask payload for a single event', async () => {
+  it('fans a daily count into that many events via createEvents', async () => {
+    render(<EventProposalCard {...baseProps()} recurrence="daily" recurrenceCount={4} />)
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
+    await waitFor(() => expect(createEventsMock).toHaveBeenCalled())
+    const arg = createEventsMock.mock.calls[0]![0] as {
+      events: readonly { startAt: string }[]
+    }
+    expect(arg.events).toHaveLength(4)
+    // First occurrence is the anchor's local-wall-clock instant.
+    expect(arg.events[0]!.startAt).toBe(EXPECTED_START)
+  })
+
+  it('creates a single event via createEvent (not createEvents) for a non-recurring proposal', async () => {
     render(<EventProposalCard {...baseProps()} />)
     fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
-    await waitFor(() => expect(createTaskMock).toHaveBeenCalled())
-    const call = createTaskMock.mock.calls[0]![0] as Record<string, unknown>
-    expect('recurrence' in call).toBe(false)
-    expect('recurrenceDays' in call).toBe(false)
-    expect('recurrenceCount' in call).toBe(false)
+    await waitFor(() => expect(createEventMock).toHaveBeenCalled())
+    expect(createEventMock).toHaveBeenCalledWith({
+      title: 'Standup',
+      startAt: EXPECTED_START,
+      endAt: EXPECTED_END,
+    })
+    expect(createEventsMock).not.toHaveBeenCalled()
   })
 
   it('marks the confirmed transcript line as recurring for a series', async () => {
@@ -154,26 +168,11 @@ describe('EventProposalCard', () => {
     )
   })
 
-  it('creates the event with the exact local-wall-clock payload on confirm', async () => {
-    const props = baseProps()
-    render(<EventProposalCard {...props} />)
-    fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
-    await waitFor(() =>
-      expect(createTaskMock).toHaveBeenCalledWith({
-        title: 'Standup',
-        type: 'task',
-        startAt: EXPECTED_START,
-        endAt: EXPECTED_END,
-        description: null,
-      }),
-    )
-  })
-
   it('passes the typed description through as-is on confirm', async () => {
     render(<EventProposalCard {...baseProps()} description="Daily sync" />)
     fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
     await waitFor(() =>
-      expect(createTaskMock).toHaveBeenCalledWith(
+      expect(createEventMock).toHaveBeenCalledWith(
         expect.objectContaining({ description: 'Daily sync' }),
       ),
     )
@@ -191,7 +190,7 @@ describe('EventProposalCard', () => {
       }),
     )
     expect(props.onConfirmed).toHaveBeenCalledWith({
-      id: 'task-1',
+      id: 'event-1',
       title: 'Standup',
       start: EXPECTED_START,
       end: EXPECTED_END,
@@ -213,22 +212,20 @@ describe('EventProposalCard', () => {
   })
 
   it('disables the confirm button while the create is in flight (no duplicate submit)', async () => {
-    let resolveCreate!: (value: Awaited<ReturnType<typeof createTask>>) => void
-    createTaskMock.mockImplementation(() => new Promise((resolve) => (resolveCreate = resolve)))
+    let resolveCreate!: (value: CreateEventResult) => void
+    createEventMock.mockImplementation(() => new Promise((resolve) => (resolveCreate = resolve)))
     render(<EventProposalCard {...baseProps()} />)
     const confirm = screen.getByRole('button', { name: /confirm/i })
     fireEvent.click(confirm)
     await waitFor(() => expect(confirm).toBeDisabled())
     fireEvent.click(confirm)
-    expect(createTaskMock).toHaveBeenCalledTimes(1)
-    resolveCreate({ data: { id: 'task-1', title: 'Standup' } } as Awaited<
-      ReturnType<typeof createTask>
-    >)
+    expect(createEventMock).toHaveBeenCalledTimes(1)
+    resolveCreate({ data: { id: 'event-1', title: 'Standup' } } as CreateEventResult)
     await waitFor(() => expect(screen.getByText(/added/i)).toBeInTheDocument())
   })
 
   it('enters the error state with a Retry button when the create fails', async () => {
-    createTaskMock.mockResolvedValue({ error: 'boom' } as Awaited<ReturnType<typeof createTask>>)
+    createEventMock.mockResolvedValue({ error: 'boom' } as CreateEventResult)
     const props = baseProps()
     render(<EventProposalCard {...props} />)
     fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
@@ -236,13 +233,20 @@ describe('EventProposalCard', () => {
     expect(props.onConfirmed).not.toHaveBeenCalled()
   })
 
+  it('enters the error state when a batch create succeeds but returns no rows', async () => {
+    createEventsMock.mockResolvedValue({ data: [] } as CreateEventsResult)
+    const props = baseProps()
+    render(<EventProposalCard {...props} recurrence="daily" recurrenceCount={4} />)
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument())
+    expect(props.onConfirmed).not.toHaveBeenCalled()
+  })
+
   it('retries a failed create and succeeds', async () => {
-    createTaskMock.mockResolvedValueOnce({ error: 'boom' } as Awaited<
-      ReturnType<typeof createTask>
-    >)
-    createTaskMock.mockResolvedValueOnce({ data: { id: 'task-1', title: 'Standup' } } as Awaited<
-      ReturnType<typeof createTask>
-    >)
+    createEventMock.mockResolvedValueOnce({ error: 'boom' } as CreateEventResult)
+    createEventMock.mockResolvedValueOnce({
+      data: { id: 'event-1', title: 'Standup' },
+    } as CreateEventResult)
     const props = baseProps()
     render(<EventProposalCard {...props} />)
     fireEvent.click(screen.getByRole('button', { name: /confirm/i }))

@@ -134,6 +134,20 @@
       "when": 1784321943552,
       "tag": "0018_wild_secret_warriors",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1784644259697,
+      "tag": "0019_drop_old_task_model",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1784644281831,
+      "tag": "0020_create_activity_model",
+      "breakpoints": true
     }
   ]
 }

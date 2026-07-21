@@ -17,13 +17,12 @@ vi.mock('@/auth', () => ({
 vi.mock('@/db', () => ({ db: { select: mockSelect, delete: mockDelete } }))
 
 vi.mock('@/db/schema', () => ({
-  tasks: {
-    userId: 'tasks.userId',
-    type: 'tasks.type',
-    recurrence: 'tasks.recurrence',
-    status: 'tasks.status',
-    endAt: 'tasks.endAt',
-    id: 'tasks.id',
+  events: {
+    userId: 'events.userId',
+    activityId: 'events.activityId',
+    status: 'events.status',
+    endAt: 'events.endAt',
+    id: 'events.id',
   },
   calendarPrefs: {
     userId: 'calendarPrefs.userId',
@@ -95,25 +94,24 @@ describe('deleteExpiredEvents', () => {
     vi.useRealTimers()
   })
 
-  it('composes the WHERE clause excluding completed, recurring, and goal rows', async () => {
+  it('composes the WHERE clause scoping to standalone (activityId IS NULL), non-completed events', async () => {
     mockSelectWhere.mockResolvedValueOnce([{ ttlDays: 14 }])
     mockDeleteReturning.mockResolvedValueOnce([])
 
     await deleteExpiredEvents()
 
-    expect(vi.mocked(eq).mock.calls).toContainEqual(['tasks.userId', 'user-123'])
-    expect(vi.mocked(eq).mock.calls).toContainEqual(['tasks.type', 'task'])
-    expect(vi.mocked(isNull).mock.calls).toContainEqual(['tasks.recurrence'])
-    expect(vi.mocked(ne).mock.calls).toContainEqual(['tasks.status', 'completed'])
-    expect(vi.mocked(isNotNull).mock.calls).toContainEqual(['tasks.endAt'])
-    expect(vi.mocked(lt).mock.calls[0]![0]).toBe('tasks.endAt')
+    expect(vi.mocked(eq).mock.calls).toContainEqual(['events.userId', 'user-123'])
+    expect(vi.mocked(isNull).mock.calls).toContainEqual(['events.activityId'])
+    expect(vi.mocked(ne).mock.calls).toContainEqual(['events.status', 'completed'])
+    expect(vi.mocked(isNotNull).mock.calls).toContainEqual(['events.endAt'])
+    expect(vi.mocked(lt).mock.calls[0]![0]).toBe('events.endAt')
     expect(vi.mocked(and)).toHaveBeenCalled()
     expect(mockDeleteWhere).toHaveBeenCalled()
   })
 
   it('returns the deleted count from the query result', async () => {
     mockSelectWhere.mockResolvedValueOnce([{ ttlDays: 7 }])
-    mockDeleteReturning.mockResolvedValueOnce([{ id: 't1' }, { id: 't2' }])
+    mockDeleteReturning.mockResolvedValueOnce([{ id: 'e1' }, { id: 'e2' }])
 
     const result = await deleteExpiredEvents()
 

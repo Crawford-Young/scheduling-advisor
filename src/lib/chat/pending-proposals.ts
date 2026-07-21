@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { dayOfWeekSchema } from '@/lib/schemas/task'
+import { dayOfWeekSchema, recurrenceFrequencySchema } from '@/lib/chat/proposal-occurrences'
 import type { EventProposal } from '@/components/chat/tool-result-renderer'
 
 // One-shot sessionStorage handoff for pending event proposals across the chat
@@ -9,8 +9,6 @@ import type { EventProposal } from '@/components/chat/tool-result-renderer'
 // expand. This carries the live card across the reload without persisting any
 // tool block. Keyed by conversation id; the /chat surface reads then clears once.
 const STORAGE_KEY_PREFIX = 'chat-pending-proposals:'
-
-const recurrenceFrequencySchema = z.enum(['daily', 'weekly', 'monthly'])
 
 // Mirrors the EventProposal shape (tool-result-renderer). Zod-validated on read
 // per the system-boundary rule — sessionStorage is untrusted input.

@@ -1,7 +1,6 @@
 'use client'
 import * as React from 'react'
 import { startTransition, useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { SplashAnimation } from '@/components/splash/splash-animation'
 
 interface Quote {
@@ -46,14 +45,7 @@ const QUOTES: readonly Quote[] = [
 
 const SPLASH_KEY = 'cybond-splash-v1'
 
-interface SplashAnimationClientProps {
-  readonly checkInDone: boolean
-}
-
-export function SplashAnimationClient({
-  checkInDone,
-}: SplashAnimationClientProps): React.JSX.Element | null {
-  const router = useRouter()
+export function SplashAnimationClient(): React.JSX.Element | null {
   const [visible, setVisible] = useState<boolean>(false)
   const [quote] = useState<Quote>(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]!)
 
@@ -67,10 +59,7 @@ export function SplashAnimationClient({
 
   function handleComplete(): void {
     setVisible(false)
-    if (!checkInDone) {
-      router.push('/calendar')
-    }
   }
 
-  return <SplashAnimation checkInDone={checkInDone} onComplete={handleComplete} quote={quote} />
+  return <SplashAnimation onComplete={handleComplete} quote={quote} />
 }

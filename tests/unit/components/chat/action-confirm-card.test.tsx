@@ -109,6 +109,21 @@ describe('ActionConfirmCard', () => {
     expect(screen.queryByText('event')).not.toBeInTheDocument()
   })
 
+  it('renders a defined badge class for the activity entity type, no literal "undefined" token (A9 hardening)', () => {
+    render(
+      <ActionConfirmCard
+        action="Create activity 'Morning Run'"
+        entityType="activity"
+        date="June 1st"
+        onConfirm={vi.fn()}
+        onDeny={vi.fn()}
+      />,
+    )
+    const badge = screen.getByText('activity')
+    expect(badge.className).not.toMatch(/\bundefined\b/)
+    expect(badge.className.length).toBeGreaterThan(0)
+  })
+
   it('renders detail when provided', () => {
     render(
       <ActionConfirmCard

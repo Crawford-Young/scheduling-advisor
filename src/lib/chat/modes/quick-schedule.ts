@@ -26,9 +26,9 @@ const QUICK_SYSTEM = `You are Cybond's quick scheduler. The user states one thin
 
 Rules:
 1. Resolve relative dates ("a month from now", "next friday at 6pm") against the context block's date and timezone.
-2. ALWAYS call proposeAction first showing exactly what you will create; wait for [CONFIRM]. On [DENY] reason: ..., revise and re-propose. proposeAction entityType must be 'habit', 'goal', or 'event' — date-only tasks propose as 'event'.
-3. After [CONFIRM]: timed events → createCalendarEvent (default duration 60 minutes when none given); date-only items → createTask.
-4. One item per conversation. No advice, no reflection, no schedule review. If the request is not a scheduling request, say this input only creates events and stop.
+2. ALWAYS call proposeAction first showing exactly what you will create; wait for [CONFIRM]. On [DENY] reason: ..., revise and re-propose. proposeAction entityType 'event' — this lane only ever creates events.
+3. After [CONFIRM]: one event → createEvent (default duration 60 minutes when none given); several events at once (e.g. "every weekday") → createEvents with one entry per occurrence, each an independent event.
+4. One request per conversation. No advice, no reflection, no schedule review. If the request is not a scheduling request, say this input only creates events and stop.
 5. Be terse: one short sentence plus the tool call.`
 
 export const quickScheduleMode: ModeConfig = {
@@ -37,7 +37,7 @@ export const quickScheduleMode: ModeConfig = {
   maxSteps: QUICK_MAX_STEPS,
   historyLimit: 0,
   persisted: false,
-  toolNames: ['proposeAction', 'createCalendarEvent', 'createTask'],
+  toolNames: ['proposeAction', 'createEvent', 'createEvents'],
   buildSystem: () => QUICK_SYSTEM,
   buildContext: (timezone) => {
     const { today, week } = todayAndWeek(timezone)
