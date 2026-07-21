@@ -23,7 +23,7 @@
     "@ai-sdk/anthropic": "^1.0.5",
     "@ai-sdk/google": "^1.2.22",
     "@auth/drizzle-adapter": "^1.11.2",
-    "@crawfordyoung/ui": "^0.26.1",
+    "@crawfordyoung/ui": "^0.26.2",
     "@neondatabase/serverless": "^1.1.0",
     "@sentry/nextjs": "^10.65.0",
     "@t3-oss/env-nextjs": "^0.13.11",
