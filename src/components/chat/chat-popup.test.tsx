@@ -717,7 +717,7 @@ describe('ChatPopup', () => {
     })
 
     it('positions the fab wrapper from a persisted localStorage position', () => {
-      window.localStorage.setItem('chat-fab-position', JSON.stringify({ edge: 'left', offset: 0 }))
+      window.localStorage.setItem('chat-fab-position', JSON.stringify({ corner: 'top-left' }))
       render(<ChatPopup />)
       // Left boundary = bar gap (no sidebar in the test DOM); top clears the topbar.
       expect(fabWrapper()).toHaveStyle({ position: 'fixed', left: '8px', top: '56px' })
@@ -734,7 +734,7 @@ describe('ChatPopup', () => {
     })
 
     it('anchors the open panel from a persisted fab position', async () => {
-      window.localStorage.setItem('chat-fab-position', JSON.stringify({ edge: 'left', offset: 0 }))
+      window.localStorage.setItem('chat-fab-position', JSON.stringify({ corner: 'top-left' }))
       render(<ChatPopup />)
       openFab()
       const panel = await screen.findByTestId('chat-popup-panel')
