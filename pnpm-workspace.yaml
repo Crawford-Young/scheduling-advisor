@@ -37,3 +37,9 @@ peerDependencyRules:
     'eslint-plugin-react>eslint': '10'
 minimumReleaseAgeExclude:
   - '@crawfordyoung/ui@0.22.0 || 0.23.0 || 0.25.0 || 0.26.1 || 0.26.2 || 0.27.0'
+  - '@ai-sdk/anthropic@4.0.18'
+  - '@ai-sdk/gateway@4.0.26'
+  - '@ai-sdk/mcp@2.0.16'
+  - '@ai-sdk/provider-utils@5.0.12'
+  - '@ai-sdk/react@4.0.37'
+  - ai@7.0.34
