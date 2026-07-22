@@ -16,17 +16,19 @@ const FAB_SIZE_PX = 56
 const PANEL_WIDTH_PX = 380
 const PANEL_HEIGHT_PX = 560
 const STORAGE_KEY = 'chat-fab-position'
-const MIN_OFFSET = 0
-const MAX_OFFSET = 1
 const HALF = 0.5
 const SIDEBAR_SELECTOR = 'aside[aria-label="Main sidebar"]'
 
-export type FabEdge = 'left' | 'right' | 'top' | 'bottom'
+export type FabCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
 
 export interface FabPosition {
-  readonly edge: FabEdge
-  readonly offset: number
+  readonly corner: FabCorner
 }
+
+// Pre-corner-snap stored shape (fab dragged anywhere along one full viewport
+// edge). Still accepted on read so a value persisted before this model
+// migrates instead of silently reverting to the default.
+type LegacyFabEdge = 'left' | 'right' | 'top' | 'bottom'
 
 interface FabPixelPosition {
   readonly left: number
@@ -55,15 +57,37 @@ interface DragState {
   active: boolean
 }
 
-const VALID_EDGES: readonly FabEdge[] = ['left', 'right', 'top', 'bottom']
-const DEFAULT_POSITION: FabPosition = { edge: 'right', offset: 1 }
+const VALID_CORNERS: readonly FabCorner[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
+const VALID_LEGACY_EDGES: readonly LegacyFabEdge[] = ['left', 'right', 'top', 'bottom']
+const DEFAULT_POSITION: FabPosition = { corner: 'bottom-right' }
 
-function isFabEdge(value: unknown): value is FabEdge {
-  return typeof value === 'string' && (VALID_EDGES as readonly string[]).includes(value)
+function isFabCorner(value: unknown): value is FabCorner {
+  return typeof value === 'string' && (VALID_CORNERS as readonly string[]).includes(value)
+}
+
+function isLegacyFabEdge(value: unknown): value is LegacyFabEdge {
+  return typeof value === 'string' && (VALID_LEGACY_EDGES as readonly string[]).includes(value)
 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
+}
+
+// Maps a legacy {edge, offset} position to the corner it visually occupied,
+// so a value persisted before the corner-snap model still restores near the
+// same spot instead of silently reverting to the default.
+function cornerFromLegacyEdge(edge: LegacyFabEdge, offset: number): FabCorner {
+  const isNearStart = offset < HALF
+  switch (edge) {
+    case 'left':
+      return isNearStart ? 'top-left' : 'bottom-left'
+    case 'right':
+      return isNearStart ? 'top-right' : 'bottom-right'
+    case 'top':
+      return isNearStart ? 'top-left' : 'top-right'
+    case 'bottom':
+      return isNearStart ? 'bottom-left' : 'bottom-right'
+  }
 }
 
 function parseStoredPosition(raw: string | null): FabPosition | null {
@@ -71,10 +95,16 @@ function parseStoredPosition(raw: string | null): FabPosition | null {
   try {
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null) return null
-    const candidate = parsed as { edge?: unknown; offset?: unknown }
-    if (!isFabEdge(candidate.edge)) return null
-    if (typeof candidate.offset !== 'number' || !Number.isFinite(candidate.offset)) return null
-    return { edge: candidate.edge, offset: clamp(candidate.offset, MIN_OFFSET, MAX_OFFSET) }
+    const candidate = parsed as { corner?: unknown; edge?: unknown; offset?: unknown }
+    if (isFabCorner(candidate.corner)) return { corner: candidate.corner }
+    if (
+      isLegacyFabEdge(candidate.edge) &&
+      typeof candidate.offset === 'number' &&
+      Number.isFinite(candidate.offset)
+    ) {
+      return { corner: cornerFromLegacyEdge(candidate.edge, candidate.offset) }
+    }
+    return null
   } catch {
     return null
   }
@@ -115,81 +145,72 @@ function leftBoundary(sidebarWidth: number): number {
   return sidebarWidth + BAR_GAP_PX
 }
 
-function horizontalRange(viewportWidth: number, sidebarWidth: number): number {
-  return Math.max(viewportWidth - FAB_SIZE_PX - leftBoundary(sidebarWidth) - FAB_PADDING_PX, 0)
-}
-
-function verticalRange(viewportHeight: number): number {
-  return Math.max(viewportHeight - FAB_SIZE_PX - FAB_TOP_PADDING_PX - FAB_PADDING_PX, 0)
-}
-
-function fabPixelFromPosition(
-  position: FabPosition,
+function fabPixelFromCorner(
+  corner: FabCorner,
   viewportWidth: number,
   viewportHeight: number,
   sidebarWidth: number,
 ): FabPixelPosition {
   const rightEdgeLeft = viewportWidth - FAB_SIZE_PX - FAB_PADDING_PX
   const bottomEdgeTop = viewportHeight - FAB_SIZE_PX - FAB_PADDING_PX
-  const alongVertical = FAB_TOP_PADDING_PX + position.offset * verticalRange(viewportHeight)
-  const alongHorizontal =
-    leftBoundary(sidebarWidth) + position.offset * horizontalRange(viewportWidth, sidebarWidth)
-
-  switch (position.edge) {
-    case 'left':
-      return { left: leftBoundary(sidebarWidth), top: alongVertical }
-    case 'right':
-      return { left: rightEdgeLeft, top: alongVertical }
-    case 'top':
-      return { left: alongHorizontal, top: FAB_TOP_PADDING_PX }
-    case 'bottom':
-      return { left: alongHorizontal, top: bottomEdgeTop }
+  switch (corner) {
+    case 'top-left':
+      return { left: leftBoundary(sidebarWidth), top: FAB_TOP_PADDING_PX }
+    case 'top-right':
+      return { left: rightEdgeLeft, top: FAB_TOP_PADDING_PX }
+    case 'bottom-left':
+      return { left: leftBoundary(sidebarWidth), top: bottomEdgeTop }
+    case 'bottom-right':
+      return { left: rightEdgeLeft, top: bottomEdgeTop }
   }
 }
 
-function nearestEdgePosition(
+interface FabCenterPoint {
+  readonly x: number
+  readonly y: number
+}
+
+function centerOfPixel(pixel: FabPixelPosition): FabCenterPoint {
+  return { x: pixel.left + FAB_SIZE_PX * HALF, y: pixel.top + FAB_SIZE_PX * HALF }
+}
+
+// Distance is measured between fab CENTERS (the dragged pixel's center vs.
+// each usable-area corner's resting center), so a corner is picked by where
+// the fab visually is, not by its raw top-left coordinate.
+function nearestCorner(
   pixel: FabPixelPosition,
   viewportWidth: number,
   viewportHeight: number,
   sidebarWidth: number,
-): FabPosition {
-  // Distances are measured to the usable-area boundaries (past the sidebar and
-  // topbar), not the raw viewport edges -- a fab dragged against the sidebar
-  // must read as "at the left edge" even though it is hundreds of px from x=0.
-  const distances: readonly { readonly edge: FabEdge; readonly distance: number }[] = [
-    { edge: 'left', distance: pixel.left - leftBoundary(sidebarWidth) },
-    { edge: 'right', distance: viewportWidth - FAB_PADDING_PX - (pixel.left + FAB_SIZE_PX) },
-    { edge: 'top', distance: pixel.top - FAB_TOP_PADDING_PX },
-    { edge: 'bottom', distance: viewportHeight - FAB_PADDING_PX - (pixel.top + FAB_SIZE_PX) },
-  ]
-  const nearest = distances.reduce((closest, candidate) =>
-    candidate.distance <= closest.distance ? candidate : closest,
-  )
-
-  if (nearest.edge === 'left' || nearest.edge === 'right') {
-    const range = verticalRange(viewportHeight)
-    const offset = range === 0 ? 0 : (pixel.top - FAB_TOP_PADDING_PX) / range
-    return { edge: nearest.edge, offset: clamp(offset, MIN_OFFSET, MAX_OFFSET) }
-  }
-  const range = horizontalRange(viewportWidth, sidebarWidth)
-  const offset = range === 0 ? 0 : (pixel.left - leftBoundary(sidebarWidth)) / range
-  return { edge: nearest.edge, offset: clamp(offset, MIN_OFFSET, MAX_OFFSET) }
+): FabCorner {
+  const center = centerOfPixel(pixel)
+  const distances: readonly { readonly corner: FabCorner; readonly distance: number }[] =
+    VALID_CORNERS.map((corner) => {
+      const cornerCenter = centerOfPixel(
+        fabPixelFromCorner(corner, viewportWidth, viewportHeight, sidebarWidth),
+      )
+      return {
+        corner,
+        distance: Math.hypot(center.x - cornerCenter.x, center.y - cornerCenter.y),
+      }
+    })
+  return distances.reduce((closest, candidate) =>
+    candidate.distance < closest.distance ? candidate : closest,
+  ).corner
 }
 
-function panelStyleFromFab(
-  fabPixel: FabPixelPosition,
+function panelStyleFromCorner(
+  corner: FabCorner,
   viewportWidth: number,
   viewportHeight: number,
   sidebarWidth: number,
 ): React.CSSProperties {
-  const fabCenterX = fabPixel.left + FAB_SIZE_PX * HALF
-  const fabCenterY = fabPixel.top + FAB_SIZE_PX * HALF
   const left =
-    fabCenterX < viewportWidth * HALF
+    corner === 'top-left' || corner === 'bottom-left'
       ? leftBoundary(sidebarWidth)
       : viewportWidth - PANEL_WIDTH_PX - FAB_PADDING_PX
   const top =
-    fabCenterY < viewportHeight * HALF
+    corner === 'top-left' || corner === 'top-right'
       ? FAB_TOP_PADDING_PX
       : viewportHeight - PANEL_HEIGHT_PX - FAB_PADDING_PX
   return { position: 'fixed', left, top }
@@ -264,8 +285,8 @@ export function useFabPosition(): UseFabPositionResult {
 
   const currentPixel = React.useMemo<FabPixelPosition>(
     () =>
-      fabPixelFromPosition(
-        storedPosition ?? DEFAULT_POSITION,
+      fabPixelFromCorner(
+        (storedPosition ?? DEFAULT_POSITION).corner,
         viewportWidth,
         viewportHeight,
         sidebarWidth,
@@ -338,9 +359,10 @@ export function useFabPosition(): UseFabPositionResult {
           viewportHeight,
           sidebarWidth,
         )
-        const snapped = nearestEdgePosition(pixel, viewportWidth, viewportHeight, sidebarWidth)
-        setStoredPosition(snapped)
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapped))
+        const snapped = nearestCorner(pixel, viewportWidth, viewportHeight, sidebarWidth)
+        const nextPosition: FabPosition = { corner: snapped }
+        setStoredPosition(nextPosition)
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextPosition))
         pendingConsumeRef.current = true
       }
       setLiveDrag(null)
@@ -362,8 +384,8 @@ export function useFabPosition(): UseFabPositionResult {
 
   const panelStyle = React.useMemo<React.CSSProperties | undefined>(() => {
     if (!storedPosition) return undefined
-    return panelStyleFromFab(currentPixel, viewportWidth, viewportHeight, sidebarWidth)
-  }, [storedPosition, currentPixel, viewportWidth, viewportHeight, sidebarWidth])
+    return panelStyleFromCorner(storedPosition.corner, viewportWidth, viewportHeight, sidebarWidth)
+  }, [storedPosition, viewportWidth, viewportHeight, sidebarWidth])
 
   return {
     fabStyle,
