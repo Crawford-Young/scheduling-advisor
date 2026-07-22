@@ -25,3 +25,16 @@ export function resolveWeekStart(week: string | undefined): string {
   }
   return getCurrentWeekStart()
 }
+
+const DATE_PAD_WIDTH = 2
+
+/**
+ * Formats a Date as the local-wall-clock YYYY-MM-DD string the calendar's
+ * `?week=` param accepts (resolveWeekStart snaps any in-week date to Sunday).
+ * Local getters per the local-wall-clock invariant — never ISO substrings.
+ */
+export function weekParamFromDate(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(DATE_PAD_WIDTH, '0')
+  const day = String(date.getDate()).padStart(DATE_PAD_WIDTH, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
