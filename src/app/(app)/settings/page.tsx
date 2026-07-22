@@ -6,7 +6,9 @@ import { users } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { SettingsForm } from './settings-form'
 import { ProfileSection } from './profile-section'
+import { TravelSection } from './travel-section'
 import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
+import { listPlaces } from '@/server/actions/places'
 import {
   DEFAULT_WAKE_MINUTES,
   DEFAULT_SLEEP_MINUTES,
@@ -19,6 +21,7 @@ export default async function SettingsPage() {
   if (!session?.user?.id) redirect('/login')
   const user = await db.query.users.findFirst({ where: eq(users.id, session.user.id) })
   const prefs = await getCalendarPrefs()
+  const places = await listPlaces()
 
   return (
     <ViewTransition enter="reveal-enter" default="none">
@@ -38,6 +41,11 @@ export default async function SettingsPage() {
           initialUse24h={prefs?.use24h ?? false}
           initialDayOverrides={prefs?.dayOverrides ?? {}}
           initialTtlDays={prefs?.ttlDays ?? null}
+        />
+        <TravelSection
+          locked={session.user.plan == null}
+          places={places}
+          travelMode={prefs?.travelMode ?? 'driving'}
         />
       </StaggerReveal>
     </ViewTransition>
