@@ -22,7 +22,7 @@ Scheduling app built around activities and events. An **activity** is a template
 
 ## Stack
 
-Next.js (App Router, RSC-first) · TypeScript strict · Tailwind CSS · Radix-based component library (`@crawfordyoung/ui`) · Neon Postgres + Drizzle · Auth.js v5 (Google, database sessions) · Vercel AI SDK chat · Upstash rate limiting · Pino logging · Sentry
+Next.js (App Router, RSC-first) · TypeScript strict · Tailwind CSS · Radix-based component library (`@crawfordyoung/ui`) · Neon Postgres + Drizzle · Auth.js v5 (Google, database sessions) · Vercel AI SDK (ai@7) chat · Upstash rate limiting · Pino logging · Sentry
 
 ## Development
 
