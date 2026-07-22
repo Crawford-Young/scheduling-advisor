@@ -5,7 +5,6 @@ import { ActiveSidebarItem } from '@/components/layout/active-sidebar-item'
 import { NavProgressProvider } from '@/components/layout/nav-progress'
 import { BrandMark } from '@/components/layout/brand-mark'
 import { TokenChipLive } from '@/components/layout/token-chip-live'
-import { QuickScheduleInput } from '@/components/chat/quick-schedule-input'
 import { ChatPopup } from '@/components/chat/chat-popup'
 import { getTokenBalance } from '@/server/queries/tokens'
 import { db } from '@/db'
@@ -139,7 +138,6 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
           }
           topbar={
             <div className="border-border flex h-12 items-center justify-end gap-4 border-b px-4">
-              <QuickScheduleInput />
               <TokenChipLive initialBalance={tokenBalance} />
             </div>
           }

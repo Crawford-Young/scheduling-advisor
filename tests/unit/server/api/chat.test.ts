@@ -34,7 +34,7 @@ vi.mock('@/db/schema', () => ({
   conversations: { model: {} },
   events: {},
 }))
-vi.mock('@/lib/ai', () => ({ quickModel: 'fake-quick' }))
+vi.mock('@/lib/ai', () => ({ tierModels: { sonnet: 'fake-tier-sonnet', opus: 'fake-tier-opus' } }))
 vi.mock('@/lib/chat/model-tiers', () => ({
   MODEL_TIERS: {
     sonnet: { tier: 'sonnet', model: 'fake-model', multiplier: 1, label: 'Sonnet' },
@@ -157,23 +157,6 @@ describe('POST /api/chat', () => {
     expect(await res.json()).toMatchObject({ error: 'Unauthorized' })
   })
 
-  it('quick-schedule: streams without touching conversations/messages tables', async () => {
-    mockAuthed()
-    const res = await POST(
-      makeRequest({
-        messages: [{ role: 'user', content: 'date 6pm a month from now' }],
-        mode: 'quick-schedule',
-      }),
-    )
-    expect(res.status).toBe(200)
-    expect(mockInsert).not.toHaveBeenCalled()
-    expect(mockSelect).not.toHaveBeenCalled()
-    const args = vi.mocked(streamText).mock.calls[0]![0]
-    expect(args.model as unknown as string).toBe('fake-quick')
-    expect(Object.keys(args.tools!)).toHaveLength(3)
-    expect(args.maxSteps).toBe(2)
-  })
-
   it('persisted: unchanged advisor behavior with split system messages', async () => {
     mockAuthed()
     const res = await POST(
@@ -206,7 +189,7 @@ describe('POST /api/chat', () => {
     expect(args.maxSteps).toBe(5)
   })
 
-  it('400 on body with neither conversationId nor quick mode', async () => {
+  it('400 on body without conversationId', async () => {
     mockAuthed()
     expect((await POST(makeRequest({ messages: [{ role: 'user', content: 'hi' }] }))).status).toBe(
       400,
@@ -294,31 +277,6 @@ describe('POST /api/chat', () => {
     expect(deductTokens).toHaveBeenCalledWith('u1', 2560)
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({ weighted: 2560, tier: 'opus' }),
-      'chat token usage',
-    )
-  })
-
-  it('quick-schedule lane keeps mode.model, multiplier 1, null tier, and never fetches a row', async () => {
-    mockAuthed()
-    const { deductTokens } = await import('@/server/queries/tokens')
-    await POST(
-      makeRequest({
-        messages: [{ role: 'user', content: 'date 6pm a month from now' }],
-        mode: 'quick-schedule',
-      }),
-    )
-    expect(mockConvWhere).not.toHaveBeenCalled()
-    const args = vi.mocked(streamText).mock.calls[0]![0]
-    expect(args.model as unknown as string).toBe('fake-quick')
-    await args.onFinish!({
-      response: { messages: [] },
-      usage: { promptTokens: 1000, completionTokens: 200 },
-      providerMetadata: {},
-    } as never)
-    // raw = 1200; ceil(1200 * 1) = 1200
-    expect(deductTokens).toHaveBeenCalledWith('u1', 1200)
-    expect(logger.info).toHaveBeenCalledWith(
-      expect.objectContaining({ weighted: 1200, tier: null }),
       'chat token usage',
     )
   })

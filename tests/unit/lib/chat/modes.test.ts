@@ -1,8 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
 
-vi.mock('@/lib/ai', () => ({
-  quickModel: { modelId: 'claude-haiku-4-5' },
-}))
 vi.mock('@/lib/chat/model-tiers', () => ({
   MODEL_TIERS: {
     sonnet: {
@@ -41,8 +38,6 @@ vi.mock('@/server/actions/chat-mutations', () => ({ createEvents: vi.fn() }))
 import { getMode } from '@/lib/chat/modes'
 import { CHAT_TOOL_NAMES } from '@/lib/chat/tools'
 
-const QUICK_TOOLS = ['createEvent', 'createEvents', 'proposeAction']
-
 describe('mode registry (activity model)', () => {
   it('advisor: sonnet, all tools except the direct event-create pair, persisted, history 50, maxSteps 5', () => {
     const m = getMode('advisor')
@@ -57,37 +52,8 @@ describe('mode registry (activity model)', () => {
     expect(m).toMatchObject({ persisted: true, historyLimit: 50, maxSteps: 5 })
   })
 
-  it('quick-schedule: haiku, event tools only, ephemeral, no history, maxSteps 2', () => {
-    const m = getMode('quick-schedule')
-    expect((m.model as { modelId: string }).modelId).toBe('claude-haiku-4-5')
-    expect([...m.toolNames].sort()).toEqual(QUICK_TOOLS)
-    expect(m).toMatchObject({ persisted: false, historyLimit: 0, maxSteps: 2 })
-  })
-
-  it('quick-schedule allowlist contains no activity/read/display tools', () => {
-    const m = getMode('quick-schedule')
-    for (const forbidden of [
-      'getWeekSchedule',
-      'getActivities',
-      'createActivity',
-      'showWeekCalendar',
-      'showScheduleSuggestion',
-      'showLifeBalance',
-    ]) {
-      expect(m.toolNames as readonly string[]).not.toContain(forbidden)
-    }
-  })
-
-  it('quick-schedule system prompt steers proposeAction to the event entityType', () => {
-    const sys = getMode('quick-schedule').buildSystem()
-    expect(sys).toContain("entityType 'event'")
-    expect(sys).toContain('createEvent')
-    expect(sys).not.toContain('createTask')
-    expect(sys).not.toContain('createCalendarEvent')
-  })
-
   it('every mode system prompt is stable (no dates) and mentions only allowlisted tools (explicit "never <tool>" call-outs of a disallowed tool are exempt)', () => {
-    for (const name of ['advisor', 'quick-schedule'] as const) {
+    for (const name of ['advisor'] as const) {
       const m = getMode(name)
       const sys = m.buildSystem()
       expect(sys).not.toMatch(/\d{4}-\d{2}-\d{2}/)
@@ -116,14 +82,6 @@ describe('mode registry (activity model)', () => {
     ]) {
       expect(sys).not.toContain(killed)
     }
-  })
-
-  it('quick-schedule context contains date, week bounds, timezone and nothing user-specific', async () => {
-    const ctx = await getMode('quick-schedule').buildContext('America/Chicago')
-    expect(ctx).toMatch(/Date: \d{4}-\d{2}-\d{2}/)
-    expect(ctx).toMatch(/Week: \d{4}-\d{2}-\d{2} – \d{4}-\d{2}-\d{2}/)
-    expect(ctx).toContain('America/Chicago')
-    expect(ctx).not.toContain('Activities')
   })
 
   it('advisor context delegates to buildContextBlock', async () => {
