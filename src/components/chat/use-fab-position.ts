@@ -333,6 +333,17 @@ export function useFabPosition(): UseFabPositionResult {
       // at every drag start; the origin still reads from the pre-measure pixel
       // (where the fab visually sits right now).
       setSidebarWidth(readSidebarWidth())
+      // A fresh press means any prior drag's consume window is over: on a
+      // real drag, pointer capture is held by this wrapper, so the browser's
+      // post-release click retargets to the wrapper (common ancestor of the
+      // pointerdown target [ChatFab button] and the capture element) instead
+      // of reaching the button -- consumeDrag() is then never called, and the
+      // stale `true` flag silently swallows the NEXT genuine click. DOM event
+      // order (pointerdown -> pointerup -> click) guarantees this reset can
+      // never race the SAME interaction's own click, and the drag-release
+      // path below re-sets the flag AFTER this reset runs (on the following
+      // press), so release-click gating is unaffected.
+      pendingConsumeRef.current = false
       // Grabbing the fab again mid-glide cancels the in-flight settle
       // animation immediately, so the drag resumes from a non-transitioning
       // style (matches requirement: no transition while dragging).
