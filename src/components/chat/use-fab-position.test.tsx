@@ -7,6 +7,7 @@ import {
   FAB_PADDING_PX,
   FAB_TOP_PADDING_PX,
   BAR_GAP_PX,
+  SNAP_TRANSITION_MS,
   type FabCorner,
 } from './use-fab-position'
 
@@ -151,6 +152,25 @@ function pointerUp(clientX: number, clientY: number): void {
 function storedCorner(): FabCorner {
   const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? 'null') as StoredCornerLike
   return stored.corner
+}
+
+// happy-dom's matchMedia support is not guaranteed; tests that care about the
+// prefers-reduced-motion branch stub it explicitly for a deterministic result.
+function stubMatchMedia(matches: boolean): void {
+  vi.stubGlobal(
+    'matchMedia',
+    (query: string) =>
+      ({
+        matches,
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }) as unknown as MediaQueryList,
+  )
 }
 
 describe('useFabPosition', () => {
@@ -541,6 +561,91 @@ describe('useFabPosition', () => {
 
       fireEvent.click(screen.getByTestId('consume'))
       expect(screen.getByTestId('consumed')).toHaveTextContent('false')
+    })
+  })
+
+  describe('corner-snap glide animation', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    })
+
+    it('adds a left/top CSS transition to fabStyle once a real drag releases', () => {
+      stubMatchMedia(false)
+      render(<Harness />)
+      pointerDown(DEFAULT_FAB_LEFT, DEFAULT_FAB_TOP)
+      pointerMove(30, 80)
+      pointerUp(30, 80)
+
+      const transition = fabStyleNow()?.transition
+      expect(transition).toEqual(expect.stringContaining('left'))
+      expect(transition).toEqual(expect.stringContaining('top'))
+      expect(transition).toEqual(expect.stringContaining(`${SNAP_TRANSITION_MS}ms`))
+    })
+
+    it('keeps the fab tracking the pointer 1:1 mid-drag, with no transition applied', () => {
+      stubMatchMedia(false)
+      render(<Harness />)
+      pointerDown(DEFAULT_FAB_LEFT, DEFAULT_FAB_TOP)
+      pointerMove(500, 400)
+
+      const style = fabStyleNow()
+      expect(style).toMatchObject({ left: 500, top: 400 })
+      expect(style?.transition).toBeUndefined()
+    })
+
+    it('never animates the first post-mount render, even when a corner is already stored', () => {
+      storeCorner('top-left')
+      const renders: (React.CSSProperties | undefined)[] = []
+      render(<RenderRecorder record={(style) => renders.push(style)} />)
+
+      for (const style of renders) {
+        expect(style?.transition).toBeUndefined()
+      }
+    })
+
+    it('skips the glide entirely when prefers-reduced-motion is set, snapping instantly', () => {
+      stubMatchMedia(true)
+      render(<Harness />)
+      pointerDown(DEFAULT_FAB_LEFT, DEFAULT_FAB_TOP)
+      pointerMove(30, 80)
+      pointerUp(30, 80)
+
+      expect(fabStyleNow()?.transition).toBeUndefined()
+      // Reduced motion removes the animation only -- the corner snap itself
+      // still applies.
+      expect(storedCorner()).toBe('top-left')
+      expect(fabStyleNow()).toMatchObject({ left: BAR_GAP_PX, top: FAB_TOP_PADDING_PX })
+    })
+
+    it('clears the transition once the settle duration elapses, leaving the fab at the corner', () => {
+      vi.useFakeTimers()
+      stubMatchMedia(false)
+      render(<Harness />)
+      pointerDown(DEFAULT_FAB_LEFT, DEFAULT_FAB_TOP)
+      pointerMove(30, 80)
+      pointerUp(30, 80)
+      expect(fabStyleNow()?.transition).toBeDefined()
+
+      act(() => {
+        vi.advanceTimersByTime(SNAP_TRANSITION_MS)
+      })
+
+      expect(fabStyleNow()?.transition).toBeUndefined()
+      expect(fabStyleNow()).toMatchObject({ left: BAR_GAP_PX, top: FAB_TOP_PADDING_PX })
+    })
+
+    it('cancels a pending settle timeout when a new drag starts before the glide finishes', () => {
+      vi.useFakeTimers()
+      stubMatchMedia(false)
+      render(<Harness />)
+      pointerDown(DEFAULT_FAB_LEFT, DEFAULT_FAB_TOP)
+      pointerMove(30, 80)
+      pointerUp(30, 80)
+      expect(fabStyleNow()?.transition).toBeDefined()
+
+      pointerDown(BAR_GAP_PX, FAB_TOP_PADDING_PX)
+      expect(fabStyleNow()?.transition).toBeUndefined()
     })
   })
 
