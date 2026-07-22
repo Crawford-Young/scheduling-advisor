@@ -216,6 +216,8 @@ function nearestCorner(
         distance: Math.hypot(center.x - cornerCenter.x, center.y - cornerCenter.y),
       }
     })
+  // Ties break to the earlier VALID_CORNERS entry: strict `<` keeps the
+  // current closest when distances are equal (first-wins, deterministic).
   return distances.reduce((closest, candidate) =>
     candidate.distance < closest.distance ? candidate : closest,
   ).corner
