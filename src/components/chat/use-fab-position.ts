@@ -24,6 +24,11 @@ const SIDEBAR_SELECTOR = 'aside[aria-label="Main sidebar"]'
 export const SNAP_TRANSITION_MS = 380
 const SNAP_TRANSITION_EASE = 'ease-out'
 const SNAP_TRANSITION = `left ${SNAP_TRANSITION_MS}ms ${SNAP_TRANSITION_EASE}, top ${SNAP_TRANSITION_MS}ms ${SNAP_TRANSITION_EASE}`
+// Value parity with the lib ChatFab fixed variant's Tailwind `z-30` -- the
+// custom-positioned fab renders `static` inside this hook's own wrapper div
+// (no lib class), so without an explicit zIndex it falls to `auto` and
+// WeekCalendarView's `z-10` sleep shading paints over it.
+export const FAB_Z_INDEX = 30
 
 export type FabCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
 
@@ -433,13 +438,18 @@ export function useFabPosition(): UseFabPositionResult {
   const fabStyle = React.useMemo<React.CSSProperties | undefined>(() => {
     // Mid-drag: track the pointer 1:1, no transition -- a live drag always
     // wins over isSettling (a fresh grab already clears isSettling in
-    // handlePointerDown, but this keeps the invariant structural too).
-    if (liveDrag) return { position: 'fixed', left: liveDrag.left, top: liveDrag.top }
+    // handlePointerDown, but this keeps the invariant structural too). Both
+    // branches carry FAB_Z_INDEX so a custom-positioned fab never dips under
+    // the calendar's sleep shading, dragging included.
+    if (liveDrag) {
+      return { position: 'fixed', left: liveDrag.left, top: liveDrag.top, zIndex: FAB_Z_INDEX }
+    }
     if (!storedPosition) return undefined
     const settled: React.CSSProperties = {
       position: 'fixed',
       left: currentPixel.left,
       top: currentPixel.top,
+      zIndex: FAB_Z_INDEX,
     }
     return isSettling ? { ...settled, transition: SNAP_TRANSITION } : settled
   }, [liveDrag, storedPosition, currentPixel, isSettling])
