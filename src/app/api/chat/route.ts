@@ -42,13 +42,13 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!parseResult.success) {
     return Response.json({ error: 'Invalid request' }, { status: 400 })
   }
-  const { messages: incomingMessages, conversationId, mode: requestedMode } = parseResult.data
+  const { messages: incomingMessages, conversationId } = parseResult.data
 
   const user = await db.query.users.findFirst({ where: eq(users.id, session.user.id) })
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const userId = session.user.id
-  const mode = getMode(requestedMode === 'quick-schedule' ? 'quick-schedule' : 'advisor')
+  const mode = getMode('advisor')
 
   let turns: Turn[]
   // Resolved server-side from the conversation row — the client request never carries a model/tier.

@@ -10,4 +10,3 @@ export const tierModels = {
   sonnet: anthropic('claude-sonnet-4-6', { cacheControl: true }),
   opus: anthropic('claude-opus-4-8', { cacheControl: true }),
 } as const
-export const quickModel = anthropic('claude-haiku-4-5', { cacheControl: true })

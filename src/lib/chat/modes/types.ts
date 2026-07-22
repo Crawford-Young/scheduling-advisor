@@ -1,7 +1,7 @@
 import type { LanguageModelV1 } from 'ai'
 import type { ChatToolName } from '@/lib/chat/tools'
 
-export type ChatMode = 'advisor' | 'quick-schedule'
+export type ChatMode = 'advisor'
 
 export interface ModeConfig {
   readonly name: ChatMode
