@@ -8,6 +8,7 @@ import {
   FAB_TOP_PADDING_PX,
   BAR_GAP_PX,
   SNAP_TRANSITION_MS,
+  FAB_Z_INDEX,
   type FabCorner,
 } from './use-fab-position'
 
@@ -646,6 +647,31 @@ describe('useFabPosition', () => {
 
       pointerDown(BAR_GAP_PX, FAB_TOP_PADDING_PX)
       expect(fabStyleNow()?.transition).toBeUndefined()
+    })
+  })
+
+  describe('z-index parity with the lib fixed fab (stays above calendar sleep shading)', () => {
+    it('carries the lib fixed-variant z-index while dragging live', () => {
+      render(<Harness />)
+      pointerDown(DEFAULT_FAB_LEFT, DEFAULT_FAB_TOP)
+      pointerMove(500, 400)
+      expect(fabStyleNow()).toMatchObject({ zIndex: FAB_Z_INDEX })
+    })
+
+    it('carries the lib fixed-variant z-index once settled at a stored corner', () => {
+      storeCorner('top-left')
+      render(<Harness />)
+      expect(fabStyleNow()).toMatchObject({ zIndex: FAB_Z_INDEX })
+    })
+
+    it('carries the z-index through the post-release settle glide too', () => {
+      stubMatchMedia(false)
+      render(<Harness />)
+      pointerDown(DEFAULT_FAB_LEFT, DEFAULT_FAB_TOP)
+      pointerMove(30, 80)
+      pointerUp(30, 80)
+      expect(fabStyleNow()).toMatchObject({ zIndex: FAB_Z_INDEX })
+      vi.unstubAllGlobals()
     })
   })
 
