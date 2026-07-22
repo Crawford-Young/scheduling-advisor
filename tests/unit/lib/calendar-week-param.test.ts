@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveWeekStart } from '@/lib/calendar-week-param'
+import { resolveWeekStart, weekParamFromDate } from '@/lib/calendar-week-param'
 
 /** Mirrors the module's own Monday-of-current-week fallback, in local time. */
 function expectedFallbackWeekStart(): string {
@@ -26,5 +26,16 @@ describe('resolveWeekStart', () => {
 
   it('falls back to the current week start for a non-existent calendar date', () => {
     expect(resolveWeekStart('2026-13-99')).toBe(expectedFallbackWeekStart())
+  })
+})
+
+describe('weekParamFromDate', () => {
+  it('formats a date as local YYYY-MM-DD with zero padding', () => {
+    expect(weekParamFromDate(new Date(2026, 0, 5, 23, 30))).toBe('2026-01-05')
+  })
+
+  it('uses local getters, not UTC substrings', () => {
+    const lateEvening = new Date(2026, 6, 22, 23, 45)
+    expect(weekParamFromDate(lateEvening)).toBe('2026-07-22')
   })
 })
