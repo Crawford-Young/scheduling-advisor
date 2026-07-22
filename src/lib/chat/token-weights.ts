@@ -10,8 +10,8 @@ const CACHE_WRITE_WEIGHT = 1.25
 const UNCACHED_INPUT_WEIGHT = 1
 const OUTPUT_WEIGHT = 1
 
-// promptTokens (AI SDK usage.promptTokens) maps 1:1 to Anthropic usage.input_tokens,
-// which is already NET of cache reads/writes — no subtraction here.
+// promptTokens is the NET-of-cache input token count (ai@7: usage.inputTokenDetails.noCacheTokens;
+// maps to Anthropic usage.input_tokens) — already excludes cache reads/writes, no subtraction here.
 // Returns the RAW weighted float — callers apply the tier multiplier and perform the
 // single Math.ceil rounding step so cache-class weighting and tier weighting share one round.
 export function computeWeightedTokens(usage: TokenUsageBreakdown): number {

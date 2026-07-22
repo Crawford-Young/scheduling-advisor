@@ -51,7 +51,12 @@ vi.mock('ai', async () => {
   const actual = await vi.importActual<typeof import('ai')>('ai')
   return {
     ...actual,
-    streamText: vi.fn().mockReturnValue({ toDataStreamResponse: vi.fn(() => new Response('ok')) }),
+    streamText: vi.fn().mockReturnValue({ stream: 'fake-stream' }),
+    // Tag the stop condition so tests can assert the maxSteps → stopWhen translation.
+    isStepCount: vi.fn((n: number) => ({ __stepCount: n })),
+    // Keep the response helpers inert: pass the stream through and return a plain Response.
+    toUIMessageStream: vi.fn((opts: { stream: unknown }) => opts.stream),
+    createUIMessageStreamResponse: vi.fn(() => new Response('ok')),
   }
 })
 vi.mock('@/server/queries/tokens', () => ({
@@ -157,21 +162,22 @@ describe('POST /api/chat', () => {
     expect(await res.json()).toMatchObject({ error: 'Unauthorized' })
   })
 
-  it('persisted: unchanged advisor behavior with split system messages', async () => {
+  it('persisted: split system prefix + volatile block travels via instructions', async () => {
     mockAuthed()
     const res = await POST(
       makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: CONVO_ID }),
     )
     expect(res.status).toBe(200)
     const args = vi.mocked(streamText).mock.calls[0]![0]
-    const sys = (args.messages as Array<{ role: string; providerOptions?: unknown }>).filter(
-      (m) => m.role === 'system',
-    )
+    // v7 carries system prompts in `instructions`, not in `messages`.
+    const sys = args.instructions as Array<{ role: string; providerOptions?: unknown }>
     expect(sys).toHaveLength(2)
     expect(sys[0]!.providerOptions).toEqual({
       anthropic: { cacheControl: { type: 'ephemeral' } },
     })
     expect(sys[1]!.providerOptions).toBeUndefined()
+    // No system message leaks into the conversation turns.
+    expect((args.messages as Array<{ role: string }>).some((m) => m.role === 'system')).toBe(false)
     // Advisor drops the direct event-create pair (createEvent/createEvents) — 12 registry tools − 2.
     expect(Object.keys(args.tools!)).toHaveLength(10)
   })
@@ -182,11 +188,10 @@ describe('POST /api/chat', () => {
       makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: CONVO_ID }),
     )
     const args = vi.mocked(streamText).mock.calls[0]![0]
-    const sys = (args.messages as Array<{ role: string; content: string }>).filter(
-      (m) => m.role === 'system',
-    )
+    const sys = args.instructions as Array<{ role: string; content: string }>
     expect(sys[0]!.content + sys[1]!.content).toBe('test-system-prompttest-context-block')
-    expect(args.maxSteps).toBe(5)
+    // maxSteps 5 translates to a stopWhen step-count condition.
+    expect(args.stopWhen).toEqual({ __stepCount: 5 })
   })
 
   it('400 on body without conversationId', async () => {
@@ -203,12 +208,14 @@ describe('POST /api/chat', () => {
       makeRequest({ messages: [{ role: 'user', content: 'hi' }], conversationId: CONVO_ID }),
     )
     const args = vi.mocked(streamText).mock.calls[0]![0]
-    await args.onFinish!({
-      response: { messages: [] },
-      usage: { promptTokens: 1000, completionTokens: 200 },
-      providerMetadata: { anthropic: { cacheReadInputTokens: 800 } },
+    await args.onEnd!({
+      responseMessages: [],
+      usage: {
+        inputTokenDetails: { noCacheTokens: 1000, cacheReadTokens: 800, cacheWriteTokens: 0 },
+        outputTokens: 200,
+      },
     } as never)
-    // promptTokens is net of cache tokens: 1000 + 200 + 800 * 0.1 = 1280
+    // noCacheTokens is net of cache tokens: 1000 + 200 + 800 * 0.1 = 1280
     expect(deductTokens).toHaveBeenCalledWith('u1', 1280)
   })
 
@@ -246,10 +253,12 @@ describe('POST /api/chat', () => {
     )
     const args = vi.mocked(streamText).mock.calls[0]![0]
     expect(args.model as unknown as string).toBe('fake-model')
-    await args.onFinish!({
-      response: { messages: [] },
-      usage: { promptTokens: 1000, completionTokens: 200 },
-      providerMetadata: { anthropic: { cacheReadInputTokens: 800 } },
+    await args.onEnd!({
+      responseMessages: [],
+      usage: {
+        inputTokenDetails: { noCacheTokens: 1000, cacheReadTokens: 800, cacheWriteTokens: 0 },
+        outputTokens: 200,
+      },
     } as never)
     // raw = 1000 + 200 + 800*0.1 = 1280; ceil(1280 * 1) = 1280
     expect(deductTokens).toHaveBeenCalledWith('u1', 1280)
@@ -268,10 +277,12 @@ describe('POST /api/chat', () => {
     )
     const args = vi.mocked(streamText).mock.calls[0]![0]
     expect(args.model as unknown as string).toBe('fake-opus')
-    await args.onFinish!({
-      response: { messages: [] },
-      usage: { promptTokens: 1000, completionTokens: 200 },
-      providerMetadata: { anthropic: { cacheReadInputTokens: 800 } },
+    await args.onEnd!({
+      responseMessages: [],
+      usage: {
+        inputTokenDetails: { noCacheTokens: 1000, cacheReadTokens: 800, cacheWriteTokens: 0 },
+        outputTokens: 200,
+      },
     } as never)
     // raw = 1280; ceil(1280 * 2) = 2560
     expect(deductTokens).toHaveBeenCalledWith('u1', 2560)
@@ -300,24 +311,22 @@ describe('POST /api/chat', () => {
     )
     const args = vi.mocked(streamText).mock.calls[0]![0]
     mockInsertValues.mockClear()
-    await args.onFinish!({
-      response: {
-        messages: [
-          {
-            role: 'assistant',
-            content: [
-              {
-                type: 'tool-call',
-                toolCallId: 't1',
-                toolName: 'proposeEvent',
-                args: { title: 'x' },
-              },
-            ],
-          },
-          { role: 'tool', content: [{ type: 'tool-result', toolCallId: 't1', result: {} }] },
-          { role: 'assistant', content: [{ type: 'text', text: 'Here is the proposed event' }] },
-        ],
-      },
+    await args.onEnd!({
+      responseMessages: [
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool-call',
+              toolCallId: 't1',
+              toolName: 'proposeEvent',
+              args: { title: 'x' },
+            },
+          ],
+        },
+        { role: 'tool', content: [{ type: 'tool-result', toolCallId: 't1', result: {} }] },
+        { role: 'assistant', content: [{ type: 'text', text: 'Here is the proposed event' }] },
+      ],
       usage: undefined,
     } as never)
     expect(mockInsertValues).toHaveBeenCalledWith(
@@ -336,23 +345,21 @@ describe('POST /api/chat', () => {
     )
     const args = vi.mocked(streamText).mock.calls[0]![0]
     mockInsertValues.mockClear()
-    await args.onFinish!({
-      response: {
-        messages: [
-          {
-            role: 'assistant',
-            content: [
-              {
-                type: 'tool-call',
-                toolCallId: 't1',
-                toolName: 'proposeEvent',
-                args: { title: 'x' },
-              },
-            ],
-          },
-          { role: 'tool', content: [{ type: 'tool-result', toolCallId: 't1', result: {} }] },
-        ],
-      },
+    await args.onEnd!({
+      responseMessages: [
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool-call',
+              toolCallId: 't1',
+              toolName: 'proposeEvent',
+              args: { title: 'x' },
+            },
+          ],
+        },
+        { role: 'tool', content: [{ type: 'tool-result', toolCallId: 't1', result: {} }] },
+      ],
       usage: undefined,
     } as never)
     expect(mockInsertValues).not.toHaveBeenCalledWith(

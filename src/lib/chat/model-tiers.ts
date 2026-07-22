@@ -1,4 +1,4 @@
-import type { LanguageModelV1 } from 'ai'
+import type { LanguageModel } from 'ai'
 import { tierModels } from '@/lib/ai'
 import { type ModelTier, modelTierSchema, normalizeTier } from '@/lib/chat/model-tier-core'
 
@@ -11,7 +11,7 @@ export type { ModelTier }
 
 export interface ModelTierConfig {
   readonly tier: ModelTier
-  readonly model: LanguageModelV1
+  readonly model: LanguageModel
   readonly multiplier: number
   readonly label: string
 }

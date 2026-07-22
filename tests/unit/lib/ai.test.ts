@@ -1,9 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 
-const modelFactory = vi.fn((id: string, settings?: { cacheControl?: boolean }) => ({
-  modelId: id,
-  settings,
-}))
+const modelFactory = vi.fn((id: string) => ({ modelId: id }))
 
 vi.mock('@ai-sdk/anthropic', () => ({
   createAnthropic: vi.fn(() => modelFactory),
@@ -17,9 +14,9 @@ describe('ai models', () => {
     expect((tierModels.opus as { modelId: string }).modelId).toBe('claude-opus-4-8')
   })
 
-  it('enables provider cacheControl on every model (required for cache_control passthrough and cache token reporting)', async () => {
+  it('constructs each model with only the model id (v7 factory takes no settings arg)', async () => {
     await import('@/lib/ai')
-    expect(modelFactory).toHaveBeenCalledWith('claude-sonnet-4-6', { cacheControl: true })
-    expect(modelFactory).toHaveBeenCalledWith('claude-opus-4-8', { cacheControl: true })
+    expect(modelFactory).toHaveBeenCalledWith('claude-sonnet-4-6')
+    expect(modelFactory).toHaveBeenCalledWith('claude-opus-4-8')
   })
 })
