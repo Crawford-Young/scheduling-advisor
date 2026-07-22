@@ -1,43 +1,73 @@
 import * as React from 'react'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import type { UIMessage } from 'ai'
 import { ChatSurface } from './chat-surface'
 import type { ConversationMessage } from '@/server/queries/conversations'
 import type { AppEvent } from './tool-result-renderer'
 
+// ai@7 useChat mock — no input/handleSubmit/append/reload; the surface owns the
+// controlled input and calls sendMessage / regenerate.
+let useChatMessages: UIMessage[] = []
+let useChatError: Error | undefined
+let useChatStatus: 'ready' | 'submitted' | 'streaming' | 'error' = 'ready'
+let capturedOnFinish: (() => Promise<void>) | undefined
+const sendMessageMock = vi.fn().mockResolvedValue(undefined)
+const regenerateMock = vi.fn().mockResolvedValue(undefined)
+const setMessagesMock = vi.fn()
+
 interface UseChatConfig {
   readonly onFinish?: () => Promise<void>
-  readonly body?: unknown
+  readonly transport?: unknown
+  readonly messages?: UIMessage[]
 }
 
-let useChatMessages: { id: string; role: string; content: string }[] = []
-let useChatInput = ''
-let useChatError: Error | undefined
-let capturedOnFinish: (() => Promise<void>) | undefined
-let capturedHookBody: unknown
-const setInputMock = vi.fn()
-const handleSubmitMock = vi.fn()
-const reloadMock = vi.fn()
-const appendMock = vi.fn()
-
-vi.mock('ai/react', () => ({
-  useChat: ({ onFinish, body }: UseChatConfig) => {
+vi.mock('@ai-sdk/react', () => ({
+  useChat: ({ onFinish }: UseChatConfig) => {
     capturedOnFinish = onFinish
-    capturedHookBody = body
     return {
       messages: useChatMessages,
-      input: useChatInput,
-      setInput: setInputMock,
-      handleSubmit: handleSubmitMock,
-      isLoading: false,
-      append: appendMock,
+      sendMessage: sendMessageMock,
+      regenerate: regenerateMock,
+      status: useChatStatus,
       error: useChatError,
-      reload: reloadMock,
+      setMessages: setMessagesMock,
+      clearError: vi.fn(),
+      stop: vi.fn(),
+      id: 'chat-1',
     }
   },
 }))
 
+// ai@7 DefaultChatTransport is mocked to capture its construction options so the
+// wire-format adapter (prepareSendMessagesRequest) and the seeded body can be
+// asserted without a real fetch.
+interface TransportOptions {
+  readonly api: string
+  readonly body: unknown
+  readonly prepareSendMessagesRequest: (opts: {
+    messages: UIMessage[]
+    body: Record<string, unknown>
+  }) => { body: Record<string, unknown> }
+}
+let capturedTransportOptions: TransportOptions | undefined
+vi.mock('ai', () => ({
+  DefaultChatTransport: class {
+    constructor(options: TransportOptions) {
+      capturedTransportOptions = options
+    }
+  },
+}))
+
+function messageText(message: UIMessage): string {
+  return message.parts
+    .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+    .map((p) => p.text)
+    .join('')
+}
+
 let capturedPanelSubmit: ((e?: React.FormEvent) => void) | undefined
+let capturedAppend: ((message: { role: 'user'; content: string }) => void) | undefined
 let capturedOnScheduleUpdate: ((weekStart: string, events: readonly AppEvent[]) => void) | undefined
 let capturedOnItemConfirmed:
   | ((action: string, entityType: 'habit' | 'goal' | 'event', date?: string, time?: string) => void)
@@ -50,7 +80,10 @@ let capturedCarriedProposals: unknown
 vi.mock('@/components/chat/chat-messages-panel', () => ({
   ChatMessagesPanel: ({
     messages,
+    input,
+    setInput,
     handleSubmit,
+    append,
     onScheduleUpdate,
     onItemConfirmed,
     onEventProposed,
@@ -61,8 +94,11 @@ vi.mock('@/components/chat/chat-messages-panel', () => ({
     error,
     onRetry,
   }: {
-    messages: readonly { id: string; content: string }[]
+    messages: readonly UIMessage[]
+    input: string
+    setInput: (value: string) => void
     handleSubmit: (e?: React.FormEvent) => void
+    append: (message: { role: 'user'; content: string }) => void
     onScheduleUpdate?: (weekStart: string, events: readonly AppEvent[]) => void
     onItemConfirmed?: (
       action: string,
@@ -79,6 +115,7 @@ vi.mock('@/components/chat/chat-messages-panel', () => ({
     onRetry?: () => void
   }) => {
     capturedPanelSubmit = handleSubmit
+    capturedAppend = append
     capturedOnScheduleUpdate = onScheduleUpdate
     capturedOnItemConfirmed = onItemConfirmed
     capturedOnEventProposed = onEventProposed
@@ -86,20 +123,31 @@ vi.mock('@/components/chat/chat-messages-panel', () => ({
     capturedCarriedProposals = carriedProposals
     capturedInlineDayPreview = inlineDayPreview
     return (
-      <div data-testid="messages-panel">
+      <form data-testid="surface-form" onSubmit={handleSubmit}>
         {messages.map((m) => (
           <div key={m.id} data-testid="message">
-            {m.content}
+            {messageText(m)}
           </div>
         ))}
         {error && (
           <div data-testid="panel-error">
             <span data-testid="panel-error-message">{error.message}</span>
-            <button onClick={onRetry}>panel-retry</button>
+            <button type="button" onClick={onRetry}>
+              panel-retry
+            </button>
           </div>
         )}
-        {inputReplacement ?? <textarea aria-label="chat input" />}
-      </div>
+        {inputReplacement ?? (
+          <>
+            <textarea
+              aria-label="chat input"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+            />
+            <button type="submit">send</button>
+          </>
+        )}
+      </form>
     )
   },
 }))
@@ -114,96 +162,127 @@ vi.mock('@/server/actions/conversations', () => ({
   setConversationTitle: (id: string, title: string) => setConversationTitleMock(id, title),
 }))
 
+function uiMessage(id: string, role: 'user' | 'assistant', text: string): UIMessage {
+  return { id, role, parts: [{ type: 'text', text }] }
+}
+
 const initialMessages: ConversationMessage[] = [
   { id: 'seed-1', role: 'user', content: 'Previously said' },
 ]
 const existingConversation = { id: 'c1', title: 'Existing' } as const
 
+function renderSurface(
+  overrides: Partial<React.ComponentProps<typeof ChatSurface>> = {},
+): ReturnType<typeof render> {
+  return render(
+    <ChatSurface
+      conversation={existingConversation}
+      initialMessages={initialMessages}
+      initialTokenBalance={50}
+      {...overrides}
+    />,
+  )
+}
+
 describe('ChatSurface', () => {
   beforeEach(() => {
     useChatMessages = []
-    useChatInput = ''
     useChatError = undefined
+    useChatStatus = 'ready'
     capturedOnFinish = undefined
-    capturedHookBody = undefined
+    capturedTransportOptions = undefined
     capturedInlineDayPreview = undefined
     capturedCarriedProposals = undefined
-    setInputMock.mockClear()
-    handleSubmitMock.mockClear()
-    reloadMock.mockClear()
-    appendMock.mockClear()
+    sendMessageMock.mockClear()
+    regenerateMock.mockClear()
     getTokenBalanceActionMock.mockClear()
     getTokenBalanceActionMock.mockResolvedValue(50)
     setConversationTitleMock.mockClear()
   })
 
   it('renders the messages from useChat as data', () => {
-    useChatMessages = [{ id: 'm1', role: 'user', content: 'Plan my week' }]
-    render(
-      <ChatSurface
-        conversation={existingConversation}
-        initialMessages={initialMessages}
-        initialTokenBalance={50}
-      />,
-    )
+    useChatMessages = [uiMessage('m1', 'user', 'Plan my week')]
+    renderSurface()
     expect(screen.getByTestId('message')).toHaveTextContent('Plan my week')
   })
 
-  it('seeds the hook body with the existing conversation id', () => {
-    render(
-      <ChatSurface
-        conversation={existingConversation}
-        initialMessages={initialMessages}
-        initialTokenBalance={50}
-      />,
-    )
-    expect(capturedHookBody).toEqual({ conversationId: 'c1' })
+  it('seeds the transport body with the existing conversation id', () => {
+    renderSurface()
+    expect(capturedTransportOptions?.body).toEqual({ conversationId: 'c1' })
+    expect(capturedTransportOptions?.api).toBe('/api/chat')
   })
 
-  it('submits with an existing conversation passing per-request body', async () => {
-    render(
-      <ChatSurface
-        conversation={existingConversation}
-        initialMessages={initialMessages}
-        initialTokenBalance={50}
-      />,
-    )
-    await act(async () => {
-      await capturedPanelSubmit?.()
-    })
-    expect(handleSubmitMock).toHaveBeenCalledWith(undefined, {
+  it('flattens UIMessage parts to { role, content } on the wire, dropping tool parts', () => {
+    renderSurface()
+    const prepared = capturedTransportOptions?.prepareSendMessagesRequest({
+      messages: [
+        {
+          id: 'm1',
+          role: 'user',
+          parts: [
+            { type: 'text', text: 'hi' },
+            {
+              type: 'tool-proposeEvent',
+              toolCallId: 't1',
+              state: 'output-available',
+              input: {},
+              output: {},
+            } as UIMessage['parts'][number],
+          ],
+        },
+      ],
       body: { conversationId: 'c1' },
     })
+    expect(prepared?.body).toEqual({
+      conversationId: 'c1',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
   })
 
-  it('lazily creates a conversation before the first submit when none exists', async () => {
-    const onEnsureConversation = vi.fn().mockResolvedValue({ id: 'new-id' })
-    render(
-      <ChatSurface
-        conversation={null}
-        initialMessages={initialMessages}
-        initialTokenBalance={50}
-        onEnsureConversation={onEnsureConversation}
-      />,
+  it('sends the trimmed input with the existing conversation id', async () => {
+    renderSurface()
+    fireEvent.change(screen.getByLabelText('chat input'), { target: { value: 'Plan my week' } })
+    fireEvent.submit(screen.getByTestId('surface-form'))
+    await waitFor(() =>
+      expect(sendMessageMock).toHaveBeenCalledWith(
+        { text: 'Plan my week' },
+        { body: { conversationId: 'c1' } },
+      ),
     )
+  })
+
+  it('appends a card-driven transcript line as a user turn via sendMessage', () => {
+    renderSurface()
+    capturedAppend?.({ role: 'user', content: '[CONFIRMED] Standup — 2026-06-02 09:00–10:00' })
+    expect(sendMessageMock).toHaveBeenCalledWith({
+      text: '[CONFIRMED] Standup — 2026-06-02 09:00–10:00',
+    })
+  })
+
+  it('does not send when the input is only whitespace', async () => {
+    renderSurface()
+    fireEvent.change(screen.getByLabelText('chat input'), { target: { value: '   ' } })
     await act(async () => {
       await capturedPanelSubmit?.()
     })
-    expect(onEnsureConversation).toHaveBeenCalledTimes(1)
-    expect(handleSubmitMock).toHaveBeenCalledWith(undefined, {
-      body: { conversationId: 'new-id' },
-    })
+    expect(sendMessageMock).not.toHaveBeenCalled()
+  })
+
+  it('lazily creates a conversation before the first send when none exists', async () => {
+    const onEnsureConversation = vi.fn().mockResolvedValue({ id: 'new-id' })
+    renderSurface({ conversation: null, onEnsureConversation })
+    fireEvent.change(screen.getByLabelText('chat input'), { target: { value: 'hi there' } })
+    fireEvent.submit(screen.getByTestId('surface-form'))
+    await waitFor(() => expect(onEnsureConversation).toHaveBeenCalledTimes(1))
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      { text: 'hi there' },
+      { body: { conversationId: 'new-id' } },
+    )
   })
 
   it('dispatches token-balance-changed on finish and refreshes balance', async () => {
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
-    render(
-      <ChatSurface
-        conversation={existingConversation}
-        initialMessages={initialMessages}
-        initialTokenBalance={50}
-      />,
-    )
+    renderSurface()
     await act(async () => {
       await capturedOnFinish?.()
     })
@@ -216,13 +295,7 @@ describe('ChatSurface', () => {
 
   it('swallows a failed balance refresh on finish', async () => {
     getTokenBalanceActionMock.mockRejectedValueOnce(new Error('offline'))
-    render(
-      <ChatSurface
-        conversation={existingConversation}
-        initialMessages={initialMessages}
-        initialTokenBalance={50}
-      />,
-    )
+    renderSurface()
     await act(async () => {
       await capturedOnFinish?.()
     })
@@ -231,38 +304,20 @@ describe('ChatSurface', () => {
 
   describe('zero balance', () => {
     it('replaces the input with a "Get tokens" CTA when balance is below one', () => {
-      render(
-        <ChatSurface
-          conversation={existingConversation}
-          initialMessages={initialMessages}
-          initialTokenBalance={0}
-        />,
-      )
+      renderSurface({ initialTokenBalance: 0 })
       const link = screen.getByRole('link', { name: /get tokens/i })
       expect(link).toHaveAttribute('href', '/tokens')
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     })
 
     it('describes the assistant value in the CTA', () => {
-      render(
-        <ChatSurface
-          conversation={existingConversation}
-          initialMessages={initialMessages}
-          initialTokenBalance={0}
-        />,
-      )
+      renderSurface({ initialTokenBalance: 0 })
       expect(screen.getByText(/plans your schedule/i)).toBeInTheDocument()
       expect(screen.getByText(/out of tokens/i)).toBeInTheDocument()
     })
 
     it('keeps the input when balance is at least one', () => {
-      render(
-        <ChatSurface
-          conversation={existingConversation}
-          initialMessages={initialMessages}
-          initialTokenBalance={1}
-        />,
-      )
+      renderSurface({ initialTokenBalance: 1 })
       expect(screen.getByRole('textbox')).toBeInTheDocument()
     })
   })
@@ -270,47 +325,28 @@ describe('ChatSurface', () => {
   describe('error passthrough', () => {
     it('renders the useChat error message through the panel', () => {
       useChatError = new Error('boom')
-      render(
-        <ChatSurface
-          conversation={existingConversation}
-          initialMessages={initialMessages}
-          initialTokenBalance={50}
-        />,
-      )
+      renderSurface()
       expect(screen.getByTestId('panel-error-message')).toHaveTextContent('boom')
     })
 
-    it('wires panel retry to useChat reload', () => {
+    it('wires panel retry to useChat regenerate', () => {
       useChatError = new Error('boom')
-      render(
-        <ChatSurface
-          conversation={existingConversation}
-          initialMessages={initialMessages}
-          initialTokenBalance={50}
-        />,
-      )
+      renderSurface()
       fireEvent.click(screen.getByRole('button', { name: 'panel-retry' }))
-      expect(reloadMock).toHaveBeenCalledTimes(1)
+      expect(regenerateMock).toHaveBeenCalledTimes(1)
     })
   })
 
   describe('prefill', () => {
     it('seeds the input with the prefill when the input is empty', () => {
-      useChatInput = ''
-      render(
-        <ChatSurface
-          conversation={existingConversation}
-          initialMessages={initialMessages}
-          initialTokenBalance={50}
-          prefill="Reschedule my afternoon"
-        />,
-      )
-      expect(setInputMock).toHaveBeenCalledWith('Reschedule my afternoon')
+      renderSurface({ prefill: 'Reschedule my afternoon' })
+      expect(screen.getByLabelText('chat input')).toHaveValue('Reschedule my afternoon')
     })
 
-    it('does not overwrite a non-empty input', () => {
-      useChatInput = 'already typing'
-      render(
+    it('does not overwrite input the user has already typed', () => {
+      const { rerender } = renderSurface()
+      fireEvent.change(screen.getByLabelText('chat input'), { target: { value: 'already typing' } })
+      rerender(
         <ChatSurface
           conversation={existingConversation}
           initialMessages={initialMessages}
@@ -318,34 +354,22 @@ describe('ChatSurface', () => {
           prefill="Reschedule my afternoon"
         />,
       )
-      expect(setInputMock).not.toHaveBeenCalled()
+      expect(screen.getByLabelText('chat input')).toHaveValue('already typing')
     })
 
     it('does nothing when no prefill is provided', () => {
-      render(
-        <ChatSurface
-          conversation={existingConversation}
-          initialMessages={initialMessages}
-          initialTokenBalance={50}
-        />,
-      )
-      expect(setInputMock).not.toHaveBeenCalled()
+      renderSurface()
+      expect(screen.getByLabelText('chat input')).toHaveValue('')
     })
   })
 
   describe('auto title', () => {
     it('sets the title when the conversation title is null and there are 2+ messages', async () => {
       useChatMessages = [
-        { id: '1', role: 'user', content: 'Tell me about scheduling' },
-        { id: '2', role: 'assistant', content: 'Sure!' },
+        uiMessage('1', 'user', 'Tell me about scheduling'),
+        uiMessage('2', 'assistant', 'Sure!'),
       ]
-      render(
-        <ChatSurface
-          conversation={{ id: 'c1', title: null }}
-          initialMessages={initialMessages}
-          initialTokenBalance={50}
-        />,
-      )
+      renderSurface({ conversation: { id: 'c1', title: null } })
       await vi.waitFor(() => {
         expect(setConversationTitleMock).toHaveBeenCalledWith('c1', 'Tell me about scheduling')
       })
@@ -353,58 +377,34 @@ describe('ChatSurface', () => {
 
     it('does not set the title when the conversation already has one', () => {
       useChatMessages = [
-        { id: '1', role: 'user', content: 'Tell me about scheduling' },
-        { id: '2', role: 'assistant', content: 'Sure!' },
+        uiMessage('1', 'user', 'Tell me about scheduling'),
+        uiMessage('2', 'assistant', 'Sure!'),
       ]
-      render(
-        <ChatSurface
-          conversation={existingConversation}
-          initialMessages={initialMessages}
-          initialTokenBalance={50}
-        />,
-      )
+      renderSurface()
       expect(setConversationTitleMock).not.toHaveBeenCalled()
     })
 
     it('does not set the title when there is no conversation', () => {
       useChatMessages = [
-        { id: '1', role: 'user', content: 'Tell me about scheduling' },
-        { id: '2', role: 'assistant', content: 'Sure!' },
+        uiMessage('1', 'user', 'Tell me about scheduling'),
+        uiMessage('2', 'assistant', 'Sure!'),
       ]
-      render(
-        <ChatSurface
-          conversation={null}
-          initialMessages={initialMessages}
-          initialTokenBalance={50}
-        />,
-      )
+      renderSurface({ conversation: null })
       expect(setConversationTitleMock).not.toHaveBeenCalled()
     })
 
     it('does not set the title when there is no user message', () => {
       useChatMessages = [
-        { id: '1', role: 'assistant', content: 'Hello' },
-        { id: '2', role: 'assistant', content: 'Anyone?' },
+        uiMessage('1', 'assistant', 'Hello'),
+        uiMessage('2', 'assistant', 'Anyone?'),
       ]
-      render(
-        <ChatSurface
-          conversation={{ id: 'c1', title: null }}
-          initialMessages={initialMessages}
-          initialTokenBalance={50}
-        />,
-      )
+      renderSurface({ conversation: { id: 'c1', title: null } })
       expect(setConversationTitleMock).not.toHaveBeenCalled()
     })
 
     it('does not set the title with fewer than 2 messages', () => {
-      useChatMessages = [{ id: '1', role: 'user', content: 'Only one' }]
-      render(
-        <ChatSurface
-          conversation={{ id: 'c1', title: null }}
-          initialMessages={initialMessages}
-          initialTokenBalance={50}
-        />,
-      )
+      useChatMessages = [uiMessage('1', 'user', 'Only one')]
+      renderSurface({ conversation: { id: 'c1', title: null } })
       expect(setConversationTitleMock).not.toHaveBeenCalled()
     })
   })
@@ -412,15 +412,7 @@ describe('ChatSurface', () => {
   it('passes schedule callbacks through to the panel', () => {
     const onScheduleUpdate = vi.fn()
     const onItemConfirmed = vi.fn()
-    render(
-      <ChatSurface
-        conversation={existingConversation}
-        initialMessages={initialMessages}
-        initialTokenBalance={50}
-        onScheduleUpdate={onScheduleUpdate}
-        onItemConfirmed={onItemConfirmed}
-      />,
-    )
+    renderSurface({ onScheduleUpdate, onItemConfirmed })
     capturedOnScheduleUpdate?.('2026-06-02', [])
     capturedOnItemConfirmed?.('Run', 'habit')
     expect(onScheduleUpdate).toHaveBeenCalledWith('2026-06-02', [])
@@ -430,39 +422,18 @@ describe('ChatSurface', () => {
   it('passes the event-proposal callbacks through to the panel', () => {
     const onEventProposed = vi.fn()
     const onEventResolved = vi.fn()
-    render(
-      <ChatSurface
-        conversation={existingConversation}
-        initialMessages={initialMessages}
-        initialTokenBalance={50}
-        onEventProposed={onEventProposed}
-        onEventResolved={onEventResolved}
-      />,
-    )
+    renderSurface({ onEventProposed, onEventResolved })
     expect(capturedOnEventProposed).toBe(onEventProposed)
     expect(capturedOnEventResolved).toBe(onEventResolved)
   })
 
   it('forwards inlineDayPreview to the panel', () => {
-    render(
-      <ChatSurface
-        conversation={existingConversation}
-        initialMessages={initialMessages}
-        initialTokenBalance={50}
-        inlineDayPreview
-      />,
-    )
+    renderSurface({ inlineDayPreview: true })
     expect(capturedInlineDayPreview).toBe(true)
   })
 
   it('leaves inlineDayPreview undefined when not set', () => {
-    render(
-      <ChatSurface
-        conversation={existingConversation}
-        initialMessages={initialMessages}
-        initialTokenBalance={50}
-      />,
-    )
+    renderSurface()
     expect(capturedInlineDayPreview).toBeUndefined()
   })
 
@@ -470,25 +441,12 @@ describe('ChatSurface', () => {
     const carried = [
       { toolCallId: 'call-1', title: 'Dentist', date: '2026-06-03', start: '14:00', end: '15:00' },
     ]
-    render(
-      <ChatSurface
-        conversation={existingConversation}
-        initialMessages={initialMessages}
-        initialTokenBalance={50}
-        carriedProposals={carried}
-      />,
-    )
+    renderSurface({ carriedProposals: carried })
     expect(capturedCarriedProposals).toBe(carried)
   })
 
   it('leaves carriedProposals undefined when not set', () => {
-    render(
-      <ChatSurface
-        conversation={existingConversation}
-        initialMessages={initialMessages}
-        initialTokenBalance={50}
-      />,
-    )
+    renderSurface()
     expect(capturedCarriedProposals).toBeUndefined()
   })
 })

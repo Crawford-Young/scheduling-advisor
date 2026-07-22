@@ -1,7 +1,6 @@
 'use client'
 import * as React from 'react'
 import { Check, X } from 'lucide-react'
-import type { Message } from 'ai'
 import { Badge, Button, Card, CardContent, Input } from '@/lib/ui'
 import { createEvent } from '@/server/actions/events'
 import { createEvents } from '@/server/actions/chat-mutations'
@@ -15,6 +14,17 @@ import {
 // Re-exported so existing importers (tool-result-renderer, day-proposal-preview)
 // keep pulling the recurrence type from the card.
 export type { RecurrenceFrequency }
+
+/**
+ * Shape of a message appended to the chat transcript from an approval card.
+ * With the ai@7 client stack there is no `append` helper on `useChat`; the
+ * surface wraps `sendMessage`, and every card-driven line is a user turn
+ * ([CONFIRMED]/[DENY]/[CONFIRM]).
+ */
+export interface ChatAppendMessage {
+  readonly role: 'user'
+  readonly content: string
+}
 
 // Smallest run of consecutive weekdays rendered as a "First–Last" range rather
 // than a middot-joined list.
@@ -73,7 +83,7 @@ export interface EventProposalCardProps {
   readonly recurrenceCount?: number
   readonly onConfirmed: (created: { id: string; title: string; start: string; end: string }) => void
   readonly onDenied: (reason: string) => void
-  readonly append?: (message: Pick<Message, 'role' | 'content'>) => void
+  readonly append?: (message: ChatAppendMessage) => void
   readonly preview?: React.ReactNode // Task 8 slots DayProposalPreview here (popup only)
 }
 

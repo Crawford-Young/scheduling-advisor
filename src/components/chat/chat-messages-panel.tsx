@@ -1,21 +1,42 @@
 'use client'
 import * as React from 'react'
-import type { Message, ToolInvocation } from 'ai'
+import { getToolName, isToolUIPart, type UIMessage } from 'ai'
 import { Textarea, Button } from '@/lib/ui'
 import { Send } from 'lucide-react'
 import { ProposeEventResult, ToolResultRenderer } from '@/components/chat/tool-result-renderer'
-import type { AppEvent, CreatedEvent, EventProposal } from '@/components/chat/tool-result-renderer'
+import type {
+  AppEvent,
+  CreatedEvent,
+  EventProposal,
+  ToolResultPart,
+} from '@/components/chat/tool-result-renderer'
+import type { ChatAppendMessage } from '@/components/chat/event-proposal-card'
+import { extractText } from '@/lib/chat/message-content'
+
+/**
+ * Normalize a single ai@7 UIMessage part into the renderer's `ToolResultPart`,
+ * or `null` when the part is not a tool call that has produced output yet
+ * (text/reasoning parts, or tool calls still streaming their input). The old
+ * `toolInvocations` array + `state === 'result'` filter is replaced by walking
+ * `message.parts` and gating on `state === 'output-available'`.
+ */
+const TOOL_OUTPUT_AVAILABLE = 'output-available'
+function toToolResultPart(part: UIMessage['parts'][number]): ToolResultPart | null {
+  if (!isToolUIPart(part)) return null
+  if (part.state !== TOOL_OUTPUT_AVAILABLE) return null
+  return { toolCallId: part.toolCallId, toolName: getToolName(part), result: part.output }
+}
 
 const CHAT_ERROR_MESSAGE = "Cy couldn't respond. Try again."
 const RETRY_LABEL = 'Retry'
 
 export interface ChatMessagesPanelProps {
-  readonly messages: readonly Message[]
+  readonly messages: readonly UIMessage[]
   readonly input: string
   readonly setInput: (value: string) => void
   readonly handleSubmit: (e?: React.FormEvent) => void
   readonly isLoading: boolean
-  readonly append: (message: Pick<Message, 'role' | 'content'>) => void
+  readonly append: (message: ChatAppendMessage) => void
   readonly onScheduleUpdate?: (weekStart: string, events: readonly AppEvent[]) => void
   readonly onItemConfirmed?: (
     action: string,
@@ -76,31 +97,29 @@ export function ChatMessagesPanel({
             Ask me anything about your schedule.
           </p>
         )}
-        {messages.map((message) =>
-          message.role === 'user' ? (
+        {messages.map((message) => {
+          const text = extractText(message.parts)
+          return message.role === 'user' ? (
             <div key={message.id} className="flex justify-end">
               <div className="bg-accent max-w-[85%] rounded-lg px-3 py-2">
-                <p className="text-accent-foreground text-sm whitespace-pre-wrap">
-                  {message.content as string}
-                </p>
+                <p className="text-accent-foreground text-sm whitespace-pre-wrap">{text}</p>
               </div>
             </div>
           ) : (
             <div key={message.id} className="flex justify-start">
               <div className="max-w-[85%] space-y-2">
-                {message.content && (
+                {text && (
                   <div className="bg-surface-raised rounded-lg px-3 py-2">
-                    <p className="text-foreground text-sm whitespace-pre-wrap">
-                      {message.content as string}
-                    </p>
+                    <p className="text-foreground text-sm whitespace-pre-wrap">{text}</p>
                   </div>
                 )}
-                {message.toolInvocations
-                  ?.filter((t: ToolInvocation) => t.state === 'result')
-                  .map((t: ToolInvocation) => (
+                {message.parts.map((part) => {
+                  const toolResult = toToolResultPart(part)
+                  if (!toolResult) return null
+                  return (
                     <ToolResultRenderer
-                      key={t.toolCallId}
-                      toolInvocation={t as ToolInvocation & { state: 'result' }}
+                      key={toolResult.toolCallId}
+                      toolInvocation={toolResult}
                       append={append}
                       onScheduleUpdate={onScheduleUpdate}
                       onItemConfirmed={onItemConfirmed}
@@ -108,11 +127,12 @@ export function ChatMessagesPanel({
                       onEventResolved={onEventResolved}
                       inlineDayPreview={inlineDayPreview}
                     />
-                  ))}
+                  )
+                })}
               </div>
             </div>
-          ),
-        )}
+          )
+        })}
         {carriedProposals?.map((p) => (
           <div key={p.toolCallId} className="flex justify-start">
             <div className="max-w-[85%]">

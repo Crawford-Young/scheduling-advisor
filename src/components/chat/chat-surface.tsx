@@ -1,13 +1,18 @@
 'use client'
 import * as React from 'react'
 import Link from 'next/link'
-import { useChat } from 'ai/react'
+import { useChat } from '@ai-sdk/react'
+import { DefaultChatTransport } from 'ai'
+import type { UIMessage } from 'ai'
 import { ChatMessagesPanel } from '@/components/chat/chat-messages-panel'
 import type { AppEvent, CreatedEvent, EventProposal } from '@/components/chat/tool-result-renderer'
+import type { ChatAppendMessage } from '@/components/chat/event-proposal-card'
 import type { ConversationMessage } from '@/server/queries/conversations'
+import { extractText } from '@/lib/chat/message-content'
 import { getTokenBalanceAction } from '@/server/actions/tokens'
 import { setConversationTitle } from '@/server/actions/conversations'
 
+const CHAT_API_ROUTE = '/api/chat'
 const MIN_TITLE_MESSAGE_COUNT = 2
 const TITLE_MAX_LENGTH = 60
 const MIN_TOKEN_BALANCE = 1
@@ -54,11 +59,44 @@ export function ChatSurface({
   const [conversationId, setConversationId] = React.useState<string | null>(
     conversation?.id ?? null,
   )
+  // ai@7's useChat no longer owns the input — controlled input is the caller's.
+  const [input, setInput] = React.useState('')
 
-  const { messages, input, setInput, handleSubmit, isLoading, append, error, reload } = useChat({
-    api: '/api/chat',
-    initialMessages: initialMessages.map((m) => ({ id: m.id, role: m.role, content: m.content })),
-    body: { conversationId },
+  // DefaultChatTransport sends UIMessage-shaped messages (with `parts`) by
+  // default, but the /api/chat route validates a `{ role, content }[]` body.
+  // prepareSendMessagesRequest flattens each message's text parts back to a
+  // string so the wire format matches the server zod schema; `conversationId`
+  // rides through the transport body (per-send override handles lazy create).
+  const transport = React.useMemo(
+    () =>
+      new DefaultChatTransport<UIMessage>({
+        api: CHAT_API_ROUTE,
+        body: { conversationId },
+        prepareSendMessagesRequest: ({ messages: outgoing, body }) => ({
+          body: {
+            ...body,
+            messages: outgoing.map((m) => ({ role: m.role, content: extractText(m.parts) })),
+          },
+        }),
+      }),
+    [conversationId],
+  )
+
+  // Replayed history is text-only (proposeEvent tool blocks are never
+  // persisted), mapped into the ai@7 UIMessage shape ({ parts: [text] }).
+  const replayedMessages = React.useMemo<UIMessage[]>(
+    () =>
+      initialMessages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        parts: [{ type: 'text' as const, text: m.content }],
+      })),
+    [initialMessages],
+  )
+
+  const { messages, sendMessage, regenerate, status, error } = useChat<UIMessage>({
+    transport,
+    messages: replayedMessages,
     onFinish: async () => {
       try {
         const balance = await getTokenBalanceAction()
@@ -70,6 +108,18 @@ export function ChatSurface({
     },
   })
 
+  const isLoading = status === 'submitted' || status === 'streaming'
+
+  // Card-driven transcript lines ([CONFIRMED]/[DENY]/[CONFIRM]) are user turns;
+  // ai@7 has no `append`, so wrap `sendMessage`. The conversation already exists
+  // by the time a card resolves, so the transport body carries its id.
+  const append = React.useCallback(
+    (message: ChatAppendMessage): void => {
+      void sendMessage({ text: message.content })
+    },
+    [sendMessage],
+  )
+
   const activeConversationId = conversation?.id ?? null
   const activeConversationTitle = conversation?.title ?? null
 
@@ -79,13 +129,17 @@ export function ChatSurface({
     if (messages.length < MIN_TITLE_MESSAGE_COUNT) return
     const firstUser = messages.find((m) => m.role === 'user')
     if (!firstUser) return
-    const title = (firstUser.content as string).slice(0, TITLE_MAX_LENGTH)
+    const title = extractText(firstUser.parts).slice(0, TITLE_MAX_LENGTH)
     void setConversationTitle(activeConversationId, title)
   }, [messages, activeConversationId, activeConversationTitle])
 
   React.useEffect(() => {
     if (prefill === undefined) return
     if (input !== '') return
+    // Sync an external prefill prop (a quick-action deep link) into the composer
+    // exactly once per prefill change — prop→state synchronization, not a value
+    // derivable during render, so it belongs in an effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setInput(prefill)
     // input/setInput intentionally omitted: the prefill seeds the input only when it changes,
     // never re-firing while the user edits the input afterwards.
@@ -93,13 +147,17 @@ export function ChatSurface({
   }, [prefill])
 
   async function submit(e?: React.FormEvent): Promise<void> {
+    e?.preventDefault()
+    const text = input.trim()
+    if (text === '') return
     let id = conversationId
     if (id === null) {
       const created = await onEnsureConversation!()
       id = created.id
       setConversationId(id)
     }
-    handleSubmit(e, { body: { conversationId: id } })
+    setInput('')
+    await sendMessage({ text }, { body: { conversationId: id } })
   }
 
   const zeroBalanceCta = (
@@ -134,7 +192,7 @@ export function ChatSurface({
       inlineDayPreview={inlineDayPreview}
       inputReplacement={tokenBalance < MIN_TOKEN_BALANCE ? zeroBalanceCta : undefined}
       error={error}
-      onRetry={reload}
+      onRetry={regenerate}
     />
   )
 }
