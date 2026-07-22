@@ -1,8 +1,8 @@
 'use client'
 import * as React from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { Maximize2, Plus, X } from 'lucide-react'
-import { Button, ChatFab, Spinner } from '@/lib/ui'
+import { Maximize2, Plus } from 'lucide-react'
+import { Button, ChatFab, ChatPanel, Spinner } from '@/lib/ui'
 import { ChatSurface } from '@/components/chat/chat-surface'
 import { ModelTierSelect } from '@/components/chat/model-tier-select'
 import { useFabPosition } from '@/components/chat/use-fab-position'
@@ -121,10 +121,6 @@ export function ChatPopup(): React.JSX.Element | null {
     pendingProposalsRef.current.delete(toolCallId)
   }
 
-  function handleClose(): void {
-    setIsOpen(false)
-  }
-
   function handleModelChange(tier: ModelTier): void {
     setModel(tier)
     if (conversation) void setConversationModel(conversation.id, tier)
@@ -146,69 +142,65 @@ export function ChatPopup(): React.JSX.Element | null {
         onPointerMove={fabHandlers.onPointerMove}
         onPointerUp={fabHandlers.onPointerUp}
       >
-        <ChatFab className={fabStyle ? 'static' : undefined} onClick={handleFabClick} />
+        <ChatFab position={fabStyle ? 'static' : 'fixed'} onClick={handleFabClick} />
       </div>
     )
   }
 
   return (
-    <div
-      data-testid="chat-popup-panel"
+    <ChatPanel
+      open={isOpen}
+      onOpenChange={setIsOpen}
+      title="Cy assistant"
+      modal={false}
       role="dialog"
-      aria-label="Cy assistant"
+      data-testid="chat-popup-panel"
       style={panelStyle}
-      className="border-border bg-background fixed right-6 bottom-6 z-50 flex h-[560px] w-[380px] flex-col overflow-hidden rounded-lg border shadow-xl"
-    >
-      <div className="border-border flex items-center gap-2 border-b p-3">
+      className="border-border bg-background inset-y-auto right-6 bottom-6 h-[560px] w-[380px] rounded-lg border shadow-xl"
+      header={
         <h2
           data-testid="chat-popup-title"
           className="min-w-0 flex-1 truncate text-sm font-semibold"
         >
           {conversation?.title ?? UNTITLED_CONVERSATION_TITLE}
         </h2>
-        <Button type="button" variant="ghost" size="sm" onClick={handleNewChat}>
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          New chat
-        </Button>
-        <ModelTierSelect value={model} onChange={handleModelChange} />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="Expand to full chat"
-          onClick={() => void handleExpand()}
-        >
-          <Maximize2 className="h-4 w-4" aria-hidden="true" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="Close chat"
-          onClick={handleClose}
-        >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </Button>
-      </div>
-      <div className="flex-1 overflow-hidden">
-        {isLoading ? (
-          <div className="flex h-full items-center justify-center">
-            <Spinner />
-          </div>
-        ) : (
-          <ChatSurface
-            key={surfaceKey}
-            conversation={conversation}
-            initialMessages={messages}
-            initialTokenBalance={tokenBalance}
-            prefill={prefill}
-            onEnsureConversation={ensureConversation}
-            onEventProposed={handleEventProposed}
-            onEventResolved={handleEventResolved}
-            inlineDayPreview
-          />
-        )}
-      </div>
-    </div>
+      }
+      actions={
+        <>
+          <Button type="button" variant="ghost" size="sm" onClick={handleNewChat}>
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            New chat
+          </Button>
+          <ModelTierSelect value={model} onChange={handleModelChange} />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Expand to full chat"
+            onClick={() => void handleExpand()}
+          >
+            <Maximize2 className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        </>
+      }
+    >
+      {isLoading ? (
+        <div className="flex h-full items-center justify-center">
+          <Spinner />
+        </div>
+      ) : (
+        <ChatSurface
+          key={surfaceKey}
+          conversation={conversation}
+          initialMessages={messages}
+          initialTokenBalance={tokenBalance}
+          prefill={prefill}
+          onEnsureConversation={ensureConversation}
+          onEventProposed={handleEventProposed}
+          onEventResolved={handleEventResolved}
+          inlineDayPreview
+        />
+      )}
+    </ChatPanel>
   )
 }
