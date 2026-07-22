@@ -171,7 +171,7 @@ describe('buildChatTools (activity model)', () => {
   })
 
   describe('proposeEvent schema', () => {
-    const schema = buildChatTools('u1').proposeEvent.parameters as z.ZodTypeAny
+    const schema = buildChatTools('u1').proposeEvent.inputSchema as z.ZodTypeAny
     const valid = { title: 'Standup', date: '2026-01-01', start: '09:00', end: '09:15' }
 
     it('accepts a valid event with optional description omitted', () => {

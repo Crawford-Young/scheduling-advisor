@@ -1,4 +1,4 @@
-import { tool, jsonSchema, type CoreTool } from 'ai'
+import { tool, jsonSchema, type Tool } from 'ai'
 import { z } from 'zod'
 import { and, asc, eq, gte, lt } from 'drizzle-orm'
 import { db } from '@/db'
@@ -25,7 +25,7 @@ export const CHAT_TOOL_NAMES = [
 ] as const
 
 export type ChatToolName = (typeof CHAT_TOOL_NAMES)[number]
-export type ChatToolSet = Record<ChatToolName, CoreTool>
+export type ChatToolSet = Record<ChatToolName, Tool>
 
 const MINUTES_IN_DAY = 1440
 
@@ -63,7 +63,7 @@ export function buildChatTools(userId: string): ChatToolSet {
     getWeekSchedule: tool({
       description:
         "Get this user's events and activity templates for the week containing the given date. Prefer the context block for the current week; call this only for other weeks.",
-      parameters: z.object({
+      inputSchema: z.object({
         weekStart: z.string().describe('ISO date of any day inside the desired week'),
       }),
       execute: async ({ weekStart }) => {
@@ -83,13 +83,13 @@ export function buildChatTools(userId: string): ChatToolSet {
     }),
     getActivities: tool({
       description: 'Get all of this user’s activity templates (recurring session definitions).',
-      parameters: z.object({}),
+      inputSchema: z.object({}),
       execute: async () => getUserActivities(),
     }),
     // ── Display tools ───────────────────────────────────────────────────────
     showWeekCalendar: tool({
       description: 'Display a week calendar view',
-      parameters: jsonSchema({
+      inputSchema: jsonSchema({
         type: 'object',
         properties: {
           weekStart: { type: 'string' },
@@ -114,7 +114,7 @@ export function buildChatTools(userId: string): ChatToolSet {
     }),
     showScheduleSuggestion: tool({
       description: 'Display scheduling time slot suggestions',
-      parameters: jsonSchema({
+      inputSchema: jsonSchema({
         type: 'object',
         properties: {
           taskId: { type: 'string' },
@@ -139,7 +139,7 @@ export function buildChatTools(userId: string): ChatToolSet {
     showLifeBalance: tool({
       description:
         'Display a life balance pie chart. Populate categories from the minutes spent across this week’s events and activities.',
-      parameters: jsonSchema({
+      inputSchema: jsonSchema({
         type: 'object',
         properties: {
           categories: {
@@ -163,7 +163,7 @@ export function buildChatTools(userId: string): ChatToolSet {
     proposeAction: tool({
       description:
         'Propose an action for user confirmation before executing. ALWAYS call this before any mutation. Renders an ActionConfirmCard in the UI.',
-      parameters: z.object({
+      inputSchema: z.object({
         action: z.string(),
         entityType: z.enum(['activity', 'event']),
         entityId: z.string().optional(),
@@ -176,7 +176,7 @@ export function buildChatTools(userId: string): ChatToolSet {
     proposeEvent: tool({
       description:
         'Propose a calendar event for user approval. ALWAYS use this for calendar events instead of proposeAction/createEvent. Renders an approval card with a day preview. The event is created only after the user approves. For a repeated/recurring request ("every weekday", "daily for a month"), make ONE call with the recurrence fields — NEVER multiple proposeEvent calls for individual occurrences. Set `recurrence` to daily/weekly/monthly. recurrenceCount: for weekly = number of WEEKS the pattern repeats; for daily = number of days; for monthly = number of months. Use recurrenceDays only for weekly. `date` is the first occurrence.',
-      parameters: z
+      inputSchema: z
         .object({
           title: z.string().min(1),
           date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -196,7 +196,7 @@ export function buildChatTools(userId: string): ChatToolSet {
     createActivity: tool({
       description:
         'Create a recurring activity template. It fans out into concrete events on the user’s calendar per its weekly schedule.',
-      parameters: z.object({
+      inputSchema: z.object({
         title: z.string(),
         color: z.string().optional(),
         description: z.string().optional(),
@@ -211,19 +211,19 @@ export function buildChatTools(userId: string): ChatToolSet {
     }),
     createEvent: tool({
       description: 'Create a single standalone event on the calendar.',
-      parameters: eventInputSchema,
+      inputSchema: eventInputSchema,
       execute: async (props) => createEvent(props),
     }),
     createEvents: tool({
       description:
         'Create several independent events in one call (e.g. a workout on Mon/Wed/Fri). Each event is its own standalone row — there is no recurrence linkage between them.',
-      parameters: z.object({ events: z.array(eventInputSchema).min(1) }),
+      inputSchema: z.object({ events: z.array(eventInputSchema).min(1) }),
       execute: async (props) => createEvents(props),
     }),
     updateEvent: tool({
       description:
         'Edit a single event. Only the provided fields change; siblings are never touched.',
-      parameters: eventInputSchema.partial().extend({
+      inputSchema: eventInputSchema.partial().extend({
         id: z.string(),
         status: z.enum(['pending', 'completed']).optional(),
         locked: z.boolean().optional(),
@@ -232,15 +232,12 @@ export function buildChatTools(userId: string): ChatToolSet {
     }),
     deleteEvent: tool({
       description: 'Delete a single event.',
-      parameters: z.object({ id: z.string() }),
+      inputSchema: z.object({ id: z.string() }),
       execute: async (props) => deleteEvent(props),
     }),
   }
 }
 
-export function pickTools(
-  all: ChatToolSet,
-  names: readonly ChatToolName[],
-): Record<string, CoreTool> {
+export function pickTools(all: ChatToolSet, names: readonly ChatToolName[]): Record<string, Tool> {
   return Object.fromEntries(names.map((n) => [n, all[n]]))
 }
