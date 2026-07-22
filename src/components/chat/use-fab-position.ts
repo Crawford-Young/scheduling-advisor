@@ -18,6 +18,12 @@ const PANEL_HEIGHT_PX = 560
 const STORAGE_KEY = 'chat-fab-position'
 const HALF = 0.5
 const SIDEBAR_SELECTOR = 'aside[aria-label="Main sidebar"]'
+// The snap glide can span up to a full viewport, so it errs toward the slow
+// end of a "spatial move" (300-450ms) to read as an intentional lock-in
+// rather than a snap-jitter.
+export const SNAP_TRANSITION_MS = 380
+const SNAP_TRANSITION_EASE = 'ease-out'
+const SNAP_TRANSITION = `left ${SNAP_TRANSITION_MS}ms ${SNAP_TRANSITION_EASE}, top ${SNAP_TRANSITION_MS}ms ${SNAP_TRANSITION_EASE}`
 
 export type FabCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
 
@@ -140,6 +146,17 @@ function readSidebarWidth(): number {
   return aside ? aside.getBoundingClientRect().width : 0
 }
 
+// Read only from the release event handler, never during render -- same
+// SSR-safe discipline as the other window reads above. A missing matchMedia
+// implementation (older browsers) degrades to "no reduced-motion preference"
+// rather than throwing; happy-dom always implements matchMedia as a function,
+// so that half of the guard is not exercisable in the test environment --
+// accepted per-line branch coverage gap, same class as the other SSR guards.
+function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
 // Left travel limit: the fab/panel stops just clear of the sidebar, never on it.
 function leftBoundary(sidebarWidth: number): number {
   return sidebarWidth + BAR_GAP_PX
@@ -249,10 +266,21 @@ export function useFabPosition(): UseFabPositionResult {
   const [viewport, setViewport] = React.useState<ViewportSize>(EMPTY_VIEWPORT)
   const [sidebarWidth, setSidebarWidth] = React.useState(0)
   const [liveDrag, setLiveDrag] = React.useState<FabPixelPosition | null>(null)
+  // True only while the post-release glide into the snapped corner is
+  // playing; gates the CSS `transition` on fabStyle. Never true on the
+  // hydration/mount render -- only handlePointerUp sets it.
+  const [isSettling, setIsSettling] = React.useState(false)
   const { width: viewportWidth, height: viewportHeight } = viewport
 
   const dragRef = React.useRef<DragState | null>(null)
   const pendingConsumeRef = React.useRef(false)
+  const settleTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  React.useEffect(() => {
+    return () => {
+      if (settleTimeoutRef.current !== null) clearTimeout(settleTimeoutRef.current)
+    }
+  }, [])
 
   React.useEffect(() => {
     // Deliberate post-mount browser read. Reading localStorage/viewport during
@@ -300,6 +328,14 @@ export function useFabPosition(): UseFabPositionResult {
       // at every drag start; the origin still reads from the pre-measure pixel
       // (where the fab visually sits right now).
       setSidebarWidth(readSidebarWidth())
+      // Grabbing the fab again mid-glide cancels the in-flight settle
+      // animation immediately, so the drag resumes from a non-transitioning
+      // style (matches requirement: no transition while dragging).
+      if (settleTimeoutRef.current !== null) {
+        clearTimeout(settleTimeoutRef.current)
+        settleTimeoutRef.current = null
+      }
+      setIsSettling(false)
       // Do NOT capture the pointer here: capturing on pointer-down retargets the
       // synthetic click to this wrapper, so the ChatFab button never receives it
       // and a plain click can no longer open the panel. Capture lazily in the
@@ -364,6 +400,24 @@ export function useFabPosition(): UseFabPositionResult {
         setStoredPosition(nextPosition)
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextPosition))
         pendingConsumeRef.current = true
+
+        // No stale timeout to clear here: handlePointerDown already clears any
+        // pending settle timeout at the start of every new drag, and dragRef
+        // being reset to null at the top of this handler makes a second
+        // handlePointerUp call (without an intervening pointerDown) a no-op.
+        if (prefersReducedMotion()) {
+          // Reduced motion: keep today's instant-snap behavior.
+          setIsSettling(false)
+        } else {
+          setIsSettling(true)
+          // happy-dom (and older browsers) never fire `transitionend`, so the
+          // settle window is cleared by a timeout matched to the CSS
+          // transition duration rather than a DOM listener.
+          settleTimeoutRef.current = setTimeout(() => {
+            setIsSettling(false)
+            settleTimeoutRef.current = null
+          }, SNAP_TRANSITION_MS)
+        }
       }
       setLiveDrag(null)
     },
@@ -377,10 +431,18 @@ export function useFabPosition(): UseFabPositionResult {
   }, [])
 
   const fabStyle = React.useMemo<React.CSSProperties | undefined>(() => {
+    // Mid-drag: track the pointer 1:1, no transition -- a live drag always
+    // wins over isSettling (a fresh grab already clears isSettling in
+    // handlePointerDown, but this keeps the invariant structural too).
     if (liveDrag) return { position: 'fixed', left: liveDrag.left, top: liveDrag.top }
     if (!storedPosition) return undefined
-    return { position: 'fixed', left: currentPixel.left, top: currentPixel.top }
-  }, [liveDrag, storedPosition, currentPixel])
+    const settled: React.CSSProperties = {
+      position: 'fixed',
+      left: currentPixel.left,
+      top: currentPixel.top,
+    }
+    return isSettling ? { ...settled, transition: SNAP_TRANSITION } : settled
+  }, [liveDrag, storedPosition, currentPixel, isSettling])
 
   const panelStyle = React.useMemo<React.CSSProperties | undefined>(() => {
     if (!storedPosition) return undefined
