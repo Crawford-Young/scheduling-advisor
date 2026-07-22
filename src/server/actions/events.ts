@@ -7,6 +7,7 @@ import { and, eq } from 'drizzle-orm'
 import { ratelimit } from '@/lib/redis'
 import { logger } from '@/lib/logger'
 import { createEventSchema, updateEventSchema, deleteEventSchema } from '@/lib/schemas/event'
+import { geocodeForSave } from '@/server/travel'
 
 type EventRow = (typeof events)['$inferSelect']
 type EventInsert = (typeof events)['$inferInsert']
@@ -55,6 +56,7 @@ export async function createEvent(input: unknown): Promise<EventActionResult> {
       title: data.title,
       description: data.description ?? null,
       location: data.location ?? null,
+      ...(await geocodeForSave(userId, data.location ?? null)),
       startAt: data.startAt ? new Date(data.startAt) : null,
       endAt: data.endAt ? new Date(data.endAt) : null,
       allDay: data.allDay ?? false,
@@ -125,7 +127,17 @@ export async function updateEvent(input: unknown): Promise<EventActionResult> {
   if (fields.title !== undefined) updateValues.title = fields.title
   if (fields.activityId !== undefined) updateValues.activityId = fields.activityId
   if (fields.description !== undefined) updateValues.description = fields.description
-  if (fields.location !== undefined) updateValues.location = fields.location
+  if (fields.location !== undefined) {
+    updateValues.location = fields.location
+    // Re-geocode ONLY when the location text actually changed — an unchanged
+    // (or omitted) location preserves the stored coords, and a cleared
+    // location resolves to null coords via geocodeForSave's empty-text guard.
+    if (fields.location !== current.location) {
+      const { locationLat, locationLng } = await geocodeForSave(userId, fields.location)
+      updateValues.locationLat = locationLat
+      updateValues.locationLng = locationLng
+    }
+  }
   if (fields.startAt !== undefined) {
     updateValues.startAt = fields.startAt ? new Date(fields.startAt) : null
   }

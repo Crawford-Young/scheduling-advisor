@@ -24,6 +24,12 @@ const mockDeleteWhere = vi.hoisted(() =>
 )
 const mockDelete = vi.hoisted(() => vi.fn().mockReturnValue({ where: mockDeleteWhere }))
 
+const mockGeocodeForSave = vi.hoisted(() => vi.fn())
+
+vi.mock('@/server/travel', () => ({
+  geocodeForSave: mockGeocodeForSave,
+}))
+
 vi.mock('@/auth', () => ({
   auth: vi.fn().mockResolvedValue({ user: { id: 'user-123' } }),
 }))
@@ -57,9 +63,13 @@ vi.mock('drizzle-orm', () => ({
 }))
 
 import { createEvent, updateEvent, deleteEvent } from '@/server/actions/events'
+import { geocodeForSave } from '@/server/travel'
 import { revalidatePath } from 'next/cache'
 import { events } from '@/db/schema'
 import { eq } from 'drizzle-orm'
+
+const NULL_COORDS = { locationLat: null, locationLng: null }
+const REAL_COORDS = { locationLat: 40.7829, locationLng: -73.9654 }
 
 const VALID_ID = '550e8400-e29b-41d4-a716-446655440000'
 const ACTIVITY_ID = '660e8400-e29b-41d4-a716-446655440001'
@@ -100,6 +110,8 @@ describe('createEvent', () => {
     // Default: any activityId ownership check resolves "owned" — individual
     // tests override with mockResolvedValueOnce([]) to simulate a miss.
     mockSelectLimit.mockResolvedValue([{ id: ACTIVITY_ID }])
+    // Default: geocode yields nulls (free user / empty text / geocode failure).
+    mockGeocodeForSave.mockResolvedValue(NULL_COORDS)
   })
 
   it('returns Unauthorized when no session', async () => {
@@ -219,6 +231,37 @@ describe('createEvent', () => {
     expect(mockInsert).toHaveBeenCalledWith(events)
     expect(result).toEqual({ data: inserted })
   })
+
+  describe('geocode-on-save (A4)', () => {
+    it('paid user + location text → insert gets the real coords, geocoded off the session id', async () => {
+      mockGeocodeForSave.mockResolvedValueOnce(REAL_COORDS)
+
+      await createEvent({ title: 'Lunch', location: 'Central Park, NYC' })
+
+      expect(geocodeForSave).toHaveBeenCalledWith('user-123', 'Central Park, NYC')
+      expect(mockInsertValues).toHaveBeenCalledWith(
+        expect.objectContaining({ location: 'Central Park, NYC', ...REAL_COORDS }),
+      )
+    })
+
+    it('free user / geocode failure → insert gets null coords but still succeeds', async () => {
+      mockGeocodeForSave.mockResolvedValueOnce(NULL_COORDS)
+      const inserted = eventRow({ id: 'evt-free' })
+      mockInsertReturning.mockResolvedValueOnce([inserted])
+
+      const result = await createEvent({ title: 'Lunch', location: 'Somewhere' })
+
+      expect(mockInsertValues).toHaveBeenCalledWith(expect.objectContaining({ ...NULL_COORDS }))
+      expect(result).toEqual({ data: inserted })
+    })
+
+    it('no location → geocode is still called (returns nulls for empty text)', async () => {
+      await createEvent({ title: 'Lunch' })
+
+      expect(geocodeForSave).toHaveBeenCalledWith('user-123', null)
+      expect(mockInsertValues).toHaveBeenCalledWith(expect.objectContaining({ ...NULL_COORDS }))
+    })
+  })
 })
 
 describe('updateEvent', () => {
@@ -229,6 +272,7 @@ describe('updateEvent', () => {
     // check. This default satisfies both with a valid, ownable row.
     mockSelectLimit.mockResolvedValue([eventRow()])
     mockUpdateReturning.mockResolvedValue([eventRow()])
+    mockGeocodeForSave.mockResolvedValue(NULL_COORDS)
   })
 
   it('returns Unauthorized when no session', async () => {
@@ -483,6 +527,57 @@ describe('updateEvent', () => {
       expect(mockSelect).toHaveBeenCalledTimes(1)
       expect(mockUpdateSet).toHaveBeenCalledWith(expect.objectContaining({ activityId: null }))
       expect(result).toEqual({ data: eventRow({ activityId: null }) })
+    })
+  })
+
+  describe('geocode-on-save (A4) — geocode ONLY when the location field changed', () => {
+    it('re-geocodes when location changes and writes the new coords', async () => {
+      mockSelectLimit.mockResolvedValueOnce([eventRow({ location: 'Old place' })])
+      mockGeocodeForSave.mockResolvedValueOnce(REAL_COORDS)
+      mockUpdateReturning.mockResolvedValueOnce([eventRow({ location: 'New place' })])
+
+      await updateEvent({ id: VALID_ID, location: 'New place' })
+
+      expect(geocodeForSave).toHaveBeenCalledWith('user-123', 'New place')
+      expect(mockUpdateSet).toHaveBeenCalledWith(
+        expect.objectContaining({ location: 'New place', ...REAL_COORDS }),
+      )
+    })
+
+    it('does NOT geocode when the location value is unchanged (same string re-sent)', async () => {
+      mockSelectLimit.mockResolvedValueOnce([eventRow({ location: 'Same place' })])
+      mockUpdateReturning.mockResolvedValueOnce([eventRow({ location: 'Same place' })])
+
+      await updateEvent({ id: VALID_ID, location: 'Same place' })
+
+      expect(geocodeForSave).not.toHaveBeenCalled()
+      expect(mockUpdateSet).toHaveBeenCalledWith(
+        expect.not.objectContaining({ locationLat: expect.anything() }),
+      )
+    })
+
+    it('does NOT geocode when location is omitted from the payload', async () => {
+      mockSelectLimit.mockResolvedValueOnce([eventRow({ location: 'Kept place' })])
+
+      await updateEvent({ id: VALID_ID, title: 'Retitle only' })
+
+      expect(geocodeForSave).not.toHaveBeenCalled()
+      expect(mockUpdateSet).toHaveBeenCalledWith(
+        expect.not.objectContaining({ locationLat: expect.anything() }),
+      )
+    })
+
+    it('nulls the coords when location is cleared to null', async () => {
+      mockSelectLimit.mockResolvedValueOnce([eventRow({ location: 'Old place' })])
+      mockGeocodeForSave.mockResolvedValueOnce(NULL_COORDS)
+      mockUpdateReturning.mockResolvedValueOnce([eventRow({ location: null })])
+
+      await updateEvent({ id: VALID_ID, location: null })
+
+      expect(geocodeForSave).toHaveBeenCalledWith('user-123', null)
+      expect(mockUpdateSet).toHaveBeenCalledWith(
+        expect.objectContaining({ location: null, ...NULL_COORDS }),
+      )
     })
   })
 })

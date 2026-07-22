@@ -21,6 +21,8 @@ function makeActivity(overrides: Partial<GenerationActivity> = {}): GenerationAc
     title: 'Gym',
     description: null,
     defaultLocation: null,
+    locationLat: null,
+    locationLng: null,
     color: null,
     schedule: [],
     timeZone: null,
@@ -82,6 +84,8 @@ describe('generateEventSeeds', () => {
         title: 'Gym',
         description: null,
         location: null,
+        locationLat: null,
+        locationLng: null,
         color: null,
         startAt: new Date('2026-01-05T10:00:00.000Z'),
         endAt: new Date('2026-01-05T11:00:00.000Z'),
@@ -90,6 +94,8 @@ describe('generateEventSeeds', () => {
         title: 'Gym',
         description: null,
         location: null,
+        locationLat: null,
+        locationLng: null,
         color: null,
         startAt: new Date('2026-01-12T10:00:00.000Z'),
         endAt: new Date('2026-01-12T11:00:00.000Z'),
@@ -116,11 +122,34 @@ describe('generateEventSeeds', () => {
         title: 'Morning Run',
         description: 'Easy 5k',
         location: 'Riverside Park',
+        locationLat: null,
+        locationLng: null,
         color: '#ff8800',
         startAt: new Date('2026-01-07T06:00:00.000Z'),
         endAt: new Date('2026-01-07T06:45:00.000Z'),
       },
     ])
+  })
+
+  it('copies the activity stored coords (locationLat/locationLng) onto every seed', () => {
+    const activity = makeActivity({
+      defaultLocation: 'Riverside Park',
+      locationLat: 40.7829,
+      locationLng: -73.9654,
+      schedule: [slot(1, 600)], // Monday 10:00 UTC
+      timeZone: null,
+    })
+    const window: GenerationWindow = {
+      from: new Date('2026-01-05T00:00:00.000Z'),
+      to: new Date('2026-01-19T00:00:00.000Z'), // Mondays 05, 12
+    }
+    const seeds = generateEventSeeds({ activity, window })
+    expect(seeds).toHaveLength(2)
+    for (const seed of seeds) {
+      expect(seed.location).toBe('Riverside Park')
+      expect(seed.locationLat).toBe(40.7829)
+      expect(seed.locationLng).toBe(-73.9654)
+    }
   })
 
   it('high-water mark excludes already-covered slots, includes only strictly-after', () => {

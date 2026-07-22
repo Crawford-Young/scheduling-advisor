@@ -29,11 +29,18 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn((col: unknown, vals: unknown) => ({ op: 'inArray', col, vals })),
 }))
 
+const mockGeocodeForSave = vi.hoisted(() => vi.fn())
+vi.mock('@/server/travel', () => ({
+  geocodeForSave: mockGeocodeForSave,
+}))
+
 import { createEvents } from '@/server/actions/chat-mutations'
+import { geocodeForSave } from '@/server/travel'
 import { revalidatePath } from 'next/cache'
 import { events } from '@/db/schema'
 
 const ACTIVITY_ID = '660e8400-e29b-41d4-a716-446655440001'
+const NULL_COORDS = { locationLat: null, locationLng: null }
 
 function insertedRow(id: string): Record<string, unknown> {
   return {
@@ -63,6 +70,7 @@ describe('createEvents (mass tool)', () => {
     // Default: any activityId referenced in a batch resolves "owned" —
     // ownership-specific tests override with mockResolvedValueOnce([]).
     mockSelectWhere.mockResolvedValue([{ id: ACTIVITY_ID }])
+    mockGeocodeForSave.mockResolvedValue(NULL_COORDS)
   })
 
   it('returns Unauthorized when no session', async () => {
@@ -212,6 +220,42 @@ describe('createEvents (mass tool)', () => {
 
       expect(mockInsert).toHaveBeenCalledWith(events)
       expect(result).toEqual({ data: inserted })
+    })
+  })
+
+  describe('geocode-on-save (A4) — one geocode per DISTINCT location string', () => {
+    it('geocodes each distinct location once and maps coords back to every row', async () => {
+      mockGeocodeForSave.mockImplementation(async (_userId: string, loc: string | null) => {
+        if (loc === 'Central Park') return { locationLat: 40.7829, locationLng: -73.9654 }
+        if (loc === 'Times Square') return { locationLat: 40.758, locationLng: -73.9855 }
+        return NULL_COORDS
+      })
+
+      await createEvents({
+        events: [
+          { title: 'Run 1', location: 'Central Park' },
+          { title: 'Run 2', location: 'Central Park' },
+          { title: 'Walk', location: 'Times Square' },
+        ],
+      })
+
+      // Two distinct strings → exactly two geocode calls (never once per row).
+      expect(geocodeForSave).toHaveBeenCalledTimes(2)
+      expect(geocodeForSave).toHaveBeenCalledWith('user-123', 'Central Park')
+      expect(geocodeForSave).toHaveBeenCalledWith('user-123', 'Times Square')
+
+      const valuesArg = mockInsertValues.mock.calls[0]![0] as Array<Record<string, unknown>>
+      expect(valuesArg[0]).toMatchObject({ locationLat: 40.7829, locationLng: -73.9654 })
+      expect(valuesArg[1]).toMatchObject({ locationLat: 40.7829, locationLng: -73.9654 })
+      expect(valuesArg[2]).toMatchObject({ locationLat: 40.758, locationLng: -73.9855 })
+    })
+
+    it('rows with no location get null coords and are not geocoded', async () => {
+      await createEvents({ events: [{ title: 'No place' }] })
+
+      expect(geocodeForSave).not.toHaveBeenCalled()
+      const valuesArg = mockInsertValues.mock.calls[0]![0] as Array<Record<string, unknown>>
+      expect(valuesArg[0]).toMatchObject({ locationLat: null, locationLng: null })
     })
   })
 })

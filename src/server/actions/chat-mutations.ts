@@ -7,10 +7,18 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { ratelimit } from '@/lib/redis'
 import { logger } from '@/lib/logger'
 import { createEventSchema } from '@/lib/schemas/event'
+import { geocodeForSave } from '@/server/travel'
 import { z } from 'zod'
 
 type EventRow = (typeof events)['$inferSelect']
 type CreateEventsResult = { data: EventRow[] } | { error: unknown }
+
+interface Coords {
+  readonly locationLat: number | null
+  readonly locationLng: number | null
+}
+
+const NULL_COORDS: Coords = { locationLat: null, locationLng: null }
 
 // Cap a single bulk call — the mass tool is a convenience for "schedule this a
 // few times", not a bulk-import endpoint. Kept module-private ('use server'
@@ -65,17 +73,37 @@ export async function createEvents(input: unknown): Promise<CreateEventsResult> 
     }
   }
 
-  const rows = parsed.data.events.map((event) => ({
-    userId,
-    activityId: event.activityId ?? null,
-    title: event.title,
-    description: event.description ?? null,
-    location: event.location ?? null,
-    startAt: event.startAt ? new Date(event.startAt) : null,
-    endAt: event.endAt ? new Date(event.endAt) : null,
-    allDay: event.allDay ?? false,
-    color: event.color ?? null,
-  }))
+  // Geocode each DISTINCT non-empty location string exactly once (a batch may
+  // repeat the same place across many rows), then map the resolved coords back
+  // onto every row. geocodeForSave runs its own per-call plan gate internally.
+  const uniqueLocations = [
+    ...new Set(
+      parsed.data.events
+        .map((event) => event.location)
+        .filter((loc): loc is string => loc != null && loc.trim() !== ''),
+    ),
+  ]
+  const resolved = await Promise.all(uniqueLocations.map((loc) => geocodeForSave(userId, loc)))
+  const coordsByLocation = new Map<string, Coords>()
+  uniqueLocations.forEach((loc, i) => coordsByLocation.set(loc, resolved[i] ?? NULL_COORDS))
+
+  const rows = parsed.data.events.map((event) => {
+    const location = event.location ?? null
+    const coords = (location != null && coordsByLocation.get(location)) || NULL_COORDS
+    return {
+      userId,
+      activityId: event.activityId ?? null,
+      title: event.title,
+      description: event.description ?? null,
+      location,
+      locationLat: coords.locationLat,
+      locationLng: coords.locationLng,
+      startAt: event.startAt ? new Date(event.startAt) : null,
+      endAt: event.endAt ? new Date(event.endAt) : null,
+      allDay: event.allDay ?? false,
+      color: event.color ?? null,
+    }
+  })
 
   const inserted = await db.insert(events).values(rows).returning()
 

@@ -64,11 +64,20 @@ vi.mock('@/server/generation', () => ({
   generateEventsForActivity: vi.fn().mockResolvedValue(0),
 }))
 
+const mockGeocodeForSave = vi.hoisted(() => vi.fn())
+vi.mock('@/server/travel', () => ({
+  geocodeForSave: mockGeocodeForSave,
+}))
+
 import { createActivity, updateActivity, deleteActivity } from '@/server/actions/activities'
 import { generateEventsForActivity } from '@/server/generation'
+import { geocodeForSave } from '@/server/travel'
 import { revalidatePath } from 'next/cache'
 import { activities, events } from '@/db/schema'
 import { gt } from 'drizzle-orm'
+
+const NULL_COORDS = { locationLat: null, locationLng: null }
+const REAL_COORDS = { locationLat: 40.7829, locationLng: -73.9654 }
 
 const VALID_ID = '550e8400-e29b-41d4-a716-446655440000'
 
@@ -113,6 +122,7 @@ describe('createActivity', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockInsertReturning.mockResolvedValue([currentRow()])
+    mockGeocodeForSave.mockResolvedValue(NULL_COORDS)
   })
 
   it('returns Unauthorized when no session', async () => {
@@ -166,12 +176,34 @@ describe('createActivity', () => {
     expect(result).toEqual({ error: 'Insert failed' })
     expect(generateEventsForActivity).not.toHaveBeenCalled()
   })
+
+  describe('geocode-on-save (A4)', () => {
+    it('paid user + defaultLocation → insert gets real coords, geocoded off the session id', async () => {
+      mockGeocodeForSave.mockResolvedValueOnce(REAL_COORDS)
+
+      await createActivity({ ...VALID_CREATE_INPUT, defaultLocation: 'Studio B, NYC' })
+
+      expect(geocodeForSave).toHaveBeenCalledWith('user-123', 'Studio B, NYC')
+      expect(mockInsertValues).toHaveBeenCalledWith(
+        expect.objectContaining({ defaultLocation: 'Studio B, NYC', ...REAL_COORDS }),
+      )
+    })
+
+    it('free user / geocode failure → insert gets null coords but still succeeds', async () => {
+      mockGeocodeForSave.mockResolvedValueOnce(NULL_COORDS)
+
+      await createActivity({ ...VALID_CREATE_INPUT, defaultLocation: 'Somewhere' })
+
+      expect(mockInsertValues).toHaveBeenCalledWith(expect.objectContaining({ ...NULL_COORDS }))
+    })
+  })
 })
 
 describe('updateActivity', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUpdateReturning.mockResolvedValue([currentRow()])
+    mockGeocodeForSave.mockResolvedValue(NULL_COORDS)
   })
 
   it('returns Unauthorized when no session', async () => {
@@ -357,6 +389,58 @@ describe('updateActivity', () => {
     const result = await updateActivity({ id: VALID_ID, title: 'New' })
 
     expect(result).toEqual({ error: 'Not found' })
+  })
+
+  describe('geocode-on-save (A4) — geocode ONLY when defaultLocation changed', () => {
+    it('re-geocodes when defaultLocation changes and writes the new coords', async () => {
+      mockSelectLimit.mockResolvedValueOnce([currentRow({ defaultLocation: 'Old studio' })])
+      mockGeocodeForSave.mockResolvedValueOnce(REAL_COORDS)
+      mockUpdateReturning.mockResolvedValueOnce([currentRow({ defaultLocation: 'New studio' })])
+
+      await updateActivity({ id: VALID_ID, defaultLocation: 'New studio' })
+
+      expect(geocodeForSave).toHaveBeenCalledWith('user-123', 'New studio')
+      expect(mockUpdateSet).toHaveBeenCalledWith(
+        expect.objectContaining({ defaultLocation: 'New studio', ...REAL_COORDS }),
+      )
+    })
+
+    it('does NOT geocode when defaultLocation is unchanged', async () => {
+      mockSelectLimit.mockResolvedValueOnce([currentRow({ defaultLocation: 'Same studio' })])
+      mockUpdateReturning.mockResolvedValueOnce([currentRow({ defaultLocation: 'Same studio' })])
+
+      await updateActivity({ id: VALID_ID, defaultLocation: 'Same studio', title: 'Renamed' })
+
+      expect(geocodeForSave).not.toHaveBeenCalled()
+      expect(mockUpdateSet).toHaveBeenCalledWith(
+        expect.not.objectContaining({ locationLat: expect.anything() }),
+      )
+    })
+
+    it('does NOT geocode when defaultLocation is omitted (title-only edit)', async () => {
+      mockSelectLimit.mockResolvedValueOnce([currentRow({ defaultLocation: 'Kept studio' })])
+      mockUpdateReturning.mockResolvedValueOnce([currentRow({ title: 'Renamed' })])
+
+      await updateActivity({ id: VALID_ID, title: 'Renamed' })
+
+      expect(geocodeForSave).not.toHaveBeenCalled()
+      expect(mockUpdateSet).toHaveBeenCalledWith(
+        expect.not.objectContaining({ locationLat: expect.anything() }),
+      )
+    })
+
+    it('nulls the coords when defaultLocation is cleared to null', async () => {
+      mockSelectLimit.mockResolvedValueOnce([currentRow({ defaultLocation: 'Old studio' })])
+      mockGeocodeForSave.mockResolvedValueOnce(NULL_COORDS)
+      mockUpdateReturning.mockResolvedValueOnce([currentRow({ defaultLocation: null })])
+
+      await updateActivity({ id: VALID_ID, defaultLocation: null })
+
+      expect(geocodeForSave).toHaveBeenCalledWith('user-123', null)
+      expect(mockUpdateSet).toHaveBeenCalledWith(
+        expect.objectContaining({ defaultLocation: null, ...NULL_COORDS }),
+      )
+    })
   })
 })
 

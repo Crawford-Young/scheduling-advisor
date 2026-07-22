@@ -113,6 +113,26 @@ describe('generateEventsForActivity', () => {
     )
   })
 
+  it('copies the activity stored coords onto every inserted seed (no geocode in generation)', async () => {
+    const now = new Date('2026-01-05T00:00:00.000Z') // Monday
+    const activity = makeActivityRow({
+      defaultLocation: 'Riverside Park',
+      locationLat: 40.7829,
+      locationLng: -73.9654,
+      schedule: [{ day: 1, startMinutes: 600, durationMin: 60 }], // Monday 10:00
+    })
+
+    await generateEventsForActivity(activity, now)
+
+    const insertedRows = mockEventsInsertValues.mock.calls[0]![0] as Array<Record<string, unknown>>
+    expect(insertedRows.length).toBeGreaterThan(0)
+    for (const row of insertedRows) {
+      expect(row.location).toBe('Riverside Park')
+      expect(row.locationLat).toBe(40.7829)
+      expect(row.locationLng).toBe(-73.9654)
+    }
+  })
+
   it('skips slots already covered by an existing pending event (dedupe guard)', async () => {
     const now = new Date('2026-01-05T00:00:00.000Z') // Monday
     const activity = makeActivityRow({

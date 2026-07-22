@@ -40,6 +40,8 @@ export interface GeneratedEventSeed {
   readonly title: string
   readonly description: string | null
   readonly location: string | null
+  readonly locationLat: number | null
+  readonly locationLng: number | null
   readonly color: string | null
   readonly startAt: Date
   readonly endAt: Date
@@ -50,6 +52,8 @@ export interface GenerationActivity {
   readonly title: string
   readonly description: string | null
   readonly defaultLocation: string | null
+  readonly locationLat: number | null
+  readonly locationLng: number | null
   readonly color: string | null
   readonly schedule: readonly ActivityScheduleSlot[]
   readonly timeZone: string | null
@@ -241,6 +245,8 @@ export function generateEventSeeds(args: GenerateEventSeedsArgs): GeneratedEvent
         title: activity.title,
         description: activity.description,
         location: activity.defaultLocation,
+        locationLat: activity.locationLat,
+        locationLng: activity.locationLng,
         color: activity.color,
         startAt: slotStart,
         endAt: new Date(slotStart.getTime() + slot.durationMin * MS_PER_MINUTE),

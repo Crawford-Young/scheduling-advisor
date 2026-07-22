@@ -13,6 +13,7 @@ import {
 } from '@/lib/schemas/activity'
 import { z } from 'zod'
 import { generateEventsForActivity } from '@/server/generation'
+import { geocodeForSave } from '@/server/travel'
 
 type ActivityRow = (typeof activities)['$inferSelect']
 type ActivityActionResult = { data: ActivityRow } | { error: unknown }
@@ -62,6 +63,7 @@ export async function createActivity(input: unknown): Promise<ActivityActionResu
       color: data.color ?? null,
       description: data.description ?? null,
       defaultLocation: data.defaultLocation ?? null,
+      ...(await geocodeForSave(userId, data.defaultLocation ?? null)),
       minDurationMin: data.minDurationMin,
       maxDurationMin: data.maxDurationMin,
       weeklyTargetSessions: data.weeklyTargetSessions,
@@ -131,6 +133,12 @@ export async function updateActivity(input: unknown): Promise<ActivityActionResu
     !schedulesEqual(merged.schedule, current.schedule) ||
     mergedTimeZone !== (current.timeZone ?? null)
 
+  // Re-geocode ONLY when the defaultLocation text actually changed — an
+  // unchanged/omitted location preserves the stored coords (omitted from the
+  // set), and a cleared location resolves to null coords via geocodeForSave's
+  // empty-text guard.
+  const defaultLocationChanged = merged.defaultLocation !== current.defaultLocation
+
   const now = new Date()
   const [updated] = await db
     .update(activities)
@@ -139,6 +147,7 @@ export async function updateActivity(input: unknown): Promise<ActivityActionResu
       color: merged.color ?? null,
       description: merged.description ?? null,
       defaultLocation: merged.defaultLocation ?? null,
+      ...(defaultLocationChanged ? await geocodeForSave(userId, merged.defaultLocation) : {}),
       minDurationMin: merged.minDurationMin,
       maxDurationMin: merged.maxDurationMin,
       weeklyTargetSessions: merged.weeklyTargetSessions,
