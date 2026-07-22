@@ -565,6 +565,27 @@ describe('useFabPosition', () => {
     })
   })
 
+  describe('stale drag-consume flag (real-browser click retargeting)', () => {
+    it('clears a stale pending-consume flag on a fresh press so the next real click still opens', () => {
+      render(<Harness />)
+      // A real browser retargets the post-drag click to the pointer-capture
+      // wrapper (not the ChatFab button), so consumeDrag() is never called
+      // here -- this mirrors that: a full drag releases with the flag left
+      // set and NOTHING reads it.
+      pointerDown(DEFAULT_FAB_LEFT, DEFAULT_FAB_TOP)
+      pointerMove(30, 400)
+      pointerUp(30, 400)
+
+      // A fresh press-and-release with no threshold crossed is a plain click,
+      // not a drag -- it must not inherit the previous drag's stale flag.
+      pointerDown(BAR_GAP_PX, FAB_TOP_PADDING_PX)
+      pointerUp(BAR_GAP_PX, FAB_TOP_PADDING_PX)
+
+      fireEvent.click(screen.getByTestId('consume'))
+      expect(screen.getByTestId('consumed')).toHaveTextContent('false')
+    })
+  })
+
   describe('corner-snap glide animation', () => {
     afterEach(() => {
       vi.unstubAllGlobals()
