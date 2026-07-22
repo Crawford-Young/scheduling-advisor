@@ -1,14 +1,12 @@
 'use client'
 import * as React from 'react'
-import { startTransition, useEffect, useState } from 'react'
-import { SplashAnimation } from '@/components/splash/splash-animation'
+import { startTransition, useEffect } from 'react'
+import { flushSync } from 'react-dom'
+import { BrandSplash, startBrandHandoff } from '@/lib/ui'
+import type { SplashQuote } from '@/lib/ui'
+import { useSplash } from '@/components/splash/splash-provider'
 
-interface Quote {
-  readonly text: string
-  readonly attribution: string | null
-}
-
-const QUOTES: readonly Quote[] = [
+const QUOTES: readonly SplashQuote[] = [
   { text: 'Either you run the day, or the day runs you.', attribution: 'Jim Rohn' },
   {
     text: "You don't rise to the level of your goals. You fall to the level of your systems.",
@@ -44,22 +42,38 @@ const QUOTES: readonly Quote[] = [
 ]
 
 const SPLASH_KEY = 'cybond-splash-v1'
+const WORDMARK = 'Cybond'
+const SPLIT_INDEX = 2
 
 export function SplashAnimationClient(): React.JSX.Element | null {
-  const [visible, setVisible] = useState<boolean>(false)
-  const [quote] = useState<Quote>(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]!)
+  const { splashActive, showSplash, endSplash } = useSplash()
+  const [quote] = React.useState<SplashQuote>(
+    () => QUOTES[Math.floor(Math.random() * QUOTES.length)]!,
+  )
 
   useEffect(() => {
     if (sessionStorage.getItem(SPLASH_KEY)) return
     sessionStorage.setItem(SPLASH_KEY, '1')
-    startTransition(() => setVisible(true))
-  }, [])
+    startTransition(() => showSplash())
+  }, [showSplash])
 
-  if (!visible) return null
+  if (!splashActive) return null
 
   function handleComplete(): void {
-    setVisible(false)
+    void startBrandHandoff(() => {
+      flushSync(() => endSplash())
+    })
   }
 
-  return <SplashAnimation onComplete={handleComplete} quote={quote} />
+  return (
+    <BrandSplash
+      wordmark={WORDMARK}
+      splitIndex={SPLIT_INDEX}
+      signal="glow"
+      quote={quote}
+      onComplete={handleComplete}
+      handoffName="brand-wordmark"
+      exit="external"
+    />
+  )
 }

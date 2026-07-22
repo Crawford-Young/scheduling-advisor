@@ -10,6 +10,33 @@ const safeDeleteExpiredEventsMock = vi.fn()
 const safeGenerateEventsMock = vi.fn()
 const getCalendarPrefsMock = vi.fn()
 
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react')>()
+  return {
+    ...actual,
+    ViewTransition: ({
+      children,
+      enter,
+      exit,
+      default: defaultTransition,
+    }: {
+      readonly children: React.ReactNode
+      readonly enter?: string
+      readonly exit?: string
+      readonly default?: string
+    }) => (
+      <div
+        data-testid="view-transition"
+        data-enter={enter}
+        data-exit={exit}
+        data-default={defaultTransition}
+      >
+        {children}
+      </div>
+    ),
+  }
+})
+
 vi.mock('@/auth', () => ({ auth: () => authMock() }))
 
 vi.mock('next/navigation', () => ({
@@ -111,6 +138,17 @@ vi.mock('@/components/chat/open-chat-button', () => ({
 
 vi.mock('@/lib/ui', () => ({
   EmptyState: ({ message }: { message: string }) => <p>{message}</p>,
+  StaggerReveal: ({
+    children,
+    className,
+  }: {
+    readonly children: React.ReactNode
+    readonly className?: string
+  }) => (
+    <div data-testid="stagger-reveal" className={className}>
+      {children}
+    </div>
+  ),
 }))
 
 type ActivityOverrides = {
@@ -383,5 +421,17 @@ describe('ActivitiesPage', () => {
     ])
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
     expect(screen.getByTestId('activity-row')).toHaveAttribute('data-schedule-len', '2')
+  })
+
+  it('wraps the page in a reveal ViewTransition with a StaggerReveal container', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserActivitiesMock.mockResolvedValue([makeActivity()])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
+    const viewTransition = screen.getByTestId('view-transition')
+    expect(viewTransition).toHaveAttribute('data-enter', 'reveal-enter')
+    expect(viewTransition).toHaveAttribute('data-default', 'none')
+    const staggerReveal = screen.getByTestId('stagger-reveal')
+    expect(staggerReveal).toHaveClass('mx-auto', 'max-w-5xl', 'space-y-10')
+    expect(within(viewTransition).getByTestId('stagger-reveal')).toBe(staggerReveal)
   })
 })

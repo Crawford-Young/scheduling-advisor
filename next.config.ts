@@ -29,6 +29,9 @@ const securityHeaders = [
 ]
 
 const nextConfig: NextConfig = {
+  experimental: {
+    viewTransition: true,
+  },
   turbopack: {
     root: path.join(import.meta.dirname, '..'),
   },

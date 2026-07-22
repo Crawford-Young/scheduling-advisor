@@ -5,6 +5,7 @@ import { ThemeProvider } from '@/components/providers/theme-provider'
 import { Analytics } from '@vercel/analytics/next'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import { SplashAnimationClient } from '@/components/splash/splash-animation-client'
+import { SplashProvider } from '@/components/splash/splash-provider'
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -34,8 +35,10 @@ export default async function RootLayout({
     >
       <body className="bg-background text-foreground flex min-h-full flex-col">
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
-          <SplashAnimationClient />
-          {children}
+          <SplashProvider>
+            <SplashAnimationClient />
+            {children}
+          </SplashProvider>
         </ThemeProvider>
         <Analytics />
         <SpeedInsights />

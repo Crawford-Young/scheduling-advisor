@@ -2,6 +2,8 @@ import { auth, signOut } from '@/auth'
 import { redirect } from 'next/navigation'
 import { AppShell, Avatar, AvatarFallback, AvatarImage, Sidebar, Toaster } from '@/lib/ui'
 import { ActiveSidebarItem } from '@/components/layout/active-sidebar-item'
+import { NavProgressProvider } from '@/components/layout/nav-progress'
+import { BrandMark } from '@/components/layout/brand-mark'
 import { TokenChipLive } from '@/components/layout/token-chip-live'
 import { QuickScheduleInput } from '@/components/chat/quick-schedule-input'
 import { ChatPopup } from '@/components/chat/chat-popup'
@@ -57,7 +59,7 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
         height={28}
         className="shrink-0 rounded-lg"
       />
-      <span className="text-foreground text-sm font-bold">Cybond</span>
+      <BrandMark />
     </div>
   )
 
@@ -101,48 +103,50 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
 
   return (
     <>
-      <AppShell
-        sidebar={
-          <Sidebar
-            header={sidebarHeader}
-            collapsedHeader={sidebarCollapsedHeader}
-            footer={sidebarFooter}
-          >
-            {NAV_ITEMS_BEFORE_PROFILE.map((item) => (
-              <ActiveSidebarItem
-                key={item.href}
-                icon={item.icon}
-                label={item.label}
-                href={item.href}
-              />
-            ))}
-            {profileUser?.username && (
-              <ActiveSidebarItem
-                key="profile"
-                icon={<User className="h-4 w-4" />}
-                label="Profile"
-                href={`/u/${profileUser.username}`}
-              />
-            )}
-            {NAV_ITEMS_AFTER_PROFILE.map((item) => (
-              <ActiveSidebarItem
-                key={item.href}
-                icon={item.icon}
-                label={item.label}
-                href={item.href}
-              />
-            ))}
-          </Sidebar>
-        }
-        topbar={
-          <div className="border-border flex h-12 items-center justify-end gap-4 border-b px-4">
-            <QuickScheduleInput />
-            <TokenChipLive initialBalance={tokenBalance} />
-          </div>
-        }
-      >
-        <div className="h-full p-6">{children}</div>
-      </AppShell>
+      <NavProgressProvider>
+        <AppShell
+          sidebar={
+            <Sidebar
+              header={sidebarHeader}
+              collapsedHeader={sidebarCollapsedHeader}
+              footer={sidebarFooter}
+            >
+              {NAV_ITEMS_BEFORE_PROFILE.map((item) => (
+                <ActiveSidebarItem
+                  key={item.href}
+                  icon={item.icon}
+                  label={item.label}
+                  href={item.href}
+                />
+              ))}
+              {profileUser?.username && (
+                <ActiveSidebarItem
+                  key="profile"
+                  icon={<User className="h-4 w-4" />}
+                  label="Profile"
+                  href={`/u/${profileUser.username}`}
+                />
+              )}
+              {NAV_ITEMS_AFTER_PROFILE.map((item) => (
+                <ActiveSidebarItem
+                  key={item.href}
+                  icon={item.icon}
+                  label={item.label}
+                  href={item.href}
+                />
+              ))}
+            </Sidebar>
+          }
+          topbar={
+            <div className="border-border flex h-12 items-center justify-end gap-4 border-b px-4">
+              <QuickScheduleInput />
+              <TokenChipLive initialBalance={tokenBalance} />
+            </div>
+          }
+        >
+          <div className="h-full p-6">{children}</div>
+        </AppShell>
+      </NavProgressProvider>
       <ChatPopup />
       <Toaster />
     </>

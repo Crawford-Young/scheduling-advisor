@@ -19,6 +19,7 @@ Scheduling app built around activities and events. An **activity** is a template
 - **Tokens** — the app is free to use; tokens purchase AI assistance (Cy chat, quick add). Buy a monthly subscription (Starter/Growth/Pro) or one-off token packs at `/tokens`; cached prompt input is billed at a discount
 - **Auto-delete (TTL)** — pending, standalone (non-activity) events older than `calendarPrefs.ttlDays` days past their end are hard-deleted on read; events generated from an activity are never auto-deleted
 - **Public profiles** — every user gets an identity card at `/u/[username]` (name, avatar, bio, member-since) and can be found via search on `/feed`; edit your own name, bio, and username from Settings. A richer profile (activity/event visibility, stats) is a planned follow-up wave
+- **Motion & arrival** — a cinematic splash (brand wordmark + rotating quote) plays once per browser session on any cold load, then morphs into the sidebar brand mark. App pages crossfade via native View Transitions with staggered section reveals and matching skeleton loading states, and a topbar progress line surfaces on any navigation that takes over 150ms. Sidebar navigation is client-side (no full page reloads)
 
 ## Stack
 
@@ -49,6 +50,7 @@ Copy `.env.example` to `.env.local` and fill in all values — `t3-env` validate
 - Calendar chip locking (`@crawfordyoung/ui` ≥0.19.0): the `locked` boolean on `events` seeds the chip's lock icon; toggling it flips the persisted flag via `updateEvent({ id, locked })`. Lock scope is move/resize only — complete-toggle, edit, and delete all stay available on a locked event, and there is no server-side time-guard (client-side gating only, by design).
 - The chat popup (`ChatPopup`, mounted app-wide) listens for an `open-chat` CustomEvent; dispatchers may pass `detail.prefill` to seed the input. All chat surfaces compose the single `ChatSurface` wiring.
 - Error boundaries (`@crawfordyoung/ui` ≥0.22.0): every route segment ships an `error.tsx` rendering `RouteErrorFallback` with Sentry capture — root `error.tsx`, `global-error.tsx` (own html/body, imports globals.css), `(app)/error.tsx`, and all 8 segments with per-segment titles ("Failed to load calendar" etc.). Each boundary has a co-located test.
+- View Transitions (Next `experimental.viewTransition`, React's native `<ViewTransition>`): every `(app)` page wraps its container in a `reveal-enter` transition — route crossfades plus a staggered `StaggerReveal` arrival, except the calendar, which stays a plain div so `WeekCalendarView` is never staggered. Every `loading.tsx` wraps its skeleton in a `reveal-exit` transition for a crossfaded skeleton→content handoff. The splash (`SplashProvider`/`SplashAnimationClient`, mounted in the root layout) hands off to the sidebar `BrandMark` via a view-transition morph (`startBrandHandoff`). Client-side sidebar navigation (`SidebarItem asChild`) reports pending navigations into `NavProgressProvider`, which surfaces a topbar `ProgressLine` after a 150ms delay.
 
 ## Testing
 
