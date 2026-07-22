@@ -74,19 +74,21 @@ vi.mock('@/components/chat/chat-surface', () => ({
   },
 }))
 
-vi.mock('@/lib/ui', () => ({
-  ChatFab: ({ onClick }: { onClick: () => void }) => (
-    <button onClick={onClick} aria-label="Open AI assistant">
-      fab
-    </button>
-  ),
-  Button: ({ children, onClick, ...rest }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button onClick={onClick} {...rest}>
-      {children}
-    </button>
-  ),
-  Spinner: () => <div data-testid="popup-spinner">loading</div>,
-}))
+// ChatFab and ChatPanel are used FOR REAL here (not mocked) -- the tests
+// below assert actual library-rendered structure (aside/testid/role passthrough,
+// close-button copy, backdrop absence, position class), which a mock would hide.
+vi.mock('@/lib/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/ui')>()
+  return {
+    ...actual,
+    Button: ({ children, onClick, ...rest }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+      <button onClick={onClick} {...rest}>
+        {children}
+      </button>
+    ),
+    Spinner: () => <div data-testid="popup-spinner">loading</div>,
+  }
+})
 
 vi.mock('@/components/chat/model-tier-select', () => ({
   ModelTierSelect: ({ value, onChange }: { value: string; onChange: (tier: string) => void }) => (
@@ -206,9 +208,17 @@ describe('ChatPopup', () => {
 
       expect(screen.getByRole('button', { name: 'New chat' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Expand to full chat' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Close chat' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Close panel' })).toBeInTheDocument()
 
       await screen.findByTestId('chat-surface')
+    })
+
+    it('renders non-modal, with no backdrop, so the rest of the page stays interactive', async () => {
+      render(<ChatPopup />)
+      openFab()
+      await screen.findByTestId('chat-surface')
+
+      expect(document.querySelector('.backdrop-blur-sm')).toBeNull()
     })
   })
 
@@ -288,7 +298,7 @@ describe('ChatPopup', () => {
       expect(screen.getByTestId('cs-conversation-id')).toHaveTextContent('conv-1')
       expect(screen.getByTestId('cs-message-count')).toHaveTextContent('1')
 
-      fireEvent.click(screen.getByRole('button', { name: 'Close chat' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
 
       getLatestConversationMock.mockResolvedValueOnce({ id: 'conv-2', title: 'Updated title' })
       getConversationMessagesActionMock.mockResolvedValueOnce([
@@ -465,7 +475,7 @@ describe('ChatPopup', () => {
       render(<ChatPopup />)
       openFab()
       await screen.findByTestId('chat-surface')
-      fireEvent.click(screen.getByRole('button', { name: 'Close chat' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
       expect(screen.queryByTestId('chat-surface')).not.toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Open AI assistant' })).toBeInTheDocument()
     })
@@ -613,7 +623,7 @@ describe('ChatPopup', () => {
       await screen.findByTestId('chat-surface')
       expect(screen.getByTestId('popup-model-value')).toHaveTextContent('sonnet')
 
-      fireEvent.click(screen.getByRole('button', { name: 'Close chat' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
 
       getLatestConversationMock.mockResolvedValueOnce({
         id: 'conv-2',
@@ -689,6 +699,21 @@ describe('ChatPopup', () => {
       render(<ChatPopup />)
       expect(fabWrapper().style.left).toBe('')
       expect(fabWrapper().style.top).toBe('')
+    })
+
+    it('gives the fab a fixed position class when no position is stored', () => {
+      render(<ChatPopup />)
+      const fab = screen.getByRole('button', { name: 'Open AI assistant' })
+      expect(fab).toHaveClass('fixed')
+      expect(fab).not.toHaveClass('static')
+    })
+
+    it('gives the fab a static position class when a fab position is persisted', () => {
+      window.localStorage.setItem('chat-fab-position', JSON.stringify({ edge: 'left', offset: 0 }))
+      render(<ChatPopup />)
+      const fab = screen.getByRole('button', { name: 'Open AI assistant' })
+      expect(fab).toHaveClass('static')
+      expect(fab).not.toHaveClass('fixed')
     })
 
     it('positions the fab wrapper from a persisted localStorage position', () => {
