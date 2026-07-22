@@ -1,7 +1,21 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ChatMessagesPanel } from './chat-messages-panel'
-import type { Message } from 'ai'
+import type { UIMessage } from 'ai'
+
+// ai@7 UIMessage builders — messages are `parts` arrays, not a flat `content`
+// string, and tool calls are `tool-<name>` parts gated on `state`.
+function textMessage(id: string, role: 'user' | 'assistant', text: string): UIMessage {
+  return { id, role, parts: [{ type: 'text', text }] }
+}
+function toolMessage(
+  id: string,
+  toolName: string,
+  state: 'output-available' | 'input-available',
+): UIMessage {
+  const part = { type: `tool-${toolName}`, toolCallId: 'tc1', state, input: {}, output: {} }
+  return { id, role: 'assistant', parts: [part as UIMessage['parts'][number]] }
+}
 
 vi.mock('@/lib/ui', () => ({
   Textarea: ({
@@ -63,13 +77,13 @@ describe('ChatMessagesPanel', () => {
   })
 
   it('renders user message', () => {
-    const messages: Message[] = [{ id: '1', role: 'user', content: 'Hello AI' }]
+    const messages = [textMessage('1', 'user', 'Hello AI')]
     render(<ChatMessagesPanel messages={messages} {...noopFns} />)
     expect(screen.getByText('Hello AI')).toBeInTheDocument()
   })
 
   it('renders assistant message', () => {
-    const messages: Message[] = [{ id: '1', role: 'assistant', content: 'Hello user' }]
+    const messages = [textMessage('1', 'assistant', 'Hello user')]
     render(<ChatMessagesPanel messages={messages} {...noopFns} />)
     expect(screen.getByText('Hello user')).toBeInTheDocument()
   })
@@ -108,22 +122,7 @@ describe('ChatMessagesPanel', () => {
   })
 
   it('renders tool invocations from assistant message', () => {
-    const messages = [
-      {
-        id: '1',
-        role: 'assistant' as const,
-        content: '',
-        toolInvocations: [
-          {
-            toolCallId: 'tc1',
-            toolName: 'showTaskCard',
-            args: {},
-            state: 'result' as const,
-            result: {},
-          },
-        ],
-      },
-    ]
+    const messages = [toolMessage('1', 'showTaskCard', 'output-available')]
     render(<ChatMessagesPanel messages={messages} {...noopFns} />)
     expect(screen.getByTestId('tool-result')).toBeInTheDocument()
   })
@@ -131,22 +130,7 @@ describe('ChatMessagesPanel', () => {
   it('threads the event-proposal callbacks through to the tool renderer', () => {
     const onEventProposed = vi.fn()
     const onEventResolved = vi.fn()
-    const messages = [
-      {
-        id: '1',
-        role: 'assistant' as const,
-        content: '',
-        toolInvocations: [
-          {
-            toolCallId: 'tc1',
-            toolName: 'proposeEvent',
-            args: {},
-            state: 'result' as const,
-            result: {},
-          },
-        ],
-      },
-    ]
+    const messages = [toolMessage('1', 'proposeEvent', 'output-available')]
     render(
       <ChatMessagesPanel
         messages={messages}
@@ -160,37 +144,13 @@ describe('ChatMessagesPanel', () => {
   })
 
   it('threads inlineDayPreview through to the tool renderer', () => {
-    const messages = [
-      {
-        id: '1',
-        role: 'assistant' as const,
-        content: '',
-        toolInvocations: [
-          {
-            toolCallId: 'tc1',
-            toolName: 'proposeEvent',
-            args: {},
-            state: 'result' as const,
-            result: {},
-          },
-        ],
-      },
-    ]
+    const messages = [toolMessage('1', 'proposeEvent', 'output-available')]
     render(<ChatMessagesPanel messages={messages} {...noopFns} inlineDayPreview />)
     expect(capturedRendererProps?.inlineDayPreview).toBe(true)
   })
 
-  it('filters out non-result tool invocations', () => {
-    const messages = [
-      {
-        id: '1',
-        role: 'assistant' as const,
-        content: '',
-        toolInvocations: [
-          { toolCallId: 'tc1', toolName: 'showTaskCard', args: {}, state: 'call' as const },
-        ],
-      },
-    ]
+  it('filters out tool parts that have not produced output yet', () => {
+    const messages = [toolMessage('1', 'showTaskCard', 'input-available')]
     render(<ChatMessagesPanel messages={messages} {...noopFns} />)
     expect(screen.queryByTestId('tool-result')).not.toBeInTheDocument()
   })

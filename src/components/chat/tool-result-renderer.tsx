@@ -1,11 +1,14 @@
 'use client'
 import * as React from 'react'
-import type { Message, ToolInvocation } from 'ai'
 import { ScheduleSuggestion } from '@/components/cards/schedule-suggestion'
 import { ReflectionCard } from '@/components/cards/reflection-card'
 import { LifeBalanceView } from '@/components/cards/life-balance-view'
 import { ActionConfirmCard } from '@/components/chat/action-confirm-card'
-import { EventProposalCard, type RecurrenceFrequency } from '@/components/chat/event-proposal-card'
+import {
+  EventProposalCard,
+  type ChatAppendMessage,
+  type RecurrenceFrequency,
+} from '@/components/chat/event-proposal-card'
 import { DayProposalPreview } from '@/components/chat/day-proposal-preview'
 import type { DayOfWeek } from '@/lib/chat/proposal-occurrences'
 import {
@@ -146,7 +149,7 @@ interface ProposeEventResultProps {
     readonly recurrenceDays?: readonly DayOfWeek[]
     readonly recurrenceCount?: number
   }
-  readonly append?: (message: Pick<Message, 'role' | 'content'>) => void
+  readonly append?: (message: ChatAppendMessage) => void
   readonly onEventProposed?: (proposal: EventProposal) => void
   readonly onEventResolved?: (
     toolCallId: string,
@@ -226,9 +229,21 @@ export function ProposeEventResult({
   )
 }
 
+/**
+ * The subset of an ai@7 `output-available` tool UI part the renderer dispatches
+ * on. The panel derives `toolName` via `getToolName` (stripping the `tool-`
+ * prefix) and `result` from the part's `output` before handing one of these in,
+ * so the renderer stays decoupled from the AI-SDK part union.
+ */
+export interface ToolResultPart {
+  readonly toolCallId: string
+  readonly toolName: string
+  readonly result: unknown
+}
+
 export interface ToolResultRendererProps {
-  readonly toolInvocation: ToolInvocation & { state: 'result' }
-  readonly append?: (message: Pick<Message, 'role' | 'content'>) => void
+  readonly toolInvocation: ToolResultPart
+  readonly append?: (message: ChatAppendMessage) => void
   readonly onScheduleUpdate?: (weekStart: string, events: readonly AppEvent[]) => void
   readonly onItemConfirmed?: (
     action: string,
@@ -253,7 +268,7 @@ export function ToolResultRenderer({
   onEventProposed,
   onEventResolved,
   inlineDayPreview,
-}: ToolResultRendererProps) {
+}: ToolResultRendererProps): React.JSX.Element | null {
   if (toolInvocation.toolName === 'showWeekCalendar') {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = toolInvocation.result as any
