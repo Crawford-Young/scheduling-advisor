@@ -10,6 +10,8 @@ import {
   jsonb,
   index,
   boolean,
+  doublePrecision,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core'
 import type { CalendarDayOverrides } from '@/lib/schemas/calendar-prefs'
 import type { ActivityScheduleSlot } from '@/lib/schemas/activity'
@@ -98,6 +100,9 @@ export const calendarPrefs = pgTable('calendar_prefs', {
   use24h: boolean('use_24h').notNull().default(false),
   // TTL auto-delete window in days; null = disabled.
   ttlDays: integer('ttl_days'),
+  travelMode: text('travel_mode', { enum: ['driving', 'walking', 'bicycling', 'transit'] })
+    .notNull()
+    .default('driving'),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
@@ -169,6 +174,8 @@ export const activities = pgTable('activities', {
   color: text('color'),
   description: text('description'),
   defaultLocation: text('default_location'),
+  locationLat: doublePrecision('location_lat'),
+  locationLng: doublePrecision('location_lng'),
   minDurationMin: integer('min_duration_min').notNull(),
   maxDurationMin: integer('max_duration_min').notNull(),
   weeklyTargetSessions: integer('weekly_target_sessions').notNull(),
@@ -194,6 +201,8 @@ export const events = pgTable('events', {
   title: text('title').notNull(),
   description: text('description'),
   location: text('location'),
+  locationLat: doublePrecision('location_lat'),
+  locationLng: doublePrecision('location_lng'),
   startAt: timestamp('start_at', { withTimezone: true, mode: 'date' }),
   endAt: timestamp('end_at', { withTimezone: true, mode: 'date' }),
   allDay: boolean('all_day').notNull().default(false),
@@ -205,3 +214,49 @@ export const events = pgTable('events', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
+
+// ── Travel (travel-time wave) ────────────────────────────────────────────────
+
+export const places = pgTable(
+  'places',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    address: text('address').notNull(),
+    lat: doublePrecision('lat').notNull(),
+    lng: doublePrecision('lng').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('places_user_name_unique').on(t.userId, sql`lower(${t.name})`)],
+)
+
+export const travelCache = pgTable(
+  'travel_cache',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    originLat: doublePrecision('origin_lat').notNull(),
+    originLng: doublePrecision('origin_lng').notNull(),
+    destLat: doublePrecision('dest_lat').notNull(),
+    destLng: doublePrecision('dest_lng').notNull(),
+    mode: text('mode', { enum: ['driving', 'walking', 'bicycling', 'transit'] }).notNull(),
+    durationMin: integer('duration_min').notNull(),
+    distanceMeters: integer('distance_meters').notNull(),
+    fetchedAt: timestamp('fetched_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('travel_cache_pair_mode_unique').on(
+      t.originLat,
+      t.originLng,
+      t.destLat,
+      t.destLng,
+      t.mode,
+    ),
+  ],
+)

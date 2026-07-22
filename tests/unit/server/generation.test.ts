@@ -41,6 +41,8 @@ interface ActivityRow {
   color: string | null
   description: string | null
   defaultLocation: string | null
+  locationLat: number | null
+  locationLng: number | null
   minDurationMin: number
   maxDurationMin: number
   weeklyTargetSessions: number
@@ -59,6 +61,8 @@ function makeActivityRow(overrides: Partial<ActivityRow> = {}): ActivityRow {
     color: null,
     description: null,
     defaultLocation: null,
+    locationLat: null,
+    locationLng: null,
     minDurationMin: 30,
     maxDurationMin: 60,
     weeklyTargetSessions: 3,
