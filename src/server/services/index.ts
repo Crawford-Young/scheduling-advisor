@@ -1,8 +1,10 @@
 import type { CalendarService } from './interfaces/calendar'
 import type { NotificationService } from './interfaces/notification'
+import type { TravelService } from './interfaces/travel'
 
 let _calendarService: CalendarService | null = null
 let _notificationService: NotificationService | null = null
+let _travelService: TravelService | null = null
 
 export async function getCalendarService(): Promise<CalendarService> {
   if (_calendarService) return _calendarService
@@ -30,7 +32,24 @@ export async function getNotificationService(): Promise<NotificationService> {
   return _notificationService
 }
 
+export async function getTravelService(): Promise<TravelService> {
+  if (_travelService) return _travelService
+
+  const impl = process.env.TRAVEL_SERVICE_IMPL ?? 'stub'
+  if (impl === 'google-maps') {
+    const { googleMapsTravelService } = await import('./impl/google-maps')
+    _travelService = googleMapsTravelService
+  } else if (impl === 'stub') {
+    const { travelStubService } = await import('./impl/travel-stub')
+    _travelService = travelStubService
+  } else {
+    throw new Error(`Unknown TRAVEL_SERVICE_IMPL: ${impl}`)
+  }
+  return _travelService
+}
+
 export function _resetServices() {
   _calendarService = null
   _notificationService = null
+  _travelService = null
 }
