@@ -84,7 +84,7 @@ function minutesToTime(minutes: number): string {
 /** Convert a local `HH:MM` wall-clock string to minutes-since-midnight. */
 function timeToMinutes(time: string): number {
   const [h, m] = time.split(':').map(Number)
-  return h * MINUTES_PER_HOUR + m
+  return h! * MINUTES_PER_HOUR + m!
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
