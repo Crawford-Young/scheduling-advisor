@@ -18,7 +18,11 @@ jobs:
       - uses: extractions/setup-just@v4
       - run: pnpm install --frozen-lockfile
       - run: just lint
+      # tsc OOMs the default ~2GB Node heap on the runner (PR #41: deterministic
+      # "Ineffective mark-compacts near heap limit" twice); raise it.
       - run: just typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
       - run: just test
       - run: pnpm audit --audit-level=high
 
