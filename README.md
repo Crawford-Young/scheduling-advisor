@@ -18,6 +18,7 @@ Scheduling app built around activities and events. An **activity** is a template
 - **Tokens** — the app is free to use; tokens purchase AI assistance (Cy chat). Buy a monthly subscription (Starter/Growth/Pro) or one-off token packs at `/tokens`; cached prompt input is billed at a discount
 - **Auto-delete (TTL)** — pending, standalone (non-activity) events older than `calendarPrefs.ttlDays` days past their end are hard-deleted on read; events generated from an activity are never auto-deleted
 - **Public profiles** — every user gets an identity card at `/u/[username]` (name, avatar, bio, member-since) and can be found via search on `/feed`; edit your own name, bio, and username from Settings. A richer profile (activity/event visibility, stats) is a planned follow-up wave
+- **Global search (Ctrl/⌘+K)** — a command palette in the top bar (or the Search… button) searches your events (upcoming first), your activities, other users, and app pages from one input; results arrive per group as each lookup finishes, and picking an event lands on its calendar week
 - **Motion & arrival** — a cinematic splash (brand wordmark + rotating quote) plays once per browser session on any cold load, then morphs into the sidebar brand mark. App pages crossfade via native View Transitions with staggered section reveals and matching skeleton loading states, and a topbar progress line surfaces on any navigation that takes over 150ms. Sidebar navigation is client-side (no full page reloads)
 
 ## Stack
