@@ -39,6 +39,9 @@ vi.mock('@/server/actions/events', () => ({
 vi.mock('@/lib/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/ui')>()),
   toast: { error: (...args: unknown[]) => toastErrorMock(...args) },
+}))
+
+vi.mock('@/components/forms/activity-template-dialog', () => ({
   ActivityTemplateDialog: ({
     open,
     initialValues,
@@ -49,6 +52,9 @@ vi.mock('@/lib/ui', async (importOriginal) => ({
     open ? (
       <div role="dialog" aria-label="activity-template" data-initial-title={initialValues?.title} />
     ) : null,
+}))
+
+vi.mock('@/components/forms/event-form-dialog', () => ({
   EventFormDialog: ({
     open,
     initialValues,

@@ -51,6 +51,9 @@ vi.mock('@/lib/ui', () => ({
     <button {...props}>{children}</button>
   ),
   toast: { error: (msg: string) => toastErrorMock(msg) },
+}))
+
+vi.mock('@/components/forms/activity-template-dialog', () => ({
   ActivityTemplateDialog: ({
     open,
     isPending,

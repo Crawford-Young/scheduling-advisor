@@ -3,7 +3,11 @@ import * as React from 'react'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
-import { ActivityTemplateDialog, Button, toast, type ActivityTemplateValues } from '@/lib/ui'
+import { Button, toast } from '@/lib/ui'
+import {
+  ActivityTemplateDialog,
+  type ActivityTemplateValues,
+} from '@/components/forms/activity-template-dialog'
 import { createActivity } from '@/server/actions/activities'
 
 export interface ActivityCreateButtonProps {

@@ -15,16 +15,17 @@ import {
   AlertDialogFooter,
   AlertDialogAction,
   AlertDialogCancel,
-  ActivityTemplateDialog,
-  EventFormDialog,
   type CalendarEvent as LibraryCalendarEvent,
   type CreateActivityOption,
   type CreateRequest,
   type DayWindow,
   type EventCreateSubmitPayload,
-  type EventFormValues,
-  type ActivityTemplateValues,
 } from '@/lib/ui'
+import { EventFormDialog, type EventFormValues } from '@/components/forms/event-form-dialog'
+import {
+  ActivityTemplateDialog,
+  type ActivityTemplateValues,
+} from '@/components/forms/activity-template-dialog'
 import { createEvent, updateEvent, deleteEvent } from '@/server/actions/events'
 import { createActivity, updateActivity } from '@/server/actions/activities'
 import type { ActivityScheduleSlot } from '@/lib/schemas/activity'

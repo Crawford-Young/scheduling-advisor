@@ -100,7 +100,10 @@ vi.mock('@/lib/ui', () => ({
   AlertDialogAction: ({ children, ...props }: React.ComponentProps<'button'>) => (
     <button {...props}>{children}</button>
   ),
-  // Library ActivityTemplateDialog — surfaces data props as text so contract bugs surface.
+}))
+
+vi.mock('@/components/forms/activity-template-dialog', () => ({
+  // ActivityTemplateDialog — surfaces data props as text so contract bugs surface.
   ActivityTemplateDialog: ({
     open,
     onOpenChange,
@@ -136,7 +139,10 @@ vi.mock('@/lib/ui', () => ({
         </button>
       </div>
     ) : null,
-  // Library EventFormDialog — surfaces data props as text.
+}))
+
+vi.mock('@/components/forms/event-form-dialog', () => ({
+  // EventFormDialog — surfaces data props as text.
   EventFormDialog: ({
     open,
     onOpenChange,
