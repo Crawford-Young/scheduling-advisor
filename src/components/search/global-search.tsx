@@ -150,7 +150,13 @@ export function GlobalSearch({ username }: GlobalSearchProps): React.JSX.Element
 
   function navigate(route: string): void {
     closeSearch()
-    router.push(route)
+    // With experimental viewTransition on, a raw router.push from inside a
+    // cmdk select event aborts the View Transition ("InvalidStateError:
+    // Transition was aborted because of invalid state") and the navigation is
+    // dropped entirely — <Link> navs work because Next wraps them in a React
+    // transition internally. Wrapping the push does the same for this
+    // programmatic nav. (Live-QA-only failure: unit tests mock the router.)
+    React.startTransition(() => router.push(route))
   }
 
   const pages = filterPages(query, [
