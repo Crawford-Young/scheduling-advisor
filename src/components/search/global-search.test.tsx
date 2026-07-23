@@ -19,7 +19,11 @@ const EVENT = {
   startAt: new Date(2026, 6, 25, 19, 0),
   location: 'Downtown',
 }
-const SEARCH_DATA = { events: [EVENT], activities: [{ id: 'act-1', title: 'Dinner prep' }] }
+const SEARCH_DATA = {
+  events: [EVENT],
+  activities: [{ id: 'act-1', title: 'Dinner prep' }],
+  reflections: [{ id: 'conv-1', title: 'Weekly review' }],
+}
 const USERS = [{ username: 'sam', name: 'Sam Lee', image: null }]
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
@@ -171,7 +175,7 @@ describe('GlobalSearch', () => {
     await typeQuery('lunch meeting')
     await act(async () => {
       first.resolve({
-        data: { events: [{ ...EVENT, title: 'STALE EVENT' }], activities: [] },
+        data: { events: [{ ...EVENT, title: 'STALE EVENT' }], activities: [], reflections: [] },
       })
     })
     expect(screen.queryByText('STALE EVENT')).not.toBeInTheDocument()
@@ -188,7 +192,7 @@ describe('GlobalSearch', () => {
 
   it('navigates to bare /calendar for an event without startAt', async () => {
     globalSearchMock.mockResolvedValue({
-      data: { events: [{ ...EVENT, startAt: null }], activities: [] },
+      data: { events: [{ ...EVENT, startAt: null }], activities: [], reflections: [] },
     })
     render(<GlobalSearch username="crawford" />)
     await openViaFocus()
@@ -203,6 +207,15 @@ describe('GlobalSearch', () => {
     await typeQuery('dinner')
     fireEvent.click(screen.getByText('Dinner prep'))
     expect(pushMock).toHaveBeenCalledWith('/activities?q=Dinner%20prep')
+  })
+
+  it('renders a Reflections group and navigates to the conversation on select', async () => {
+    render(<GlobalSearch username="crawford" />)
+    await openViaFocus()
+    await typeQuery('weekly')
+    expect(screen.getByText('Weekly review')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Weekly review'))
+    expect(pushMock).toHaveBeenCalledWith('/chat/conv-1')
   })
 
   it('navigates to the user profile on user select', async () => {
@@ -269,7 +282,7 @@ describe('GlobalSearch', () => {
   })
 
   it('shows the empty state when everything resolves empty and no page matches', async () => {
-    globalSearchMock.mockResolvedValue({ data: { events: [], activities: [] } })
+    globalSearchMock.mockResolvedValue({ data: { events: [], activities: [], reflections: [] } })
     searchUsersGlobalMock.mockResolvedValue({ data: [] })
     render(<GlobalSearch username="crawford" />)
     await openViaFocus()
@@ -318,7 +331,7 @@ describe('GlobalSearch', () => {
 
   it('renders an event result without a location suffix when location is null', async () => {
     globalSearchMock.mockResolvedValue({
-      data: { events: [{ ...EVENT, location: null }], activities: [] },
+      data: { events: [{ ...EVENT, location: null }], activities: [], reflections: [] },
     })
     const { container } = render(<GlobalSearch username="crawford" />)
     await openViaFocus()

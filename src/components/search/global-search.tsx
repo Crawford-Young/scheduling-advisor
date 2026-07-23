@@ -17,6 +17,7 @@ import {
   SEARCH_QUERY_MIN_LENGTH,
   type ActivitySearchResult,
   type EventSearchResult,
+  type ReflectionSearchResult,
 } from '@/lib/schemas/search'
 import type { UserSearchResult } from '@/server/queries/profile'
 import { weekParamFromDate } from '@/lib/calendar-week-param'
@@ -38,6 +39,9 @@ export function GlobalSearch({ username }: GlobalSearchProps): React.JSX.Element
   const [activityResults, setActivityResults] = React.useState<
     readonly ActivitySearchResult[] | null
   >(null)
+  const [reflectionResults, setReflectionResults] = React.useState<
+    readonly ReflectionSearchResult[] | null
+  >(null)
   const [userResults, setUserResults] = React.useState<readonly UserSearchResult[] | null>(null)
   const [pendingCount, setPendingCount] = React.useState(0)
   const requestIdRef = React.useRef(0)
@@ -48,6 +52,7 @@ export function GlobalSearch({ username }: GlobalSearchProps): React.JSX.Element
   const clearResults = React.useCallback((): void => {
     setEventResults(null)
     setActivityResults(null)
+    setReflectionResults(null)
     setUserResults(null)
   }, [])
 
@@ -128,6 +133,7 @@ export function GlobalSearch({ username }: GlobalSearchProps): React.JSX.Element
           if (requestIdRef.current !== requestId || !('data' in result)) return
           setEventResults(result.data.events)
           setActivityResults(result.data.activities)
+          setReflectionResults(result.data.reflections)
         })
         .finally(() => setPendingCount((count) => count - 1))
       void searchUsersGlobal({ query: trimmed })
@@ -247,6 +253,19 @@ export function GlobalSearch({ username }: GlobalSearchProps): React.JSX.Element
                       }
                     >
                       {activity.title}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ) : null}
+              {reflectionResults !== null && reflectionResults.length > 0 ? (
+                <CommandGroup heading="Reflections">
+                  {reflectionResults.map((reflection) => (
+                    <CommandItem
+                      key={reflection.id}
+                      value={`reflection:${reflection.id}`}
+                      onSelect={() => navigate(`/chat/${reflection.id}`)}
+                    >
+                      {reflection.title}
                     </CommandItem>
                   ))}
                 </CommandGroup>

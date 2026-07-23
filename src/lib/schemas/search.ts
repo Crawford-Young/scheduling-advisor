@@ -19,7 +19,13 @@ export interface ActivitySearchResult {
   readonly title: string
 }
 
+export interface ReflectionSearchResult {
+  readonly id: string
+  readonly title: string
+}
+
 export interface GlobalSearchData {
   readonly events: readonly EventSearchResult[]
   readonly activities: readonly ActivitySearchResult[]
+  readonly reflections: readonly ReflectionSearchResult[]
 }
