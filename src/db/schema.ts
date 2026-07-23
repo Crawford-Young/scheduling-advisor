@@ -183,6 +183,41 @@ export const activities = pgTable('activities', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
+// ── Event series (Wave 4) ────────────────────────────────────────────────────
+// A recurrence RULE plus fill fields and a `generatedThrough` high-water mark.
+// The sliding-window sweep materialises independent `events` rows from it — no
+// field sync, no tombstones; a deleted occurrence never resurrects. See
+// docs/scheduling-advisor/specs/2026-07-21-event-series-recurrence-design.md.
+
+export const eventSeries = pgTable('event_series', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  activityId: uuid('activity_id').references(() => activities.id, { onDelete: 'set null' }),
+  title: text('title').notNull(),
+  description: text('description'),
+  location: text('location'),
+  color: text('color'),
+  freq: text('freq', { enum: ['daily', 'weekly', 'monthly', 'yearly'] }).notNull(),
+  // Weekly: selected weekdays 0–6 Sun-first.
+  weekdays: jsonb('weekdays').$type<readonly number[]>(),
+  // Monthly day-of-month mode (1–31, clamped to short months); yearly day-within-month.
+  dayOfMonth: integer('day_of_month'),
+  // Monthly nth-weekday mode: 1–4, -1 = last.
+  nthOrdinal: integer('nth_ordinal'),
+  nthWeekday: integer('nth_weekday'),
+  // Yearly: 1–12.
+  month: integer('month'),
+  startMinutes: integer('start_minutes').notNull(),
+  durationMin: integer('duration_min').notNull(),
+  timeZone: text('time_zone'),
+  until: timestamp('until', { withTimezone: true, mode: 'date' }),
+  generatedThrough: timestamp('generated_through', { withTimezone: true, mode: 'date' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
 export const events = pgTable('events', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: text('user_id')
@@ -191,6 +226,9 @@ export const events = pgTable('events', {
   // Nullable: null = standalone event. Deleting the parent activity orphans
   // (SET NULL) rather than cascades — an original event outlives its template.
   activityId: uuid('activity_id').references(() => activities.id, { onDelete: 'set null' }),
+  // Parent recurrence rule that materialised this occurrence; null = one-off.
+  // SET NULL on series delete-keep unlinks occurrences without removing them.
+  seriesId: uuid('series_id').references(() => eventSeries.id, { onDelete: 'set null' }),
   title: text('title').notNull(),
   description: text('description'),
   location: text('location'),
