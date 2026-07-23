@@ -140,27 +140,30 @@ export function useActivityActions({
     })
   }
 
-  // initialValues re-derives from `activity` every render, so a close→reopen (or
-  // deep-link auto-open) always seeds the dialog from the CURRENT row.
+  // Conditional-mount the edit dialog: a fresh mount per open re-seeds its
+  // internal draft state from the CURRENT row, so a cancelled edit never leaks
+  // an abandoned draft into the next open.
   const dialogs = (
     <>
-      <ActivityTemplateDialog
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        onSubmit={handleEditSubmit}
-        isPending={isPending}
-        use24h={use24h}
-        initialValues={{
-          title: activity.title,
-          color: activity.color ?? undefined,
-          description: activity.description ?? undefined,
-          defaultLocation: activity.defaultLocation ?? undefined,
-          minDurationMin: activity.minDurationMin,
-          maxDurationMin: activity.maxDurationMin,
-          weeklyTargetSessions: activity.weeklyTargetSessions,
-          schedule: activity.schedule,
-        }}
-      />
+      {editOpen && (
+        <ActivityTemplateDialog
+          open
+          onOpenChange={setEditOpen}
+          onSubmit={handleEditSubmit}
+          isPending={isPending}
+          use24h={use24h}
+          initialValues={{
+            title: activity.title,
+            color: activity.color ?? undefined,
+            description: activity.description ?? undefined,
+            defaultLocation: activity.defaultLocation ?? undefined,
+            minDurationMin: activity.minDurationMin,
+            maxDurationMin: activity.maxDurationMin,
+            weeklyTargetSessions: activity.weeklyTargetSessions,
+            schedule: activity.schedule,
+          }}
+        />
+      )}
       <ConfirmDeleteDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
@@ -266,22 +269,25 @@ export function useEventActions({ event, use24h }: UseEventActionsArgs): UseEven
 
   const dialogs = (
     <>
-      <EventFormDialog
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        onSubmit={handleEditSubmit}
-        isPending={isPending}
-        use24h={use24h}
-        initialValues={{
-          title: event.title,
-          startAt: event.startAt ?? undefined,
-          endAt: event.endAt ?? undefined,
-          allDay: event.allDay,
-          color: event.color ?? undefined,
-          location: event.location ?? undefined,
-          description: event.description ?? undefined,
-        }}
-      />
+      {editOpen && (
+        <EventFormDialog
+          open
+          mode="edit"
+          onOpenChange={setEditOpen}
+          onSubmit={handleEditSubmit}
+          isPending={isPending}
+          use24h={use24h}
+          initialValues={{
+            title: event.title,
+            startAt: event.startAt ?? undefined,
+            endAt: event.endAt ?? undefined,
+            allDay: event.allDay,
+            color: event.color ?? undefined,
+            location: event.location ?? undefined,
+            description: event.description ?? undefined,
+          }}
+        />
+      )}
       <ConfirmDeleteDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
