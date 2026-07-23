@@ -165,9 +165,12 @@ export function GlobalSearch({ username }: GlobalSearchProps): React.JSX.Element
       <Command
         shouldFilter={false}
         label="Global search"
-        className="[&_[cmdk-group-heading]]:text-muted-foreground h-auto w-full flex-col overflow-visible bg-transparent [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4"
+        className="[&_[cmdk-group-heading]]:text-muted-foreground h-auto w-full flex-col overflow-visible bg-transparent [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]]:border-b-0 [&_[cmdk-input]]:h-9 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4"
       >
-        <div className="relative">
+        {/* Styled to match the library Input (rounded border border-input bg-background)
+            so the field reads as a real input in the bar; the lib CommandInput wrapper's
+            own border-b is stripped above — inline it looked like a second topbar line. */}
+        <div className="border-input bg-background focus-within:ring-ring relative rounded border focus-within:ring-1">
           <CommandInput
             ref={inputRef}
             value={query}
