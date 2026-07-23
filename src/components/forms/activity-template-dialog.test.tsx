@@ -138,7 +138,7 @@ describe('schedule builder', () => {
     await user.click(getSubmitButton())
 
     expect(onSubmit).toHaveBeenCalledTimes(1)
-    const values = onSubmit.mock.calls[0][0] as ActivityTemplateValues
+    const values = onSubmit.mock.calls[0]![0] as ActivityTemplateValues
     expect(values.schedule).toEqual([{ day: 1, startMinutes: 600, durationMin: 30 }])
   })
 
@@ -154,7 +154,7 @@ describe('schedule builder', () => {
     fireEvent.change(screen.getByLabelText('Monday duration'), { target: { value: '50' } })
     await user.click(getSubmitButton())
 
-    const values = onSubmit.mock.calls[0][0] as ActivityTemplateValues
+    const values = onSubmit.mock.calls[0]![0] as ActivityTemplateValues
     expect(values.schedule).toEqual([
       { day: 1, startMinutes: 540, durationMin: 50 },
       { day: 3, startMinutes: 540, durationMin: 30 },
@@ -171,7 +171,7 @@ describe('schedule builder', () => {
     fireEvent.change(screen.getByLabelText('Monday duration'), { target: { value: '45' } })
     await user.click(getSubmitButton())
 
-    const values = onSubmit.mock.calls[0][0] as ActivityTemplateValues
+    const values = onSubmit.mock.calls[0]![0] as ActivityTemplateValues
     expect(values.schedule).toEqual([{ day: 1, startMinutes: 540, durationMin: 45 }])
   })
 })
@@ -323,7 +323,7 @@ describe('submit payload', () => {
 
     await user.click(getSubmitButton())
 
-    const values = onSubmit.mock.calls[0][0] as ActivityTemplateValues
+    const values = onSubmit.mock.calls[0]![0] as ActivityTemplateValues
     expect(values.color).toBe('blue')
     expect(values.description).toBe('Morning flow')
     expect(values.defaultLocation).toBe('Studio')
@@ -340,7 +340,7 @@ describe('submit payload', () => {
 
     await user.click(getSubmitButton())
 
-    const values = onSubmit.mock.calls[0][0] as ActivityTemplateValues
+    const values = onSubmit.mock.calls[0]![0] as ActivityTemplateValues
     expect(values.title).toBe('Yoga')
     expect(values.description).toBeNull()
   })

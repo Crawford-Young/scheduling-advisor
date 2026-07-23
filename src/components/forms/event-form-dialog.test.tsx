@@ -180,7 +180,7 @@ describe('submit', () => {
     )
     await user.click(screen.getByRole('button', { name: /save/i }))
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
-    const payload = onSubmit.mock.calls[0][0] as EventFormValues
+    const payload = onSubmit.mock.calls[0]![0] as EventFormValues
     expect(payload.title).toBe('Morning run')
     expect(payload.startAt).toBe('2025-06-15T09:00:00.000Z')
     expect(payload.endAt).toBe('2025-06-15T10:00:00.000Z')
@@ -203,7 +203,7 @@ describe('submit', () => {
     )
     await user.click(screen.getByRole('button', { name: /save/i }))
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
-    const payload = onSubmit.mock.calls[0][0] as EventFormValues
+    const payload = onSubmit.mock.calls[0]![0] as EventFormValues
     expect(payload.color).toBeNull()
     expect(payload.location).toBeNull()
     expect(payload.description).toBeNull()
@@ -230,7 +230,7 @@ describe('submit', () => {
     await user.type(screen.getByPlaceholderText(/description/i), '  Notes  ')
     await user.click(screen.getByRole('button', { name: /save/i }))
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
-    const payload = onSubmit.mock.calls[0][0] as EventFormValues
+    const payload = onSubmit.mock.calls[0]![0] as EventFormValues
     expect(payload.color).toBe('blue')
     expect(payload.location).toBe('Park')
     expect(payload.description).toBe('Notes')
@@ -246,7 +246,7 @@ describe('submit', () => {
     )
     await user.click(screen.getByRole('button', { name: /save/i }))
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
-    const payload = onSubmit.mock.calls[0][0] as EventFormValues
+    const payload = onSubmit.mock.calls[0]![0] as EventFormValues
     expect(payload.allDay).toBe(true)
     expect(payload.startAt).toBeNull()
     expect(payload.endAt).toBeNull()
@@ -295,7 +295,7 @@ describe('timezone correctness — local wall-clock round-trip', () => {
     )
     await user.click(screen.getByRole('button', { name: /save/i }))
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
-    const payload = onSubmit.mock.calls[0][0] as EventFormValues
+    const payload = onSubmit.mock.calls[0]![0] as EventFormValues
     expect(payload.startAt).toBe('2025-06-15T14:00:00.000Z')
     expect(payload.endAt).toBe('2025-06-15T14:30:00.000Z')
   })
