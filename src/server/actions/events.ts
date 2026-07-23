@@ -45,8 +45,8 @@ export async function createEvent(input: unknown): Promise<EventActionResult> {
   }
 
   // No server-side seeding here — a created event is a standalone/one-off
-  // original; only generateEventsForActivity (src/server/generation.ts)
-  // produces events from an activity's schedule.
+  // original; only generateEventsForSeries (src/server/generation.ts)
+  // produces events from an event series' rule.
   const [event] = await db
     .insert(events)
     .values({
