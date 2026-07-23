@@ -26,6 +26,9 @@ import type { UserSearchResult } from '@/server/queries/profile'
 import { weekParamFromDate } from '@/lib/calendar-week-param'
 
 const SEARCH_DEBOUNCE_MS = 300
+// The two parallel server lookups per query (globalSearch + searchUsersGlobal);
+// each decrements pendingCount by 1 in its .finally.
+const SEARCH_ACTION_COUNT = 2
 
 interface GlobalSearchProps {
   readonly username: string | null
@@ -87,7 +90,7 @@ export function GlobalSearch({ username }: GlobalSearchProps): React.JSX.Element
     }
     const timer = setTimeout(() => {
       const requestId = ++requestIdRef.current
-      setPendingCount((count) => count + 2)
+      setPendingCount((count) => count + SEARCH_ACTION_COUNT)
       void globalSearch({ query: trimmed })
         .then((result) => {
           if (requestIdRef.current !== requestId || !('data' in result)) return
