@@ -8,6 +8,7 @@ const getUserActivitiesMock = vi.fn()
 const safeDeleteExpiredEventsMock = vi.fn()
 const safeGenerateEventsMock = vi.fn()
 const getCalendarPrefsMock = vi.fn()
+const getTravelWarningsMock = vi.fn()
 
 vi.mock('react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react')>()
@@ -64,6 +65,10 @@ vi.mock('@/server/queries/calendar-prefs', () => ({
   getCalendarPrefs: () => getCalendarPrefsMock(),
 }))
 
+vi.mock('@/server/queries/travel-warnings', () => ({
+  getTravelWarnings: (userId: string) => getTravelWarningsMock(userId),
+}))
+
 interface MockClientEvent {
   readonly id: string
   readonly activityId: string | null
@@ -76,15 +81,21 @@ interface MockActivityOption {
   readonly minDurationMin: number
 }
 
+interface MockTravelWarning {
+  readonly eventId: string
+}
+
 vi.mock('@/components/calendar/calendar-client', () => ({
   CalendarClient: ({
     weekStart,
     events,
     activities,
+    travelWarnings,
   }: {
     weekStart: string
     events: readonly MockClientEvent[]
     activities: readonly MockActivityOption[]
+    travelWarnings?: readonly MockTravelWarning[]
   }) => (
     <div
       data-testid="calendar-client"
@@ -95,6 +106,7 @@ vi.mock('@/components/calendar/calendar-client', () => ({
       data-evt0-status={events[0]?.status ?? ''}
       data-evt0-locked={String(events[0]?.locked ?? '')}
       data-activity-options={activities.map((a) => `${a.id}:${a.minDurationMin}`).join('|')}
+      data-travel-warnings-count={String(travelWarnings?.length ?? 0)}
     />
   ),
 }))
@@ -160,6 +172,7 @@ describe('CalendarPage', () => {
     safeDeleteExpiredEventsMock.mockReset().mockResolvedValue(undefined)
     safeGenerateEventsMock.mockReset().mockResolvedValue(undefined)
     getCalendarPrefsMock.mockReset().mockResolvedValue(null)
+    getTravelWarningsMock.mockReset().mockResolvedValue([])
   })
 
   it('sweeps TTL then generation before reading events', async () => {
@@ -228,6 +241,22 @@ describe('CalendarPage', () => {
     getUserActivitiesMock.mockResolvedValueOnce([makeActivity({ id: 'act-1', minDurationMin: 25 })])
     const { getByTestId } = render(await CalendarPage({ searchParams: Promise.resolve({}) }))
     expect(getByTestId('calendar-client')).toHaveAttribute('data-activity-options', 'act-1:25')
+  })
+
+  it('passes travelWarnings to CalendarClient, sourced from the authenticated user id', async () => {
+    getTravelWarningsMock.mockResolvedValueOnce([
+      {
+        eventId: 'evt-2',
+        prevEventId: 'evt-1',
+        severity: 'tight',
+        travelMin: 20,
+        gapMin: 25,
+        mode: 'driving',
+      },
+    ])
+    const { getByTestId } = render(await CalendarPage({ searchParams: Promise.resolve({}) }))
+    expect(getByTestId('calendar-client')).toHaveAttribute('data-travel-warnings-count', '1')
+    expect(getTravelWarningsMock).toHaveBeenCalledWith('user-1')
   })
 
   it('wraps the page in a reveal ViewTransition (no StaggerReveal)', async () => {

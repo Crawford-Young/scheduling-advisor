@@ -28,6 +28,7 @@ import {
 import { createEvent, updateEvent, deleteEvent } from '@/server/actions/events'
 import { createActivity, updateActivity } from '@/server/actions/activities'
 import type { ActivityScheduleSlot } from '@/lib/schemas/activity'
+import type { TravelWarning } from '@/server/queries/travel-warnings'
 
 // The browser's IANA zone, stamped on a newly-created activity so server-side
 // schedule generation lands its events on the correct LOCAL weekday/wall-clock
@@ -151,6 +152,11 @@ interface CalendarClientProps {
   readonly dayWindows: readonly DayWindow[]
   /** Render event times as 24-hour instead of 12-hour with AM/PM. */
   readonly use24h: boolean
+  /**
+   * Travel-time conflict/tight warnings for consecutive same-day events.
+   * Not yet rendered — badge rendering lands in a later task.
+   */
+  readonly travelWarnings?: readonly TravelWarning[]
 }
 
 export function CalendarClient({

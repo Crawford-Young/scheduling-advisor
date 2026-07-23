@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation'
 import { getUserEvents } from '@/server/queries/events'
 import { getUserActivities } from '@/server/queries/activities'
 import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
+import { getTravelWarnings } from '@/server/queries/travel-warnings'
 import { safeDeleteExpiredEvents } from '@/server/actions/event-ttl'
 import { safeGenerateEvents } from '@/server/actions/event-generation'
 import { CalendarClient } from '@/components/calendar/calendar-client'
@@ -52,6 +53,7 @@ export default async function CalendarPage({
 
   const dbEvents = await getUserEvents()
   const activities = await getUserActivities()
+  const travelWarnings = await getTravelWarnings(session.user.id)
 
   // Only timed events render on the grid; a null startAt/endAt is unschedulable.
   const events = dbEvents
@@ -97,6 +99,7 @@ export default async function CalendarPage({
           sleepHour={sleepHour}
           dayWindows={dayWindows}
           use24h={prefs?.use24h ?? false}
+          travelWarnings={travelWarnings}
         />
       </div>
     </ViewTransition>
