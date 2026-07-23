@@ -375,63 +375,6 @@ vi.mock('@/lib/ui', () => ({
   Button: ({ children, ...props }: React.ComponentProps<'button'>) => (
     <button {...props}>{children}</button>
   ),
-  EventFormDialog: (props: MockEventFormDialogProps) =>
-    props.open ? (
-      <div
-        role="dialog"
-        aria-label="event-form"
-        data-initial-title={props.initialValues?.title ?? ''}
-        data-initial-start={props.initialValues?.startAt ?? ''}
-        data-initial-end={props.initialValues?.endAt ?? ''}
-        data-initial-all-day={String(props.initialValues?.allDay ?? '')}
-        data-initial-color={props.initialValues?.color ?? ''}
-        data-initial-location={props.initialValues?.location ?? ''}
-        data-initial-description={props.initialValues?.description ?? ''}
-        data-use24h={String(props.use24h ?? '')}
-      >
-        <button type="button" onClick={() => props.onSubmit(STUB_EDIT_VALUES)}>
-          event-form-save
-        </button>
-        <button type="button" onClick={() => props.onSubmit(STUB_EDIT_VALUES_MIN)}>
-          event-form-save-min
-        </button>
-        <button type="button" onClick={() => props.onOpenChange(false)}>
-          event-form-close
-        </button>
-        <button type="button" onClick={() => props.onOpenChange(true)}>
-          event-form-open-noop
-        </button>
-      </div>
-    ) : null,
-  ActivityTemplateDialog: (props: MockActivityTemplateDialogProps) =>
-    props.open ? (
-      <div
-        role="dialog"
-        aria-label="activity-template"
-        data-use24h={String(props.use24h ?? '')}
-        data-initial-title={props.initialValues?.title ?? ''}
-        data-initial-color={props.initialValues?.color ?? ''}
-        data-initial-description={props.initialValues?.description ?? ''}
-        data-initial-location={props.initialValues?.defaultLocation ?? ''}
-        data-initial-min={String(props.initialValues?.minDurationMin ?? '')}
-        data-initial-max={String(props.initialValues?.maxDurationMin ?? '')}
-        data-initial-weekly={String(props.initialValues?.weeklyTargetSessions ?? '')}
-        data-initial-schedule-length={String(props.initialValues?.schedule?.length ?? '')}
-      >
-        <button type="button" onClick={() => props.onSubmit(STUB_TEMPLATE_VALUES)}>
-          template-save
-        </button>
-        <button type="button" onClick={() => props.onSubmit(STUB_TEMPLATE_VALUES_MIN)}>
-          template-save-min
-        </button>
-        <button type="button" onClick={() => props.onOpenChange(true)}>
-          template-open-noop
-        </button>
-        <button type="button" onClick={() => props.onOpenChange(false)}>
-          template-close
-        </button>
-      </div>
-    ) : null,
   toast: { error: (...args: unknown[]) => toastErrorMock(...args) },
   AlertDialog: ({
     open,
@@ -475,6 +418,69 @@ vi.mock('@/lib/ui', () => ({
       {children}
     </button>
   ),
+}))
+
+vi.mock('@/components/forms/event-form-dialog', () => ({
+  EventFormDialog: (props: MockEventFormDialogProps) =>
+    props.open ? (
+      <div
+        role="dialog"
+        aria-label="event-form"
+        data-initial-title={props.initialValues?.title ?? ''}
+        data-initial-start={props.initialValues?.startAt ?? ''}
+        data-initial-end={props.initialValues?.endAt ?? ''}
+        data-initial-all-day={String(props.initialValues?.allDay ?? '')}
+        data-initial-color={props.initialValues?.color ?? ''}
+        data-initial-location={props.initialValues?.location ?? ''}
+        data-initial-description={props.initialValues?.description ?? ''}
+        data-use24h={String(props.use24h ?? '')}
+      >
+        <button type="button" onClick={() => props.onSubmit(STUB_EDIT_VALUES)}>
+          event-form-save
+        </button>
+        <button type="button" onClick={() => props.onSubmit(STUB_EDIT_VALUES_MIN)}>
+          event-form-save-min
+        </button>
+        <button type="button" onClick={() => props.onOpenChange(false)}>
+          event-form-close
+        </button>
+        <button type="button" onClick={() => props.onOpenChange(true)}>
+          event-form-open-noop
+        </button>
+      </div>
+    ) : null,
+}))
+
+vi.mock('@/components/forms/activity-template-dialog', () => ({
+  ActivityTemplateDialog: (props: MockActivityTemplateDialogProps) =>
+    props.open ? (
+      <div
+        role="dialog"
+        aria-label="activity-template"
+        data-use24h={String(props.use24h ?? '')}
+        data-initial-title={props.initialValues?.title ?? ''}
+        data-initial-color={props.initialValues?.color ?? ''}
+        data-initial-description={props.initialValues?.description ?? ''}
+        data-initial-location={props.initialValues?.defaultLocation ?? ''}
+        data-initial-min={String(props.initialValues?.minDurationMin ?? '')}
+        data-initial-max={String(props.initialValues?.maxDurationMin ?? '')}
+        data-initial-weekly={String(props.initialValues?.weeklyTargetSessions ?? '')}
+        data-initial-schedule-length={String(props.initialValues?.schedule?.length ?? '')}
+      >
+        <button type="button" onClick={() => props.onSubmit(STUB_TEMPLATE_VALUES)}>
+          template-save
+        </button>
+        <button type="button" onClick={() => props.onSubmit(STUB_TEMPLATE_VALUES_MIN)}>
+          template-save-min
+        </button>
+        <button type="button" onClick={() => props.onOpenChange(true)}>
+          template-open-noop
+        </button>
+        <button type="button" onClick={() => props.onOpenChange(false)}>
+          template-close
+        </button>
+      </div>
+    ) : null,
 }))
 
 // ── test fixtures ──────────────────────────────────────────────────────────

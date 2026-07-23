@@ -3,8 +3,6 @@ import * as React from 'react'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ActivityTemplateDialog,
-  EventFormDialog,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -14,10 +12,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   toast,
+} from '@/lib/ui'
+import { EventFormDialog, type EventFormValues } from '@/components/forms/event-form-dialog'
+import {
+  ActivityTemplateDialog,
   type ActivityScheduleSlot,
   type ActivityTemplateValues,
-  type EventFormValues,
-} from '@/lib/ui'
+} from '@/components/forms/activity-template-dialog'
 import { updateActivity, deleteActivity } from '@/server/actions/activities'
 import { updateEvent, deleteEvent } from '@/server/actions/events'
 
