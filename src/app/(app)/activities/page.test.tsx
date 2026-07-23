@@ -5,7 +5,7 @@ import ActivitiesPage from './page'
 const authMock = vi.fn()
 const getUserActivitiesMock = vi.fn()
 const getUserEventsMock = vi.fn()
-const getStandaloneUpcomingEventsMock = vi.fn()
+const getStandaloneEventsMock = vi.fn()
 const safeDeleteExpiredEventsMock = vi.fn()
 const safeGenerateEventsMock = vi.fn()
 const getCalendarPrefsMock = vi.fn()
@@ -51,7 +51,7 @@ vi.mock('@/server/queries/activities', () => ({
 
 vi.mock('@/server/queries/events', () => ({
   getUserEvents: () => getUserEventsMock(),
-  getStandaloneUpcomingEvents: () => getStandaloneUpcomingEventsMock(),
+  getStandaloneEvents: () => getStandaloneEventsMock(),
 }))
 
 vi.mock('@/server/actions/event-ttl', () => ({
@@ -220,7 +220,7 @@ describe('ActivitiesPage', () => {
     authMock.mockReset()
     getUserActivitiesMock.mockReset().mockResolvedValue([])
     getUserEventsMock.mockReset().mockResolvedValue([])
-    getStandaloneUpcomingEventsMock.mockReset().mockResolvedValue([])
+    getStandaloneEventsMock.mockReset().mockResolvedValue([])
     safeDeleteExpiredEventsMock.mockReset().mockResolvedValue(undefined)
     safeGenerateEventsMock.mockReset().mockResolvedValue(undefined)
     getCalendarPrefsMock.mockReset().mockResolvedValue(null)
@@ -364,7 +364,7 @@ describe('ActivitiesPage', () => {
   it('renders the one-off events section when standalone events exist', async () => {
     authMock.mockResolvedValue(makeSession())
     getUserActivitiesMock.mockResolvedValue([makeActivity()])
-    getStandaloneUpcomingEventsMock.mockResolvedValue([
+    getStandaloneEventsMock.mockResolvedValue([
       makeEvent({ id: 'so-1', activityId: null, title: 'Dentist', status: 'pending' }),
     ])
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
@@ -373,10 +373,28 @@ describe('ActivitiesPage', () => {
     expect(within(section).getByTestId('one-off-row')).toHaveAttribute('data-status', 'pending')
   })
 
+  it('renders a past standalone event in the one-off section (past events remain editable)', async () => {
+    authMock.mockResolvedValue(makeSession())
+    getUserActivitiesMock.mockResolvedValue([makeActivity()])
+    getStandaloneEventsMock.mockResolvedValue([
+      makeEvent({
+        id: 'so-past',
+        activityId: null,
+        title: 'Old dentist visit',
+        status: 'pending',
+        startAt: new Date('2020-01-01T13:00:00.000Z'),
+        endAt: new Date('2020-01-01T14:00:00.000Z'),
+      }),
+    ])
+    render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
+    const section = screen.getByTestId('one-off-table')
+    expect(within(section).getByText('Old dentist visit')).toBeInTheDocument()
+  })
+
   it('omits the one-off section when there are no standalone events', async () => {
     authMock.mockResolvedValue(makeSession())
     getUserActivitiesMock.mockResolvedValue([makeActivity()])
-    getStandaloneUpcomingEventsMock.mockResolvedValue([])
+    getStandaloneEventsMock.mockResolvedValue([])
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
     expect(screen.queryByTestId('one-off-table')).not.toBeInTheDocument()
   })
@@ -393,7 +411,7 @@ describe('ActivitiesPage', () => {
   it('threads use24h=true from calendar prefs into the tables and create button', async () => {
     authMock.mockResolvedValue(makeSession())
     getUserActivitiesMock.mockResolvedValue([makeActivity()])
-    getStandaloneUpcomingEventsMock.mockResolvedValue([makeEvent({ id: 'so-1', activityId: null })])
+    getStandaloneEventsMock.mockResolvedValue([makeEvent({ id: 'so-1', activityId: null })])
     getCalendarPrefsMock.mockResolvedValue({ use24h: true })
     render(await ActivitiesPage({ searchParams: Promise.resolve({}) }))
     expect(screen.getByTestId('activity-create-button')).toHaveAttribute('data-use24h', 'true')
