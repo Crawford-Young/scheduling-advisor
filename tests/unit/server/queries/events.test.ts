@@ -28,9 +28,9 @@ vi.mock('drizzle-orm', () => ({
   isNull: vi.fn((col: unknown) => ({ op: 'isNull', col })),
 }))
 
-import { getUserEvents, getStandaloneUpcomingEvents } from '@/server/queries/events'
+import { getUserEvents, getStandaloneEvents } from '@/server/queries/events'
 import { events } from '@/db/schema'
-import { isNull, gte, asc } from 'drizzle-orm'
+import { isNull, asc } from 'drizzle-orm'
 
 describe('getUserEvents', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -54,24 +54,30 @@ describe('getUserEvents', () => {
   })
 })
 
-describe('getStandaloneUpcomingEvents', () => {
+describe('getStandaloneEvents', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('scopes to standalone (activityId IS NULL), upcoming (endAt >= now) events ordered by startAt', async () => {
-    const result = await getStandaloneUpcomingEvents()
+  it('scopes to standalone (activityId IS NULL) events for the user, ordered by startAt, including past events', async () => {
+    const result = await getStandaloneEvents()
 
     expect(result).toEqual([{ id: 'evt-1', title: 'Lunch' }])
     expect(mockFrom).toHaveBeenCalledWith(events)
     expect(vi.mocked(isNull).mock.calls).toContainEqual([events.activityId])
-    expect(vi.mocked(gte).mock.calls[0]?.[0]).toBe(events.endAt)
     expect(vi.mocked(asc).mock.calls[0]?.[0]).toBe(events.startAt)
+  })
+
+  it('does not filter by endAt (past standalone events remain visible/editable)', async () => {
+    await getStandaloneEvents()
+
+    const { gte } = await import('drizzle-orm')
+    expect(vi.mocked(gte)).not.toHaveBeenCalled()
   })
 
   it('returns empty array when unauthenticated', async () => {
     const { auth } = await import('@/auth')
     vi.mocked(auth).mockResolvedValueOnce(null as never)
 
-    const result = await getStandaloneUpcomingEvents()
+    const result = await getStandaloneEvents()
 
     expect(result).toEqual([])
     expect(mockSelect).not.toHaveBeenCalled()

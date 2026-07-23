@@ -4,11 +4,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { getUserActivities, type ActivityRowDb } from '@/server/queries/activities'
-import {
-  getUserEvents,
-  getStandaloneUpcomingEvents,
-  type EventRowDb,
-} from '@/server/queries/events'
+import { getUserEvents, getStandaloneEvents, type EventRowDb } from '@/server/queries/events'
 import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
 import { safeDeleteExpiredEvents } from '@/server/actions/event-ttl'
 import { safeGenerateEvents } from '@/server/actions/event-generation'
@@ -102,7 +98,7 @@ export default async function ActivitiesPage({
   const [activities, events, standaloneEvents] = await Promise.all([
     getUserActivities(),
     getUserEvents(),
-    getStandaloneUpcomingEvents(),
+    getStandaloneEvents(),
   ])
 
   const now = new Date()
