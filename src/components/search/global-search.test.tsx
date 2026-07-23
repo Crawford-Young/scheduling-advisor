@@ -287,25 +287,24 @@ describe('GlobalSearch', () => {
 
   it('has no axe violations with the dropdown open in dark and light themes', async () => {
     vi.useRealTimers()
-    render(<GlobalSearch username="crawford" />)
+    // Rendered inside a <header> to mirror the real app tree: the (app) layout
+    // wraps the topbar (and this permanently-visible search input) in a
+    // <header> landmark. Without that wrapper here, a standalone unit render
+    // would be unlandmarked content and fail axe's `region` rule for real —
+    // that's a component-scoped test-tree gap, not a suppressible false
+    // positive, so the fix is to mirror the app tree rather than disable the
+    // rule. The old test's `aria-hidden-focus` disable is also gone — it was
+    // there for Radix Dialog focus guards, which no longer exist.
+    render(
+      <header>
+        <GlobalSearch username="crawford" />
+      </header>,
+    )
     fireEvent.focus(getInput())
     await screen.findByText('Calendar')
     for (const theme of ['dark', 'light']) {
       document.documentElement.className = theme
-      // Deviation: `region` disabled here — confirmed via the installed
-      // @crawfordyoung/ui dist (AppShell, index.mjs) that the `topbar` slot
-      // renders as a sibling of `<main>`, not inside it or any other landmark
-      // (no `<header>`/`role="banner"` wrapper) — a standalone unit render of
-      // GlobalSearch (outside AppShell) is real page content contained by no
-      // landmark, which is a library-composition fact this component doesn't
-      // own, not markup this task introduced. The old Dialog-based version
-      // never hit this because Radix's `role="dialog"` content is exempt from
-      // the region rule; removing the Dialog surfaced it. The
-      // `aria-hidden-focus` disable the old test carried IS removed here —
-      // it was there for Radix's Dialog focus guards, which are gone.
-      expect(
-        await axe(document.body, { rules: { region: { enabled: false } } }),
-      ).toHaveNoViolations()
+      expect(await axe(document.body)).toHaveNoViolations()
     }
   })
 
