@@ -3,17 +3,13 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Button,
   Command,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
+  Kbd,
 } from '@/lib/ui'
 import { globalSearch, searchUsersGlobal } from '@/server/actions/search'
 import { filterPages, PAGE_INDEX } from '@/lib/search-pages'
@@ -45,6 +41,9 @@ export function GlobalSearch({ username }: GlobalSearchProps): React.JSX.Element
   const [userResults, setUserResults] = React.useState<readonly UserSearchResult[] | null>(null)
   const [pendingCount, setPendingCount] = React.useState(0)
   const requestIdRef = React.useRef(0)
+  const containerRef = React.useRef<HTMLDivElement>(null)
+  const inputRef = React.useRef<HTMLInputElement>(null)
+  const openRef = React.useRef(open)
 
   const clearResults = React.useCallback((): void => {
     setEventResults(null)
@@ -52,27 +51,60 @@ export function GlobalSearch({ username }: GlobalSearchProps): React.JSX.Element
     setUserResults(null)
   }, [])
 
+  function closeSearch(): void {
+    setOpen(false)
+  }
+
+  React.useEffect(() => {
+    openRef.current = open
+  }, [open])
+
+  // Ctrl/Cmd+K toggles: focuses the input when closed, closes + blurs when open.
+  // Reads `openRef` (kept in sync above) rather than `open` directly so this
+  // effect never needs `open` in its deps and only registers the listener once.
   React.useEffect(() => {
     function onKeyDown(e: KeyboardEvent): void {
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault()
-        setOpen((prev) => !prev)
+        if (openRef.current) {
+          inputRef.current?.blur()
+          closeSearch()
+        } else {
+          setOpen(true)
+          inputRef.current?.focus()
+        }
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  // Outside pointerdown closes the dropdown — only wired while open.
+  React.useEffect(() => {
+    if (!open) return undefined
+    function onPointerDown(e: PointerEvent): void {
+      if (
+        containerRef.current &&
+        e.target instanceof Node &&
+        !containerRef.current.contains(e.target)
+      ) {
+        closeSearch()
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open])
+
   // Reset-on-close lives here (keyed on `open` itself) rather than only inside
-  // handleOpenChange, so the global keyboard toggle above — which flips `open`
-  // directly and does not go through handleOpenChange — still resets query,
-  // results, and the request id on every close (stale-cache-on-reopen rule).
+  // an open-change handler, so EVERY close path — Escape, outside click, item
+  // selection, and the global keyboard toggle above — resets query, results,
+  // and the request id (stale-cache-on-reopen rule).
   React.useEffect(() => {
     if (!open) {
       requestIdRef.current += 1
       // Resetting query/results on close is a prop(open)->state sync, not a value
       // derivable during render — the stale-cache-on-reopen rule requires it fire
-      // regardless of which path (Dialog onOpenChange or the global shortcut) closed it.
+      // regardless of which path closed it.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setQuery('')
       clearResults()
@@ -108,12 +140,16 @@ export function GlobalSearch({ username }: GlobalSearchProps): React.JSX.Element
     return () => clearTimeout(timer)
   }, [open, query, clearResults])
 
-  function handleOpenChange(next: boolean): void {
-    setOpen(next)
+  function handleInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      closeSearch()
+      inputRef.current?.blur()
+    }
   }
 
   function navigate(route: string): void {
-    handleOpenChange(false)
+    closeSearch()
     router.push(route)
   }
 
@@ -125,32 +161,29 @@ export function GlobalSearch({ username }: GlobalSearchProps): React.JSX.Element
   ])
 
   return (
-    <>
-      <Button
-        variant="outline"
-        size="sm"
-        className="text-muted-foreground gap-2"
-        onClick={() => setOpen(true)}
+    <div ref={containerRef} className="relative w-full max-w-md min-w-0">
+      <Command
+        shouldFilter={false}
+        label="Global search"
+        className="[&_[cmdk-group-heading]]:text-muted-foreground h-auto w-full flex-col overflow-visible bg-transparent [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4"
       >
-        Search…
-        <kbd className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">⌘K</kbd>
-      </Button>
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="overflow-hidden p-0 shadow-lg">
-          <DialogTitle className="sr-only">Global search</DialogTitle>
-          <DialogDescription className="sr-only">
-            Search events, activities, people, and pages.
-          </DialogDescription>
-          <Command
-            shouldFilter={false}
-            label="Global search"
-            className="[&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5"
-          >
-            <CommandInput
-              value={query}
-              onValueChange={setQuery}
-              placeholder="Search events, activities, people…"
-            />
+        <div className="relative">
+          <CommandInput
+            ref={inputRef}
+            value={query}
+            onValueChange={setQuery}
+            onFocus={() => setOpen(true)}
+            onKeyDown={handleInputKeyDown}
+            placeholder="Search events, activities, people…"
+            aria-label="Global search"
+            className="pr-12"
+          />
+          <Kbd className="text-muted-foreground pointer-events-none absolute top-1/2 right-3 -translate-y-1/2">
+            ⌘K
+          </Kbd>
+        </div>
+        {open ? (
+          <div className="border-border bg-surface absolute top-full right-0 left-0 z-50 mt-2 overflow-hidden rounded-md border shadow-lg">
             <CommandList>
               <CommandEmpty>{pendingCount > 0 ? 'Searching…' : 'No results found.'}</CommandEmpty>
               {pages.length > 0 ? (
@@ -226,9 +259,9 @@ export function GlobalSearch({ username }: GlobalSearchProps): React.JSX.Element
                 </CommandGroup>
               ) : null}
             </CommandList>
-          </Command>
-        </DialogContent>
-      </Dialog>
-    </>
+          </div>
+        ) : null}
+      </Command>
+    </div>
   )
 }

@@ -43,42 +43,76 @@ afterEach(() => {
   document.documentElement.className = ''
 })
 
-async function openPalette(): Promise<void> {
-  fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+function getInput(): HTMLElement {
+  return screen.getByPlaceholderText(/search events/i)
+}
+
+// The dropdown opens on focus — the primary open path most tests exercise.
+// The dedicated Ctrl+K toggle test below covers the global hotkey separately.
+async function openViaFocus(): Promise<void> {
+  fireEvent.focus(getInput())
   await act(async () => {})
 }
 
 async function typeQuery(text: string): Promise<void> {
-  fireEvent.input(screen.getByPlaceholderText(/search events/i), { target: { value: text } })
+  fireEvent.input(getInput(), { target: { value: text } })
   await act(async () => {
     vi.advanceTimersByTime(300)
   })
 }
 
 describe('GlobalSearch', () => {
-  it('renders the trigger with the shortcut hint and opens on click', async () => {
+  it('renders a persistent search input with a keyboard hint', () => {
     render(<GlobalSearch username="crawford" />)
+    expect(getInput()).toBeInTheDocument()
     expect(screen.getByText('⌘K')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /search/i }))
-    await act(async () => {})
-    expect(screen.getByPlaceholderText(/search events/i)).toBeInTheDocument()
+    // The dropdown is closed until the input is focused.
+    expect(screen.queryByText('Calendar')).not.toBeInTheDocument()
   })
 
-  it('toggles open with Ctrl+K and Meta+K', async () => {
+  it('opens the dropdown on focus and shows the pages list at empty query', async () => {
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
-    expect(screen.getByPlaceholderText(/search events/i)).toBeInTheDocument()
+    await openViaFocus()
+    expect(screen.getByText('Calendar')).toBeInTheDocument()
+  })
+
+  it('toggles the dropdown open and closed with Ctrl+K and Meta+K', async () => {
+    render(<GlobalSearch username="crawford" />)
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    await act(async () => {})
+    expect(screen.getByText('Calendar')).toBeInTheDocument()
+    expect(getInput()).toHaveFocus()
     fireEvent.keyDown(window, { key: 'k', metaKey: true })
     await act(async () => {})
-    expect(screen.queryByPlaceholderText(/search events/i)).not.toBeInTheDocument()
+    expect(screen.queryByText('Calendar')).not.toBeInTheDocument()
+    expect(getInput()).not.toHaveFocus()
+  })
+
+  it('closes on Escape and blurs the input', async () => {
+    render(<GlobalSearch username="crawford" />)
+    await openViaFocus()
+    expect(screen.getByText('Calendar')).toBeInTheDocument()
+    fireEvent.keyDown(getInput(), { key: 'Escape' })
+    await act(async () => {})
+    expect(screen.queryByText('Calendar')).not.toBeInTheDocument()
+    expect(getInput()).not.toHaveFocus()
+  })
+
+  it('closes on an outside pointerdown', async () => {
+    render(<GlobalSearch username="crawford" />)
+    await openViaFocus()
+    expect(screen.getByText('Calendar')).toBeInTheDocument()
+    fireEvent.pointerDown(document.body)
+    await act(async () => {})
+    expect(screen.queryByText('Calendar')).not.toBeInTheDocument()
   })
 
   it('shows all pages at empty query and filters them from the first character', async () => {
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
+    await openViaFocus()
     expect(screen.getByText('Calendar')).toBeInTheDocument()
     expect(screen.getByText('My profile')).toBeInTheDocument()
-    fireEvent.input(screen.getByPlaceholderText(/search events/i), { target: { value: 'c' } })
+    fireEvent.input(getInput(), { target: { value: 'c' } })
     await act(async () => {})
     expect(screen.getByText('Calendar')).toBeInTheDocument()
     // Deviation: brief's fixture asserted 'Feed' absent at query 'c', but Feed's own
@@ -92,15 +126,15 @@ describe('GlobalSearch', () => {
 
   it('omits the My profile entry when username is null', async () => {
     render(<GlobalSearch username={null} />)
-    await openPalette()
+    await openViaFocus()
     expect(screen.getByText('Calendar')).toBeInTheDocument()
     expect(screen.queryByText('My profile')).not.toBeInTheDocument()
   })
 
   it('debounces and fires both actions once at >=2 chars', async () => {
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
-    fireEvent.input(screen.getByPlaceholderText(/search events/i), { target: { value: 'din' } })
+    await openViaFocus()
+    fireEvent.input(getInput(), { target: { value: 'din' } })
     await act(async () => {
       vi.advanceTimersByTime(299)
     })
@@ -117,7 +151,7 @@ describe('GlobalSearch', () => {
     const users = deferred<{ data: typeof USERS }>()
     searchUsersGlobalMock.mockReturnValue(users.promise)
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
+    await openViaFocus()
     await typeQuery('dinner')
     expect(screen.getByText('Team dinner')).toBeInTheDocument()
     expect(screen.getByText('Dinner prep')).toBeInTheDocument()
@@ -132,7 +166,7 @@ describe('GlobalSearch', () => {
     const first = deferred<{ data: typeof SEARCH_DATA }>()
     globalSearchMock.mockReturnValueOnce(first.promise)
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
+    await openViaFocus()
     await typeQuery('din')
     await typeQuery('lunch meeting')
     await act(async () => {
@@ -143,13 +177,13 @@ describe('GlobalSearch', () => {
     expect(screen.queryByText('STALE EVENT')).not.toBeInTheDocument()
   })
 
-  it('navigates to the event week and closes on event select', async () => {
+  it('navigates to the event week and closes the dropdown on event select', async () => {
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
+    await openViaFocus()
     await typeQuery('dinner')
     fireEvent.click(screen.getByText('Team dinner'))
     expect(pushMock).toHaveBeenCalledWith('/calendar?week=2026-07-25')
-    expect(screen.queryByPlaceholderText(/search events/i)).not.toBeInTheDocument()
+    expect(screen.queryByText('Team dinner')).not.toBeInTheDocument()
   })
 
   it('navigates to bare /calendar for an event without startAt', async () => {
@@ -157,7 +191,7 @@ describe('GlobalSearch', () => {
       data: { events: [{ ...EVENT, startAt: null }], activities: [] },
     })
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
+    await openViaFocus()
     await typeQuery('dinner')
     fireEvent.click(screen.getByText('Team dinner'))
     expect(pushMock).toHaveBeenCalledWith('/calendar')
@@ -165,7 +199,7 @@ describe('GlobalSearch', () => {
 
   it('navigates with the activity title filter on activity select', async () => {
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
+    await openViaFocus()
     await typeQuery('dinner')
     fireEvent.click(screen.getByText('Dinner prep'))
     expect(pushMock).toHaveBeenCalledWith('/activities?q=Dinner%20prep')
@@ -173,7 +207,7 @@ describe('GlobalSearch', () => {
 
   it('navigates to the user profile on user select', async () => {
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
+    await openViaFocus()
     await typeQuery('sam')
     // Deviation: the brief's waitFor deadlocks under vi.useFakeTimers() (waitFor's
     // internal polling relies on real timers) — typeQuery's `act` already flushes
@@ -185,37 +219,51 @@ describe('GlobalSearch', () => {
 
   it('navigates on page select', async () => {
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
+    await openViaFocus()
     fireEvent.click(screen.getByText('Calendar'))
     expect(pushMock).toHaveBeenCalledWith('/calendar')
   })
 
   it('selects the highlighted item with Enter (cmdk auto-selects the first item)', async () => {
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
-    fireEvent.keyDown(screen.getByPlaceholderText(/search events/i), { key: 'Enter' })
+    await openViaFocus()
+    fireEvent.keyDown(getInput(), { key: 'Enter' })
     expect(pushMock).toHaveBeenCalledWith('/calendar')
   })
 
   it('moves the selection with ArrowDown before Enter', async () => {
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
-    const input = screen.getByPlaceholderText(/search events/i)
+    await openViaFocus()
+    const input = getInput()
     fireEvent.keyDown(input, { key: 'ArrowDown' })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(pushMock).toHaveBeenCalledWith('/activities')
   })
 
-  it('fetches fresh on close then reopen — no stale results, input reset', async () => {
+  it('fetches fresh after Escape-close then reopen — no stale results, input reset', async () => {
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
+    await openViaFocus()
     await typeQuery('dinner')
     expect(screen.getByText('Team dinner')).toBeInTheDocument()
-    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    fireEvent.keyDown(getInput(), { key: 'Escape' })
     await act(async () => {})
-    await openPalette()
+    await openViaFocus()
     expect(screen.queryByText('Team dinner')).not.toBeInTheDocument()
-    expect(screen.getByPlaceholderText(/search events/i)).toHaveValue('')
+    expect(getInput()).toHaveValue('')
+    await typeQuery('dinner')
+    expect(globalSearchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('fetches fresh after an outside-click close then reopen — no stale results, input reset', async () => {
+    render(<GlobalSearch username="crawford" />)
+    await openViaFocus()
+    await typeQuery('dinner')
+    expect(screen.getByText('Team dinner')).toBeInTheDocument()
+    fireEvent.pointerDown(document.body)
+    await act(async () => {})
+    await openViaFocus()
+    expect(screen.queryByText('Team dinner')).not.toBeInTheDocument()
+    expect(getInput()).toHaveValue('')
     await typeQuery('dinner')
     expect(globalSearchMock).toHaveBeenCalledTimes(2)
   })
@@ -224,7 +272,7 @@ describe('GlobalSearch', () => {
     globalSearchMock.mockResolvedValue({ data: { events: [], activities: [] } })
     searchUsersGlobalMock.mockResolvedValue({ data: [] })
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
+    await openViaFocus()
     await typeQuery('zzzz')
     expect(screen.getByText('No results found.')).toBeInTheDocument()
   })
@@ -232,26 +280,31 @@ describe('GlobalSearch', () => {
   it('keeps results absent when an action returns an error shape', async () => {
     globalSearchMock.mockResolvedValue({ error: 'Too many requests' })
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
+    await openViaFocus()
     await typeQuery('dinner')
     expect(screen.queryByText('Team dinner')).not.toBeInTheDocument()
   })
 
-  it('has no axe violations with the palette open in dark and light themes', async () => {
+  it('has no axe violations with the dropdown open in dark and light themes', async () => {
     vi.useRealTimers()
     render(<GlobalSearch username="crawford" />)
-    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
-    await screen.findByPlaceholderText(/search events/i)
+    fireEvent.focus(getInput())
+    await screen.findByText('Calendar')
     for (const theme of ['dark', 'light']) {
       document.documentElement.className = theme
-      // Deviation: `aria-hidden-focus` disabled here — confirmed via the installed
-      // aria-hidden@1.2.6 source (dist/es2019/index.js `hideOthers`/`deep`) that
-      // Radix's FocusGuard spans mount as direct `document.body` children outside
-      // the Dialog's kept subtree, so `hideOthers` marks them `aria-hidden="true"`
-      // while they keep `tabIndex={0}` — an upstream Radix/aria-hidden library
-      // interaction, not markup this component owns.
+      // Deviation: `region` disabled here — confirmed via the installed
+      // @crawfordyoung/ui dist (AppShell, index.mjs) that the `topbar` slot
+      // renders as a sibling of `<main>`, not inside it or any other landmark
+      // (no `<header>`/`role="banner"` wrapper) — a standalone unit render of
+      // GlobalSearch (outside AppShell) is real page content contained by no
+      // landmark, which is a library-composition fact this component doesn't
+      // own, not markup this task introduced. The old Dialog-based version
+      // never hit this because Radix's `role="dialog"` content is exempt from
+      // the region rule; removing the Dialog surfaced it. The
+      // `aria-hidden-focus` disable the old test carried IS removed here —
+      // it was there for Radix's Dialog focus guards, which are gone.
       expect(
-        await axe(document.body, { rules: { 'aria-hidden-focus': { enabled: false } } }),
+        await axe(document.body, { rules: { region: { enabled: false } } }),
       ).toHaveNoViolations()
     }
   })
@@ -259,7 +312,7 @@ describe('GlobalSearch', () => {
   it('keeps user results absent when the user search action returns an error shape', async () => {
     searchUsersGlobalMock.mockResolvedValue({ error: 'Too many requests' })
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
+    await openViaFocus()
     await typeQuery('dinner')
     expect(screen.queryByText('Sam Lee')).not.toBeInTheDocument()
   })
@@ -269,7 +322,7 @@ describe('GlobalSearch', () => {
       data: { events: [{ ...EVENT, location: null }], activities: [] },
     })
     const { container } = render(<GlobalSearch username="crawford" />)
-    await openPalette()
+    await openViaFocus()
     await typeQuery('dinner')
     expect(screen.getByText('Team dinner')).toBeInTheDocument()
     expect(container.textContent).not.toContain('·')
@@ -280,7 +333,7 @@ describe('GlobalSearch', () => {
       data: [{ username: 'noname', name: null, image: null }],
     })
     render(<GlobalSearch username="crawford" />)
-    await openPalette()
+    await openViaFocus()
     await typeQuery('zz')
     expect(screen.getByText('noname')).toBeInTheDocument()
   })
