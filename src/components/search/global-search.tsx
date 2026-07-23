@@ -177,7 +177,15 @@ export function GlobalSearch({ username }: GlobalSearchProps): React.JSX.Element
       <Command
         shouldFilter={false}
         label="Global search"
-        className="[&_[cmdk-group-heading]]:text-muted-foreground h-auto w-full flex-col overflow-visible bg-transparent [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]]:border-b-0 [&_[cmdk-input]]:h-9 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4"
+        // The [cmdk-item]:pointer-events-auto override works around a library bug:
+        // the lib CommandItem's data-[disabled]:pointer-events-none is a PRESENCE
+        // selector, and cmdk@1.1.1 renders data-disabled="false" on enabled items,
+        // so every item computes pointer-events:none and real clicks fall through
+        // to the list (keyboard selection still works — no hit-testing). Fix
+        // belongs in @crawfordyoung/ui (data-[disabled=true]:...); remove this
+        // override when the library ships it. Truly disabled items would need
+        // re-gating then — this palette renders none.
+        className="[&_[cmdk-group-heading]]:text-muted-foreground h-auto w-full flex-col overflow-visible bg-transparent [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]]:border-b-0 [&_[cmdk-input]]:h-9 [&_[cmdk-item]]:pointer-events-auto! [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4"
       >
         {/* Styled to match the library Input (rounded border border-input bg-background)
             so the field reads as a real input in the bar; the lib CommandInput wrapper's
