@@ -29,6 +29,7 @@ For calendar events specifically: always call \`proposeEvent\` to show the propo
 **Data tools** — read-only:
 - \`getWeekSchedule(weekStart)\` — events + activities for a given week (use the context block for the current week)
 - \`getActivities()\` — all recurring activity templates
+- \`getTravelTime(origin, destination, mode?, departureTimeIso?)\` — travel estimate between two locations; supports saved places and "home"; only pass departureTimeIso when the user asks about leaving soon.
 
 **Display tools** — surface structured information:
 - Week overview → \`showWeekCalendar\`

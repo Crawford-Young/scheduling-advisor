@@ -178,8 +178,8 @@ describe('POST /api/chat', () => {
     expect(sys[1]!.providerOptions).toBeUndefined()
     // No system message leaks into the conversation turns.
     expect((args.messages as Array<{ role: string }>).some((m) => m.role === 'system')).toBe(false)
-    // Advisor drops the direct event-create pair (createEvent/createEvents) — 12 registry tools − 2.
-    expect(Object.keys(args.tools!)).toHaveLength(10)
+    // Advisor drops the direct event-create pair (createEvent/createEvents) — 13 registry tools − 2.
+    expect(Object.keys(args.tools!)).toHaveLength(11)
   })
 
   it('persisted: concatenated system content stays byte-equivalent to the prior single message', async () => {

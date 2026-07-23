@@ -34,6 +34,13 @@ vi.mock('@/server/actions/events', () => ({
   deleteEvent: vi.fn(),
 }))
 vi.mock('@/server/actions/chat-mutations', () => ({ createEvents: vi.fn() }))
+vi.mock('@/server/travel', () => ({
+  getUserTravelPlan: vi.fn(),
+  resolveLocation: vi.fn(),
+  getCachedTravelTime: vi.fn(),
+  getLiveTravelTime: vi.fn(),
+  TRAFFIC_AWARE_WINDOW_HOURS: 2,
+}))
 
 import { getMode } from '@/lib/chat/modes'
 import { CHAT_TOOL_NAMES } from '@/lib/chat/tools'

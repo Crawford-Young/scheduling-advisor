@@ -14,6 +14,7 @@ const ADVISOR_MAX_STEPS = 5
 const ADVISOR_TOOL_NAMES: readonly ChatToolName[] = [
   'getWeekSchedule',
   'getActivities',
+  'getTravelTime',
   'showWeekCalendar',
   'showScheduleSuggestion',
   'showLifeBalance',

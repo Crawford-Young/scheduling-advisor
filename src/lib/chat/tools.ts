@@ -2,16 +2,25 @@ import { tool, jsonSchema, type Tool } from 'ai'
 import { z } from 'zod'
 import { and, asc, eq, gte, lt } from 'drizzle-orm'
 import { db } from '@/db'
-import { events } from '@/db/schema'
+import { events, calendarPrefs } from '@/db/schema'
 import { localWeekBounds } from '@/lib/weekly-fit'
 import { getUserActivities } from '@/server/queries/activities'
 import { createActivity } from '@/server/actions/activities'
 import { createEvent, updateEvent, deleteEvent } from '@/server/actions/events'
 import { createEvents } from '@/server/actions/chat-mutations'
+import {
+  getUserTravelPlan,
+  resolveLocation,
+  getCachedTravelTime,
+  getLiveTravelTime,
+  TRAFFIC_AWARE_WINDOW_HOURS,
+} from '@/server/travel'
+import type { TravelMode, TravelTimeInput } from '@/server/services/interfaces/travel'
 
 export const CHAT_TOOL_NAMES = [
   'getWeekSchedule',
   'getActivities',
+  'getTravelTime',
   'createActivity',
   'createEvent',
   'createEvents',
@@ -28,6 +37,13 @@ export type ChatToolName = (typeof CHAT_TOOL_NAMES)[number]
 export type ChatToolSet = Record<ChatToolName, Tool>
 
 const MINUTES_IN_DAY = 1440
+const MS_PER_SECOND = 1000
+const SECONDS_PER_MINUTE = 60
+const MINUTES_PER_HOUR = 60
+const TRAFFIC_AWARE_WINDOW_MS =
+  TRAFFIC_AWARE_WINDOW_HOURS * MINUTES_PER_HOUR * SECONDS_PER_MINUTE * MS_PER_SECOND
+const DEFAULT_TRAVEL_MODE: TravelMode = 'driving'
+const TRAVEL_MODE_ROW_LIMIT = 1
 
 const scheduleSlotSchema = z.object({
   day: z.number().int().min(0).max(6).describe('weekday, 0=Sunday … 6=Saturday'),
@@ -50,6 +66,108 @@ const eventInputSchema = z.object({
   location: z.string().optional(),
   description: z.string().optional(),
 })
+
+const travelTimeInputSchema = z.object({
+  origin: z
+    .string()
+    .describe('Origin location: a saved place name (e.g. "home"), event location, or address'),
+  destination: z
+    .string()
+    .describe('Destination location: a saved place name, event location, or address'),
+  mode: z
+    .enum(['driving', 'walking', 'bicycling', 'transit'])
+    .optional()
+    .describe("Travel mode; defaults to the user's saved travel preference"),
+  departureTimeIso: z
+    .string()
+    .optional()
+    .describe(
+      'ISO 8601 departure instant — only pass this for imminent departures, to get a traffic-aware estimate',
+    ),
+})
+
+interface TravelTimeError {
+  readonly error: string
+}
+
+interface TravelTimeSuccess {
+  readonly durationMin: number
+  readonly distanceMeters: number
+  readonly mode: TravelMode
+  readonly trafficAware: boolean
+  readonly origin: string
+  readonly destination: string
+}
+
+type TravelTimeResult = TravelTimeError | TravelTimeSuccess
+
+function clarifyLocationError(rawText: string): TravelTimeError {
+  return {
+    error: `Couldn't find a location for '${rawText}'. Ask the user to clarify or save it as a place.`,
+  }
+}
+
+async function resolveTravelMode(userId: string): Promise<TravelMode> {
+  const rows = await db
+    .select()
+    .from(calendarPrefs)
+    .where(eq(calendarPrefs.userId, userId))
+    .limit(TRAVEL_MODE_ROW_LIMIT)
+  const row = rows[0] as { travelMode: TravelMode } | undefined
+  return row?.travelMode ?? DEFAULT_TRAVEL_MODE
+}
+
+// Server-enforced traffic policy: a departure only qualifies for a live,
+// traffic-aware lookup when it parses AND falls within the next
+// TRAFFIC_AWARE_WINDOW_HOURS from now (future-side only). Past or
+// unparseable input is treated as absent — never thrown.
+function resolveDepartureTime(departureTimeIso: string | undefined): Date | undefined {
+  if (!departureTimeIso) return undefined
+  const parsed = new Date(departureTimeIso)
+  if (Number.isNaN(parsed.getTime())) return undefined
+  const deltaMs = parsed.getTime() - Date.now()
+  if (deltaMs < 0 || deltaMs > TRAFFIC_AWARE_WINDOW_MS) return undefined
+  return parsed
+}
+
+/**
+ * `getTravelTime` tool implementation. `userId` is the route's
+ * already-authenticated session id (never client/model-supplied) — the
+ * traffic policy below is likewise decided server-side from
+ * `departureTimeIso` vs now, never trusted from the model's choice.
+ */
+export async function executeGetTravelTime(
+  userId: string,
+  props: z.infer<typeof travelTimeInputSchema>,
+): Promise<TravelTimeResult> {
+  const hasPlan = await getUserTravelPlan(userId)
+  if (!hasPlan) return { error: 'Travel estimates require a subscription.' }
+
+  const origin = await resolveLocation(userId, props.origin)
+  if (!origin) return clarifyLocationError(props.origin)
+
+  const destination = await resolveLocation(userId, props.destination)
+  if (!destination) return clarifyLocationError(props.destination)
+
+  const mode = props.mode ?? (await resolveTravelMode(userId))
+  const departureTime = resolveDepartureTime(props.departureTimeIso)
+
+  const input: TravelTimeInput = { origin: origin.point, destination: destination.point, mode }
+  const estimate = departureTime
+    ? await getLiveTravelTime(userId, { ...input, departureTime })
+    : await getCachedTravelTime(userId, input)
+
+  if (!estimate) return { error: 'Travel time is unavailable right now.' }
+
+  return {
+    durationMin: estimate.durationMin,
+    distanceMeters: estimate.distanceMeters,
+    mode,
+    trafficAware: estimate.trafficAware,
+    origin: origin.label,
+    destination: destination.label,
+  }
+}
 
 /**
  * Chat tool factory. `userId` is the route's already-authenticated session id
@@ -85,6 +203,12 @@ export function buildChatTools(userId: string): ChatToolSet {
       description: 'Get all of this user’s activity templates (recurring session definitions).',
       inputSchema: z.object({}),
       execute: async () => getUserActivities(),
+    }),
+    getTravelTime: tool({
+      description:
+        'Estimate travel time between two locations. Accepts saved place names (including "home"), event locations, or addresses. Pass departureTimeIso only for imminent departures to get traffic-aware estimates.',
+      inputSchema: travelTimeInputSchema,
+      execute: async (props) => executeGetTravelTime(userId, props),
     }),
     // ── Display tools ───────────────────────────────────────────────────────
     showWeekCalendar: tool({

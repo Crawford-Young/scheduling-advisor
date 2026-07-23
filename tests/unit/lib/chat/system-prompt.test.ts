@@ -34,6 +34,13 @@ describe('buildSystemPrompt', () => {
     expect(sys).toMatch(/proposeEvent/)
   })
 
+  it('documents getTravelTime among the data tools, gated on imminent departures', () => {
+    const sys = buildSystemPrompt()
+    expect(sys).toMatch(/`getTravelTime/)
+    expect(sys).toContain('departureTimeIso')
+    expect(sys).toMatch(/leaving soon/i)
+  })
+
   it('instructs a single proposeEvent call with recurrence fields for repeated requests', () => {
     const sys = buildSystemPrompt()
     expect(sys).toMatch(/recurring|repeated/i)
