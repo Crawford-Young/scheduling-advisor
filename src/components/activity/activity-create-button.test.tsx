@@ -1,3 +1,4 @@
+import * as React from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
@@ -53,6 +54,10 @@ vi.mock('@/lib/ui', () => ({
   toast: { error: (msg: string) => toastErrorMock(msg) },
 }))
 
+// Module-level mount counter — a persistent (broken) mount fires the mount
+// effect once; a conditional (fixed) render remounts fresh on every reopen.
+let templateMountCount = 0
+
 vi.mock('@/components/forms/activity-template-dialog', () => ({
   ActivityTemplateDialog: ({
     open,
@@ -64,8 +69,11 @@ vi.mock('@/components/forms/activity-template-dialog', () => ({
     isPending?: boolean
     use24h?: boolean
     onSubmit: (values: MockTemplateValues) => void
-  }) =>
-    open ? (
+  }) => {
+    React.useEffect(() => {
+      templateMountCount += 1
+    }, [])
+    return open ? (
       <div role="dialog" aria-label="activity-template">
         <span data-testid="dialog-pending">{String(isPending)}</span>
         <span data-testid="dialog-use24h">{String(use24h)}</span>
@@ -76,7 +84,8 @@ vi.mock('@/components/forms/activity-template-dialog', () => ({
           submit-min
         </button>
       </div>
-    ) : null,
+    ) : null
+  },
 }))
 
 const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -86,6 +95,7 @@ describe('ActivityCreateButton', () => {
     refreshMock.mockClear()
     toastErrorMock.mockClear()
     createActivityMock.mockClear().mockResolvedValue({ data: { id: 'act-new' } })
+    templateMountCount = 0
   })
 
   it('opens the template dialog when New is clicked', async () => {
@@ -143,6 +153,19 @@ describe('ActivityCreateButton', () => {
         }),
       ),
     )
+  })
+
+  it('remounts the dialog fresh after a successful create (blank defaults on reopen)', async () => {
+    const user = userEvent.setup()
+    render(<ActivityCreateButton />)
+    await user.click(screen.getByRole('button', { name: /new/i }))
+    expect(templateMountCount).toBe(1)
+    await user.click(screen.getByRole('button', { name: 'submit-full' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'activity-template' })).not.toBeInTheDocument(),
+    )
+    await user.click(screen.getByRole('button', { name: /new/i }))
+    expect(templateMountCount).toBe(2)
   })
 
   it('keeps the dialog open and surfaces a toast when createActivity errors', async () => {

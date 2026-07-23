@@ -50,13 +50,17 @@ export function ActivityCreateButton({ use24h }: ActivityCreateButtonProps): Rea
         New
       </Button>
 
-      <ActivityTemplateDialog
-        open={open}
-        onOpenChange={setOpen}
-        onSubmit={handleSubmit}
-        isPending={isPending}
-        use24h={use24h}
-      />
+      {/* Conditional-mount so each open re-seeds a fresh (blank) draft — a
+          cancelled or completed create never leaks its draft into the next open. */}
+      {open && (
+        <ActivityTemplateDialog
+          open
+          onOpenChange={setOpen}
+          onSubmit={handleSubmit}
+          isPending={isPending}
+          use24h={use24h}
+        />
+      )}
     </>
   )
 }

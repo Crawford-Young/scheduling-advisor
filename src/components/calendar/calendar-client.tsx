@@ -521,6 +521,7 @@ export function CalendarClient({
       {editTarget !== null && (
         <EventFormDialog
           open
+          mode="edit"
           onOpenChange={handleEditOpenChange}
           initialValues={toEventFormValues(editTarget)}
           onSubmit={(values) => handleEditSubmit(editTarget, values)}
@@ -542,6 +543,7 @@ export function CalendarClient({
       {newEventDefaults !== null && (
         <EventFormDialog
           open
+          mode="create"
           onOpenChange={handleNewEventOpenChange}
           initialValues={{
             startAt: newEventDefaults.startAt,

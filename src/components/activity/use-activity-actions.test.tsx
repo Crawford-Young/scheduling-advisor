@@ -102,6 +102,11 @@ vi.mock('@/lib/ui', () => ({
   ),
 }))
 
+// Module-level mount counters — a persistent (broken) mount fires the mount
+// effect once; a conditional (fixed) render remounts fresh on every reopen.
+let templateMountCount = 0
+let eventMountCount = 0
+
 vi.mock('@/components/forms/activity-template-dialog', () => ({
   // ActivityTemplateDialog — surfaces data props as text so contract bugs surface.
   ActivityTemplateDialog: ({
@@ -116,8 +121,11 @@ vi.mock('@/components/forms/activity-template-dialog', () => ({
     onSubmit: (values: MockTemplateValues) => void
     initialValues?: Partial<MockTemplateValues>
     use24h?: boolean
-  }) =>
-    open ? (
+  }) => {
+    React.useEffect(() => {
+      templateMountCount += 1
+    }, [])
+    return open ? (
       <div role="dialog" aria-label="activity-template">
         <span data-testid="tpl-title">{initialValues?.title ?? ''}</span>
         <span data-testid="tpl-color">{initialValues?.color ?? ''}</span>
@@ -138,7 +146,8 @@ vi.mock('@/components/forms/activity-template-dialog', () => ({
           template-close
         </button>
       </div>
-    ) : null,
+    ) : null
+  },
 }))
 
 vi.mock('@/components/forms/event-form-dialog', () => ({
@@ -149,14 +158,19 @@ vi.mock('@/components/forms/event-form-dialog', () => ({
     onSubmit,
     initialValues,
     use24h,
+    mode,
   }: {
     open: boolean
     onOpenChange: (open: boolean) => void
     onSubmit: (values: MockEventValues) => void
     initialValues?: Partial<MockEventValues>
     use24h?: boolean
-  }) =>
-    open ? (
+    mode?: 'create' | 'edit'
+  }) => {
+    React.useEffect(() => {
+      eventMountCount += 1
+    }, [])
+    return open ? (
       <div role="dialog" aria-label="event-form">
         <span data-testid="evt-title">{initialValues?.title ?? ''}</span>
         <span data-testid="evt-start">{initialValues?.startAt ?? ''}</span>
@@ -166,6 +180,7 @@ vi.mock('@/components/forms/event-form-dialog', () => ({
         <span data-testid="evt-location">{initialValues?.location ?? ''}</span>
         <span data-testid="evt-description">{initialValues?.description ?? ''}</span>
         <span data-testid="evt-use24h">{String(use24h ?? '')}</span>
+        <span data-testid="evt-mode">{mode ?? ''}</span>
         <button type="button" onClick={() => onSubmit(EVENT_SUBMIT)}>
           event-save
         </button>
@@ -176,7 +191,8 @@ vi.mock('@/components/forms/event-form-dialog', () => ({
           event-close
         </button>
       </div>
-    ) : null,
+    ) : null
+  },
 }))
 
 const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -257,6 +273,8 @@ describe('useActivityActions (activity templates)', () => {
     updateActivityMock.mockClear().mockResolvedValue({ data: {} })
     deleteActivityMock.mockClear().mockResolvedValue({ data: { success: true } })
     toastErrorMock.mockClear()
+    templateMountCount = 0
+    eventMountCount = 0
   })
 
   it('opens the template dialog seeded from the current activity row', async () => {
@@ -351,6 +369,17 @@ describe('useActivityActions (activity templates)', () => {
     expect(screen.getByTestId('tpl-min')).toHaveTextContent('45')
   })
 
+  it('remounts the template dialog fresh on each open (no stale draft on reopen)', async () => {
+    const user = userEvent.setup()
+    render(<ActivityHarness activity={makeActivity()} />)
+    await user.click(screen.getByRole('button', { name: 'edit-activity' }))
+    expect(templateMountCount).toBe(1)
+    await user.click(screen.getByRole('button', { name: 'template-close' }))
+    expect(screen.queryByRole('dialog', { name: 'activity-template' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'edit-activity' }))
+    expect(templateMountCount).toBe(2)
+  })
+
   it('re-seeds a deep-linked auto-open dialog from the current row (freshness)', () => {
     const { rerender } = render(<ActivityHarness activity={makeActivity()} initialEditOpen />)
     expect(screen.getByTestId('tpl-title')).toHaveTextContent('Running')
@@ -405,9 +434,11 @@ describe('useEventActions (one-off events)', () => {
     updateEventMock.mockClear().mockResolvedValue({ data: {} })
     deleteEventMock.mockClear().mockResolvedValue({ data: { success: true } })
     toastErrorMock.mockClear()
+    templateMountCount = 0
+    eventMountCount = 0
   })
 
-  it('opens the event dialog seeded from the current event row', async () => {
+  it('opens the event dialog seeded from the current event row in edit mode', async () => {
     const user = userEvent.setup()
     render(<EventHarness event={makeEvent()} use24h />)
     await user.click(screen.getByRole('button', { name: 'edit-event' }))
@@ -416,6 +447,18 @@ describe('useEventActions (one-off events)', () => {
     expect(screen.getByTestId('evt-end')).toHaveTextContent('2026-07-02T10:00:00.000Z')
     expect(screen.getByTestId('evt-location')).toHaveTextContent('Clinic')
     expect(screen.getByTestId('evt-use24h')).toHaveTextContent('true')
+    expect(screen.getByTestId('evt-mode')).toHaveTextContent('edit')
+  })
+
+  it('remounts the event dialog fresh on each open (no stale draft on reopen)', async () => {
+    const user = userEvent.setup()
+    render(<EventHarness event={makeEvent()} />)
+    await user.click(screen.getByRole('button', { name: 'edit-event' }))
+    expect(eventMountCount).toBe(1)
+    await user.click(screen.getByRole('button', { name: 'event-close' }))
+    expect(screen.queryByRole('dialog', { name: 'event-form' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'edit-event' }))
+    expect(eventMountCount).toBe(2)
   })
 
   it('seeds empty optional fields when the event has null start/end/color/location/description', async () => {

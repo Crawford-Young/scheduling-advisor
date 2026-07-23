@@ -129,6 +129,7 @@ interface MockEventFormDialogProps {
   readonly onSubmit: (values: MockEventFormValues) => void
   readonly initialValues?: Partial<MockEventFormValues>
   readonly use24h?: boolean
+  readonly mode?: 'create' | 'edit'
 }
 
 interface MockActivityTemplateValues {
@@ -434,6 +435,7 @@ vi.mock('@/components/forms/event-form-dialog', () => ({
         data-initial-location={props.initialValues?.location ?? ''}
         data-initial-description={props.initialValues?.description ?? ''}
         data-use24h={String(props.use24h ?? '')}
+        data-mode={props.mode ?? ''}
       >
         <button type="button" onClick={() => props.onSubmit(STUB_EDIT_VALUES)}>
           event-form-save
@@ -700,6 +702,7 @@ describe('CalendarClient — edit persistence', () => {
     expect(dialog.dataset.initialTitle).toBe('Test event')
     expect(dialog.dataset.initialStart).toBe('2026-01-06T09:00:00.000Z')
     expect(dialog.dataset.initialLocation).toBe('Gym')
+    expect(dialog.dataset.mode).toBe('edit')
 
     await user.click(screen.getByRole('button', { name: 'event-form-save' }))
 
@@ -1044,6 +1047,7 @@ describe('CalendarClient — header New event button', () => {
     expect(dialog.dataset.initialStart).toBe('2026-01-06T15:00:00.000Z')
     expect(dialog.dataset.initialEnd).toBe('2026-01-06T16:00:00.000Z')
     expect(dialog.dataset.initialAllDay).toBe('false')
+    expect(dialog.dataset.mode).toBe('create')
   })
 
   it('creates a standalone event (activityId null) via createEvent and resyncs on submit', async () => {

@@ -40,6 +40,28 @@ describe('open / close + header', () => {
     expect(screen.getByRole('heading', { name: /edit event/i })).toBeInTheDocument()
   })
 
+  it('shows "New event" when mode="create" despite seeded initialValues (create defaults)', () => {
+    render(
+      <EventFormDialog
+        {...makeProps({
+          mode: 'create',
+          initialValues: {
+            startAt: '2025-06-15T09:00:00.000Z',
+            endAt: '2025-06-15T10:00:00.000Z',
+            allDay: false,
+          },
+        })}
+      />,
+    )
+    expect(screen.getByRole('heading', { name: /new event/i })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /edit event/i })).not.toBeInTheDocument()
+  })
+
+  it('shows "Edit event" when mode="edit"', () => {
+    render(<EventFormDialog {...makeProps({ mode: 'edit', initialValues: { title: 'X' } })} />)
+    expect(screen.getByRole('heading', { name: /edit event/i })).toBeInTheDocument()
+  })
+
   it('renders a DialogDescription for a11y', () => {
     render(<EventFormDialog {...makeProps()} />)
     expect(screen.getByText(/create or edit an event/i)).toBeInTheDocument()
@@ -236,22 +258,6 @@ describe('submit', () => {
     expect(payload.description).toBe('Notes')
   })
 
-  it('all-day event submits null startAt / endAt', async () => {
-    const onSubmit = vi.fn()
-    const user = userEvent.setup()
-    render(
-      <EventFormDialog
-        {...makeProps({ onSubmit, initialValues: { allDay: true, title: 'All day event' } })}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /save/i }))
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
-    const payload = onSubmit.mock.calls[0]![0] as EventFormValues
-    expect(payload.allDay).toBe(true)
-    expect(payload.startAt).toBeNull()
-    expect(payload.endAt).toBeNull()
-  })
-
   it('does nothing when a timed event has no date (direct form submit)', () => {
     const onSubmit = vi.fn()
     render(<EventFormDialog {...makeProps({ onSubmit, initialValues: { title: 'Run' } })} />)
@@ -259,6 +265,85 @@ describe('submit', () => {
     expect(form).not.toBeNull()
     fireEvent.submit(form!)
     expect(onSubmit).not.toHaveBeenCalled()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// All-day mode — date picker + real-instant submit
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('all-day mode', () => {
+  const ORIGINAL_TZ = process.env['TZ']
+
+  afterEach(() => {
+    if (ORIGINAL_TZ === undefined) {
+      delete process.env['TZ']
+    } else {
+      process.env['TZ'] = ORIGINAL_TZ
+    }
+  })
+
+  it('renders a Date field (not time fields) when all-day is on', () => {
+    render(<EventFormDialog {...makeProps({ initialValues: { allDay: true, title: 'X' } })} />)
+    expect(screen.getByText('Date')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /pick a date/i })).toBeInTheDocument()
+    expect(screen.queryByRole('spinbutton', { name: 'Start time hour' })).not.toBeInTheDocument()
+  })
+
+  it('keeps a Date field after toggling all-day on from timed mode', async () => {
+    const user = userEvent.setup()
+    render(<EventFormDialog {...makeProps()} />)
+    await user.click(screen.getByRole('switch'))
+    expect(screen.getByText('Date')).toBeInTheDocument()
+    expect(screen.queryByRole('spinbutton', { name: 'Start time hour' })).not.toBeInTheDocument()
+  })
+
+  it('disables save in all-day mode until a date is picked', () => {
+    render(
+      <EventFormDialog {...makeProps({ initialValues: { allDay: true, title: 'Holiday' } })} />,
+    )
+    expect(screen.getByRole('button', { name: /save/i })).toBeDisabled()
+  })
+
+  it('enables save in all-day mode when title + a seeded date are present', () => {
+    render(
+      <EventFormDialog
+        {...makeProps({
+          initialValues: {
+            allDay: true,
+            title: 'Holiday',
+            startAt: '2025-06-15T09:00:00.000Z',
+            endAt: '2025-06-15T10:00:00.000Z',
+          },
+        })}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /save/i })).not.toBeDisabled()
+  })
+
+  it('submits real 00:00–23:59 instants for the picked local day (TZ=UTC)', async () => {
+    process.env['TZ'] = 'UTC'
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <EventFormDialog
+        {...makeProps({
+          onSubmit,
+          initialValues: {
+            allDay: true,
+            title: 'Holiday',
+            startAt: '2025-06-15T09:00:00.000Z',
+            endAt: '2025-06-15T10:00:00.000Z',
+          },
+        })}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    const payload = onSubmit.mock.calls[0]![0] as EventFormValues
+    expect(payload.allDay).toBe(true)
+    expect(payload.startAt).toBe('2025-06-15T00:00:00.000Z')
+    expect(payload.endAt).toBe('2025-06-15T23:59:00.000Z')
   })
 })
 

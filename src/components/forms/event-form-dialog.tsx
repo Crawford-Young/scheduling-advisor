@@ -3,6 +3,7 @@
 import * as React from 'react'
 import {
   ColorSwatchPicker,
+  DatePicker,
   FormDialog,
   Input,
   Label,
@@ -18,7 +19,12 @@ import {
 
 export interface EventFormValues {
   readonly title: string
-  /** ISO instant, built via `buildIso` (local wall-clock). `null` when all-day. */
+  /**
+   * ISO instant, built via `buildIso` (local wall-clock). All-day events emit
+   * real instants (00:00–23:59 of the picked local day). May be `null` only for
+   * legacy rows persisted before all-day gained a date — editing such a row
+   * seeds no date and requires re-picking one before Save enables.
+   */
   readonly startAt?: string | null
   readonly endAt?: string | null
   readonly allDay?: boolean
@@ -35,12 +41,19 @@ export interface EventFormDialogProps {
   readonly isPending?: boolean
   /** Display event times as 24-hour instead of 12-hour with AM/PM. */
   readonly use24h?: boolean
+  /**
+   * Dialog intent for the heading. When omitted, falls back to inferring from
+   * `initialValues` (present → "Edit event"), preserved for back-compat.
+   */
+  readonly mode?: 'create' | 'edit'
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DEFAULT_START_TIME = '09:00'
 const DEFAULT_END_TIME = '10:00'
+const ALL_DAY_START_TIME = '00:00'
+const ALL_DAY_END_TIME = '23:59'
 const DEFAULT_COLOR: CalendarEventColor = 'default'
 const MAX_TITLE_LENGTH = 200
 
@@ -53,6 +66,7 @@ export function EventFormDialog({
   initialValues,
   isPending = false,
   use24h = false,
+  mode,
 }: EventFormDialogProps): React.JSX.Element {
   const [title, setTitle] = React.useState(initialValues?.title ?? '')
 
@@ -78,20 +92,29 @@ export function EventFormDialog({
   const [description, setDescription] = React.useState(initialValues?.description ?? '')
   const [allDay, setAllDay] = React.useState(initialValues?.allDay ?? false)
 
-  const dialogTitle = initialValues ? 'Edit event' : 'New event'
+  const dialogTitle = mode
+    ? mode === 'edit'
+      ? 'Edit event'
+      : 'New event'
+    : initialValues
+      ? 'Edit event'
+      : 'New event'
 
   const formId = React.useId()
   const titleId = React.useId()
+  const dateFieldId = React.useId()
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
     e.preventDefault()
 
-    if (!allDay && !taskDate) return
+    // A date is required in both modes — all-day events map to real 00:00–23:59
+    // instants of the picked local day so the library can place them.
+    if (!taskDate) return
 
     onSubmit({
       title,
-      startAt: allDay ? null : buildIso(taskDate!, startTime),
-      endAt: allDay ? null : buildIso(taskDate!, endTime),
+      startAt: buildIso(taskDate, allDay ? ALL_DAY_START_TIME : startTime),
+      endAt: buildIso(taskDate, allDay ? ALL_DAY_END_TIME : endTime),
       allDay,
       color: color === DEFAULT_COLOR ? null : color,
       location: location.trim() || null,
@@ -107,7 +130,7 @@ export function EventFormDialog({
       title={dialogTitle}
       description="Create or edit an event."
       isPending={isPending}
-      submitDisabled={title.trim() === '' || (!allDay && !taskDate)}
+      submitDisabled={title.trim() === '' || !taskDate}
     >
       {/* Title */}
       <div className="flex flex-col gap-1.5">
@@ -128,7 +151,12 @@ export function EventFormDialog({
         <Label htmlFor={`${formId}-all-day`}>All day</Label>
       </div>
 
-      {!allDay && (
+      {allDay ? (
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={dateFieldId}>Date</Label>
+          <DatePicker value={taskDate} onValueChange={setTaskDate} placeholder="Pick a date" />
+        </div>
+      ) : (
         <TaskTimeFields
           date={taskDate}
           onDateChange={setTaskDate}
