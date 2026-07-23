@@ -6,13 +6,8 @@ import { activities, events } from '@/db/schema'
 import { and, eq, gt } from 'drizzle-orm'
 import { ratelimit } from '@/lib/redis'
 import { logger } from '@/lib/logger'
-import {
-  createActivitySchema,
-  updateActivitySchema,
-  type ActivityScheduleSlot,
-} from '@/lib/schemas/activity'
+import { createActivitySchema, updateActivitySchema } from '@/lib/schemas/activity'
 import { z } from 'zod'
-import { generateEventsForActivity } from '@/server/generation'
 
 type ActivityRow = (typeof activities)['$inferSelect']
 type ActivityActionResult = { data: ActivityRow } | { error: unknown }
@@ -21,25 +16,6 @@ type DeleteActivityResult = { data: { success: boolean } } | { error: unknown }
 // Not exported — 'use server' files may only export async functions; this
 // stays module-private.
 const deleteActivitySchema = z.object({ id: z.string().uuid() })
-
-// Positional slot-array equality — schedule is a sequence, not a set (unlike
-// tasks' order-insensitive weekday-token comparison).
-function schedulesEqual(
-  a: readonly ActivityScheduleSlot[],
-  b: readonly ActivityScheduleSlot[],
-): boolean {
-  if (a.length !== b.length) return false
-  return a.every((slot, i) => {
-    // Non-null: the length check above guarantees every index < a.length is
-    // also < b.length.
-    const other = b[i]!
-    return (
-      slot.day === other.day &&
-      slot.startMinutes === other.startMinutes &&
-      slot.durationMin === other.durationMin
-    )
-  })
-}
 
 export async function createActivity(input: unknown): Promise<ActivityActionResult> {
   const session = await auth()
@@ -72,8 +48,6 @@ export async function createActivity(input: unknown): Promise<ActivityActionResu
 
   if (!activity) return { error: 'Insert failed' }
 
-  await generateEventsForActivity(activity, new Date())
-
   revalidatePath('/calendar')
   revalidatePath('/activities')
   logger.info({ userId, activityId: activity.id }, 'Activity created')
@@ -104,7 +78,8 @@ export async function updateActivity(input: unknown): Promise<ActivityActionResu
   // Fetch-merge-revalidate (A1-review requirement): a partial schema can't
   // enforce the cross-field [min,max]-vs-schedule invariant — merge the
   // input over the stored row and re-validate the WHOLE object against the
-  // full create schema before any pattern-diff/regeneration decision.
+  // full create schema. Schedule editing no longer regenerates events (A3) —
+  // activities are metadata-only templates going forward (A5).
   const merged = {
     title: fields.title !== undefined ? fields.title : current.title,
     color: fields.color !== undefined ? fields.color : current.color,
@@ -126,11 +101,6 @@ export async function updateActivity(input: unknown): Promise<ActivityActionResu
   const revalidated = createActivitySchema.safeParse(merged)
   if (!revalidated.success) return { error: revalidated.error.flatten() }
 
-  const mergedTimeZone = merged.timeZone ?? null
-  const patternChanged =
-    !schedulesEqual(merged.schedule, current.schedule) ||
-    mergedTimeZone !== (current.timeZone ?? null)
-
   const now = new Date()
   const [updated] = await db
     .update(activities)
@@ -143,8 +113,7 @@ export async function updateActivity(input: unknown): Promise<ActivityActionResu
       maxDurationMin: merged.maxDurationMin,
       weeklyTargetSessions: merged.weeklyTargetSessions,
       schedule: merged.schedule,
-      timeZone: mergedTimeZone,
-      ...(patternChanged && { generatedThrough: now }),
+      timeZone: merged.timeZone ?? null,
       updatedAt: now,
     })
     .where(and(eq(activities.id, id), eq(activities.userId, userId)))
@@ -152,13 +121,9 @@ export async function updateActivity(input: unknown): Promise<ActivityActionResu
 
   if (!updated) return { error: 'Not found' }
 
-  if (patternChanged) {
-    await generateEventsForActivity(updated, now)
-  }
-
   revalidatePath('/calendar')
   revalidatePath('/activities')
-  logger.info({ userId, activityId: id, patternChanged }, 'Activity updated')
+  logger.info({ userId, activityId: id }, 'Activity updated')
   return { data: updated }
 }
 

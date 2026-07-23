@@ -60,12 +60,7 @@ vi.mock('drizzle-orm', () => ({
   gt: vi.fn((col: unknown, val: unknown) => ({ op: 'gt', col, val })),
 }))
 
-vi.mock('@/server/generation', () => ({
-  generateEventsForActivity: vi.fn().mockResolvedValue(0),
-}))
-
 import { createActivity, updateActivity, deleteActivity } from '@/server/actions/activities'
-import { generateEventsForActivity } from '@/server/generation'
 import { revalidatePath } from 'next/cache'
 import { activities, events } from '@/db/schema'
 import { gt } from 'drizzle-orm'
@@ -142,7 +137,7 @@ describe('createActivity', () => {
     expect(mockInsert).not.toHaveBeenCalled()
   })
 
-  it('validates, inserts, and generates immediately', async () => {
+  it('validates and inserts', async () => {
     const inserted = currentRow({ id: 'act-new' })
     mockInsertReturning.mockResolvedValueOnce([inserted])
 
@@ -152,19 +147,17 @@ describe('createActivity', () => {
     expect(mockInsertValues).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'user-123', title: 'Gym' }),
     )
-    expect(generateEventsForActivity).toHaveBeenCalledWith(inserted, expect.any(Date))
     expect(revalidatePath).toHaveBeenCalledWith('/calendar')
     expect(revalidatePath).toHaveBeenCalledWith('/activities')
     expect(result).toEqual({ data: inserted })
   })
 
-  it('returns Insert failed and skips generation when the insert yields no row', async () => {
+  it('returns Insert failed when the insert yields no row', async () => {
     mockInsertReturning.mockResolvedValueOnce([])
 
     const result = await createActivity(VALID_CREATE_INPUT)
 
     expect(result).toEqual({ error: 'Insert failed' })
-    expect(generateEventsForActivity).not.toHaveBeenCalled()
   })
 })
 
@@ -251,93 +244,30 @@ describe('updateActivity', () => {
 
     expect(result).toHaveProperty('error')
     expect(mockUpdate).not.toHaveBeenCalled()
-    expect(generateEventsForActivity).not.toHaveBeenCalled()
   })
 
-  it('a non-pattern field edit does not reset generatedThrough or regenerate', async () => {
-    const generatedThrough = new Date('2026-02-01T00:00:00.000Z')
-    mockSelectLimit.mockResolvedValueOnce([currentRow({ generatedThrough })])
-    mockUpdateReturning.mockResolvedValueOnce([
-      currentRow({ title: 'New title', generatedThrough }),
-    ])
-
-    const result = await updateActivity({ id: VALID_ID, title: 'New title' })
-
-    expect(mockUpdateSet).toHaveBeenCalledWith(
-      expect.not.objectContaining({ generatedThrough: expect.anything() }),
-    )
-    expect(generateEventsForActivity).not.toHaveBeenCalled()
-    expect(result).toEqual({ data: currentRow({ title: 'New title', generatedThrough }) })
-  })
-
-  it('a schedule (pattern) edit resets generatedThrough to now and regenerates inline', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-01-15T00:00:00.000Z'))
-
+  it('a schedule edit no longer touches generatedThrough (generation is series-driven, A3)', async () => {
     const existing = currentRow({
       schedule: [{ day: 1, startMinutes: 600, durationMin: 45 }],
       generatedThrough: new Date('2026-03-01T00:00:00.000Z'),
     })
     mockSelectLimit.mockResolvedValueOnce([existing])
+    const newSchedule = [{ day: 2, startMinutes: 600, durationMin: 45 }]
     const updatedRow = currentRow({
-      schedule: [{ day: 2, startMinutes: 600, durationMin: 45 }],
-      generatedThrough: new Date('2026-01-15T00:00:00.000Z'),
+      schedule: newSchedule,
+      generatedThrough: new Date('2026-03-01T00:00:00.000Z'),
     })
     mockUpdateReturning.mockResolvedValueOnce([updatedRow])
 
-    const result = await updateActivity({
-      id: VALID_ID,
-      schedule: [{ day: 2, startMinutes: 600, durationMin: 45 }],
-    })
+    const result = await updateActivity({ id: VALID_ID, schedule: newSchedule })
 
     expect(mockUpdateSet).toHaveBeenCalledWith(
-      expect.objectContaining({ generatedThrough: new Date('2026-01-15T00:00:00.000Z') }),
-    )
-    expect(generateEventsForActivity).toHaveBeenCalledWith(
-      updatedRow,
-      new Date('2026-01-15T00:00:00.000Z'),
+      expect.not.objectContaining({ generatedThrough: expect.anything() }),
     )
     expect(result).toEqual({ data: updatedRow })
-
-    vi.useRealTimers()
   })
 
-  it('a schedule length change (add a slot) is also a pattern change', async () => {
-    const existing = currentRow({
-      schedule: [{ day: 1, startMinutes: 600, durationMin: 45 }],
-    })
-    mockSelectLimit.mockResolvedValueOnce([existing])
-    const newSchedule = [
-      { day: 1, startMinutes: 600, durationMin: 45 },
-      { day: 3, startMinutes: 600, durationMin: 45 },
-    ]
-    mockUpdateReturning.mockResolvedValueOnce([currentRow({ schedule: newSchedule })])
-
-    await updateActivity({ id: VALID_ID, schedule: newSchedule })
-
-    expect(mockUpdateSet).toHaveBeenCalledWith(
-      expect.objectContaining({ generatedThrough: expect.any(Date) }),
-    )
-    expect(generateEventsForActivity).toHaveBeenCalled()
-  })
-
-  it('a same-slot durationMin-only change is also a pattern change', async () => {
-    const existing = currentRow({
-      schedule: [{ day: 1, startMinutes: 600, durationMin: 45 }],
-    })
-    mockSelectLimit.mockResolvedValueOnce([existing])
-    const newSchedule = [{ day: 1, startMinutes: 600, durationMin: 30 }]
-    mockUpdateReturning.mockResolvedValueOnce([currentRow({ schedule: newSchedule })])
-
-    await updateActivity({ id: VALID_ID, schedule: newSchedule })
-
-    expect(mockUpdateSet).toHaveBeenCalledWith(
-      expect.objectContaining({ generatedThrough: expect.any(Date) }),
-    )
-    expect(generateEventsForActivity).toHaveBeenCalled()
-  })
-
-  it('a timeZone-only edit is also a pattern change', async () => {
+  it('a timeZone-only edit also does not touch generatedThrough', async () => {
     const existing = currentRow({ timeZone: null })
     mockSelectLimit.mockResolvedValueOnce([existing])
     mockUpdateReturning.mockResolvedValueOnce([currentRow({ timeZone: 'America/New_York' })])
@@ -345,9 +275,8 @@ describe('updateActivity', () => {
     await updateActivity({ id: VALID_ID, timeZone: 'America/New_York' })
 
     expect(mockUpdateSet).toHaveBeenCalledWith(
-      expect.objectContaining({ generatedThrough: expect.any(Date) }),
+      expect.not.objectContaining({ generatedThrough: expect.anything() }),
     )
-    expect(generateEventsForActivity).toHaveBeenCalled()
   })
 
   it('returns Not found when the update touches no row', async () => {
