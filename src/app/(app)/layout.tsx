@@ -138,9 +138,12 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
             </Sidebar>
           }
           topbar={
-            <div className="border-border flex h-12 items-center justify-end gap-4 border-b px-4">
+            <div className="border-border grid h-12 grid-cols-[1fr_minmax(0,28rem)_1fr] items-center gap-4 border-b px-4">
+              <div />
               <GlobalSearch username={profileUser?.username ?? null} />
-              <TokenChipLive initialBalance={tokenBalance} />
+              <div className="flex items-center justify-end gap-4">
+                <TokenChipLive initialBalance={tokenBalance} />
+              </div>
             </div>
           }
         >
