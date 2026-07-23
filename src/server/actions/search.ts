@@ -1,8 +1,8 @@
 'use server'
 import { auth } from '@/auth'
 import { db } from '@/db'
-import { activities, events } from '@/db/schema'
-import { and, eq, ilike, or, sql } from 'drizzle-orm'
+import { activities, conversations, events } from '@/db/schema'
+import { and, desc, eq, gt, ilike, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import { ratelimit } from '@/lib/redis'
 import { globalSearchSchema, type GlobalSearchData } from '@/lib/schemas/search'
 import { escapeLikePattern, searchUsers, type UserSearchResult } from '@/server/queries/profile'
@@ -24,7 +24,7 @@ export async function globalSearch(input: unknown): Promise<GlobalSearchResult> 
   const pattern = `%${escapeLikePattern(parsed.data.query)}%`
   const now = new Date()
 
-  const [eventRows, activityRows] = await Promise.all([
+  const [eventRows, activityRows, reflectionRows] = await Promise.all([
     db
       .select({
         id: events.id,
@@ -60,9 +60,32 @@ export async function globalSearch(input: unknown): Promise<GlobalSearchResult> 
       )
       .orderBy(activities.title)
       .limit(GROUP_RESULT_LIMIT),
+    db
+      .select({ id: conversations.id, title: conversations.title })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.userId, userId),
+          isNull(conversations.deletedAt),
+          gt(conversations.expiresAt, now),
+          isNotNull(conversations.title),
+          ilike(conversations.title, pattern),
+        ),
+      )
+      .orderBy(desc(conversations.updatedAt))
+      .limit(GROUP_RESULT_LIMIT),
   ])
 
-  return { data: { events: eventRows, activities: activityRows } }
+  return {
+    data: {
+      events: eventRows,
+      activities: activityRows,
+      // conversations.title is nullable in the schema; isNotNull(...) above
+      // guarantees every row here has a real title (mirrors searchUsers'
+      // `username: row.username as string` pattern in profile.ts).
+      reflections: reflectionRows.map((row) => ({ id: row.id, title: row.title as string })),
+    },
+  }
 }
 
 export async function searchUsersGlobal(input: unknown): Promise<UserSearchActionResult> {

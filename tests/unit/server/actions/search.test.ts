@@ -27,12 +27,24 @@ vi.mock('@/db/schema', () => ({
     title: 'activities.title',
     description: 'activities.description',
   },
+  conversations: {
+    id: 'conversations.id',
+    userId: 'conversations.userId',
+    title: 'conversations.title',
+    deletedAt: 'conversations.deletedAt',
+    expiresAt: 'conversations.expiresAt',
+    updatedAt: 'conversations.updatedAt',
+  },
 }))
 vi.mock('drizzle-orm', () => ({
   and: vi.fn((...args: unknown[]) => ({ op: 'and', args })),
   or: vi.fn((...args: unknown[]) => ({ op: 'or', args })),
   eq: vi.fn((col: unknown, val: unknown) => ({ op: 'eq', col, val })),
   ilike: vi.fn((col: unknown, val: unknown) => ({ op: 'ilike', col, val })),
+  isNull: vi.fn((col: unknown) => ({ op: 'isNull', col })),
+  isNotNull: vi.fn((col: unknown) => ({ op: 'isNotNull', col })),
+  gt: vi.fn((col: unknown, val: unknown) => ({ op: 'gt', col, val })),
+  desc: vi.fn((col: unknown) => ({ op: 'desc', col })),
   sql: vi.fn((strings: TemplateStringsArray, ...vals: unknown[]) => ({ op: 'sql', strings, vals })),
 }))
 vi.mock('@/server/queries/profile', async (importOriginal) => ({
@@ -41,18 +53,22 @@ vi.mock('@/server/queries/profile', async (importOriginal) => ({
 }))
 
 import { globalSearch, searchUsersGlobal } from '@/server/actions/search'
-import { eq, ilike } from 'drizzle-orm'
+import { eq, ilike, isNull, isNotNull, gt } from 'drizzle-orm'
 
 const EVENT_ROWS = [
   { id: 'ev-1', title: 'Dinner', startAt: new Date('2026-07-25T00:00:00Z'), location: null },
 ]
 const ACTIVITY_ROWS = [{ id: 'act-1', title: 'Dinner prep' }]
+const REFLECTION_ROWS = [{ id: 'conv-1', title: 'Weekly review' }]
 
 beforeEach(() => {
   vi.clearAllMocks()
   mockAuth.mockResolvedValue({ user: { id: 'user-123' } })
   mockRateLimit.mockResolvedValue({ success: true })
-  mockLimit.mockResolvedValueOnce(EVENT_ROWS).mockResolvedValueOnce(ACTIVITY_ROWS)
+  mockLimit
+    .mockResolvedValueOnce(EVENT_ROWS)
+    .mockResolvedValueOnce(ACTIVITY_ROWS)
+    .mockResolvedValueOnce(REFLECTION_ROWS)
   mockSearchUsers.mockResolvedValue([{ username: 'sam', name: 'Sam', image: null }])
 })
 
@@ -74,18 +90,29 @@ describe('globalSearch', () => {
     expect(mockSelect).not.toHaveBeenCalled()
   })
 
-  it('scopes both queries to the session user and returns both groups', async () => {
+  it('scopes all three queries to the session user and returns all three groups', async () => {
     const result = await globalSearch({ query: 'dinner' })
-    expect(result).toEqual({ data: { events: EVENT_ROWS, activities: ACTIVITY_ROWS } })
+    expect(result).toEqual({
+      data: { events: EVENT_ROWS, activities: ACTIVITY_ROWS, reflections: REFLECTION_ROWS },
+    })
     expect(vi.mocked(eq)).toHaveBeenCalledWith('events.userId', 'user-123')
     expect(vi.mocked(eq)).toHaveBeenCalledWith('activities.userId', 'user-123')
-    expect(mockLimit).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(eq)).toHaveBeenCalledWith('conversations.userId', 'user-123')
+    expect(mockLimit).toHaveBeenCalledTimes(3)
     expect(mockLimit).toHaveBeenCalledWith(8)
   })
 
   it('escapes LIKE metacharacters in the pattern', async () => {
     await globalSearch({ query: '50%_off' })
     expect(vi.mocked(ilike)).toHaveBeenCalledWith('events.title', '%50\\%\\_off%')
+  })
+
+  it('scopes the reflections query to live, non-deleted conversations and escapes the pattern', async () => {
+    await globalSearch({ query: '50%_off' })
+    expect(vi.mocked(isNull)).toHaveBeenCalledWith('conversations.deletedAt')
+    expect(vi.mocked(gt)).toHaveBeenCalledWith('conversations.expiresAt', expect.any(Date))
+    expect(vi.mocked(isNotNull)).toHaveBeenCalledWith('conversations.title')
+    expect(vi.mocked(ilike)).toHaveBeenCalledWith('conversations.title', '%50\\%\\_off%')
   })
 })
 
