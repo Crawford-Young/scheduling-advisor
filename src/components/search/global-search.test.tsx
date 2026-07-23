@@ -90,6 +90,13 @@ describe('GlobalSearch', () => {
     expect(globalSearchMock).not.toHaveBeenCalled()
   })
 
+  it('omits the My profile entry when username is null', async () => {
+    render(<GlobalSearch username={null} />)
+    await openPalette()
+    expect(screen.getByText('Calendar')).toBeInTheDocument()
+    expect(screen.queryByText('My profile')).not.toBeInTheDocument()
+  })
+
   it('debounces and fires both actions once at >=2 chars', async () => {
     render(<GlobalSearch username="crawford" />)
     await openPalette()

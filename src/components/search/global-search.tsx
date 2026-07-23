@@ -28,7 +28,7 @@ import { weekParamFromDate } from '@/lib/calendar-week-param'
 const SEARCH_DEBOUNCE_MS = 300
 
 interface GlobalSearchProps {
-  readonly username: string
+  readonly username: string | null
 }
 
 export function GlobalSearch({ username }: GlobalSearchProps): React.JSX.Element {
@@ -116,7 +116,9 @@ export function GlobalSearch({ username }: GlobalSearchProps): React.JSX.Element
 
   const pages = filterPages(query, [
     ...PAGE_INDEX,
-    { label: 'My profile', route: `/u/${username}`, keywords: ['profile', 'me', 'account'] },
+    ...(username === null
+      ? []
+      : [{ label: 'My profile', route: `/u/${username}`, keywords: ['profile', 'me', 'account'] }]),
   ])
 
   return (

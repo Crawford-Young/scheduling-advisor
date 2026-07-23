@@ -6,6 +6,7 @@ import { NavProgressProvider } from '@/components/layout/nav-progress'
 import { BrandMark } from '@/components/layout/brand-mark'
 import { TokenChipLive } from '@/components/layout/token-chip-live'
 import { ChatPopup } from '@/components/chat/chat-popup'
+import { GlobalSearch } from '@/components/search/global-search'
 import { getTokenBalance } from '@/server/queries/tokens'
 import { db } from '@/db'
 import { users } from '@/db/schema'
@@ -138,6 +139,7 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<R
           }
           topbar={
             <div className="border-border flex h-12 items-center justify-end gap-4 border-b px-4">
+              <GlobalSearch username={profileUser?.username ?? null} />
               <TokenChipLive initialBalance={tokenBalance} />
             </div>
           }
