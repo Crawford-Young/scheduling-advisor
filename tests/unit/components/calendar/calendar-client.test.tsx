@@ -1,15 +1,26 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
 import React from 'react'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'jest-axe'
 import { CalendarClient } from '@/components/calendar/calendar-client'
 
+// Radix Select relies on pointer-capture + scrollIntoView DOM APIs happy-dom
+// does not implement; stub them so the Repeat select can be driven in tests
+// (mirrors event-form-dialog.test.tsx).
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = vi.fn(() => false)
+  Element.prototype.setPointerCapture = vi.fn()
+  Element.prototype.releasePointerCapture = vi.fn()
+  Element.prototype.scrollIntoView = vi.fn()
+})
+
 const mockCreateEvent = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'new-evt' } }))
 const mockUpdateEvent = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'e1' } }))
 const mockDeleteEvent = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { success: true } }))
 const mockCreateActivity = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'act-new' } }))
 const mockUpdateActivity = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'act-1' } }))
+const mockCreateSeries = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { id: 'series-1' } }))
 const mockToastError = vi.hoisted(() => vi.fn())
 const mockRefresh = vi.hoisted(() => vi.fn())
 const mockReplace = vi.hoisted(() => vi.fn())
@@ -26,6 +37,9 @@ vi.mock('@/server/actions/events', () => ({
 vi.mock('@/server/actions/activities', () => ({
   createActivity: mockCreateActivity,
   updateActivity: mockUpdateActivity,
+}))
+vi.mock('@/server/actions/series', () => ({
+  createSeries: mockCreateSeries,
 }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: mockRefresh, replace: mockReplace, push: mockPush }),
@@ -121,6 +135,7 @@ describe('CalendarClient (unit tree)', () => {
     mockDeleteEvent.mockResolvedValue({ data: { success: true } })
     mockCreateActivity.mockResolvedValue({ data: { id: 'act-new' } })
     mockUpdateActivity.mockResolvedValue({ data: { id: 'act-1' } })
+    mockCreateSeries.mockResolvedValue({ data: { id: 'series-1' } })
     capturedProps = {}
     mountCount.value = 0
   })
@@ -329,6 +344,45 @@ describe('CalendarClient (unit tree)', () => {
       ),
     )
     expect(mockRefresh).toHaveBeenCalled()
+    // Absent recurrence → the createEvent path is byte-unchanged.
+    expect(mockCreateSeries).not.toHaveBeenCalled()
+  })
+
+  it('routes a recurring New event submit to createSeries via the real Repeat control', async () => {
+    // Pinned mid-morning (not near a local day boundary) so nextFullHourRange's
+    // start/end stay on the same local day — `shouldAdvanceTime` keeps
+    // userEvent's internal timers (pointer/click delays) running for real.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date('2026-01-06T14:22:00.000Z'))
+    renderClient()
+
+    await userEvent.click(screen.getByRole('button', { name: 'New event' }))
+    const dialog = await screen.findByRole('dialog')
+
+    await userEvent.type(within(dialog).getByLabelText('Title'), 'Standup')
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Repeat' }))
+    const listbox = await screen.findByRole('listbox')
+    await userEvent.click(within(listbox).getByText('Daily'))
+    await userEvent.click(within(dialog).getByRole('button', { name: /^save$/i }))
+
+    // System time 14:22Z is 09:22 local (America/New_York, EST) → next full
+    // hour local 10:00 → 600 minutes, 1h duration (nextFullHourRange).
+    await vi.waitFor(() => expect(mockCreateSeries).toHaveBeenCalledTimes(1))
+    expect(mockCreateSeries).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Standup',
+        activityId: null,
+        freq: 'daily',
+        startMinutes: 600,
+        durationMin: 60,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        anchorStartAt: '2026-01-06T15:00:00.000Z',
+        until: null,
+      }),
+    )
+    expect(mockCreateEvent).not.toHaveBeenCalled()
+    expect(mockRefresh).toHaveBeenCalled()
+    vi.useRealTimers()
   })
 
   it('wires onEventDuplicate to set a createRequest seeded from the event', async () => {
