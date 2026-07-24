@@ -50,6 +50,23 @@ describe('createEventSchema', () => {
   })
 })
 
+describe('createEventSchema — visibility', () => {
+  it.each(['public', 'busy', 'private'] as const)('accepts visibility "%s"', (visibility) => {
+    const r = createEventSchema.safeParse({ title: 'x', visibility })
+    expect(r.success).toBe(true)
+  })
+
+  it('accepts an omitted visibility (server resolves the default)', () => {
+    const r = createEventSchema.safeParse({ title: 'x' })
+    expect(r.success).toBe(true)
+  })
+
+  it('rejects an unknown visibility value', () => {
+    const r = createEventSchema.safeParse({ title: 'x', visibility: 'secret' })
+    expect(r.success).toBe(false)
+  })
+})
+
 describe('createEventSchema — endAt > startAt refinement (A9 hardening)', () => {
   it('rejects endAt before startAt', () => {
     const r = createEventSchema.safeParse({
@@ -124,6 +141,16 @@ describe('updateEventSchema', () => {
   it('accepts clearing activityId to null (detach from activity)', () => {
     const r = updateEventSchema.safeParse({ id: crypto.randomUUID(), activityId: null })
     expect(r.success).toBe(true)
+  })
+
+  it('accepts a visibility update', () => {
+    const r = updateEventSchema.safeParse({ id: crypto.randomUUID(), visibility: 'public' })
+    expect(r.success).toBe(true)
+  })
+
+  it('rejects an invalid visibility value', () => {
+    const r = updateEventSchema.safeParse({ id: crypto.randomUUID(), visibility: 'secret' })
+    expect(r.success).toBe(false)
   })
 
   it('rejects a non-uuid id', () => {

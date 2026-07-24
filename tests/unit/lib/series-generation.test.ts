@@ -21,6 +21,7 @@ function makeSeries(overrides: Partial<GenerationSeries> = {}): GenerationSeries
     description: null,
     location: null,
     color: null,
+    visibility: 'private',
     freq: 'daily',
     weekdays: null,
     dayOfMonth: null,
@@ -78,12 +79,13 @@ describe('nextGeneratedThrough', () => {
 })
 
 describe('generateSeriesSeeds — seed shape', () => {
-  it('copies title/description/location/color and computes endAt from durationMin', () => {
+  it('copies title/description/location/color/visibility and computes endAt from durationMin', () => {
     const series = makeSeries({
       title: 'Morning Run',
       description: 'Easy 5k',
       location: 'Riverside Park',
       color: '#ff8800',
+      visibility: 'public',
       freq: 'daily',
       startMinutes: 6 * 60, // 06:00 UTC
       durationMin: 45,
@@ -98,11 +100,25 @@ describe('generateSeriesSeeds — seed shape', () => {
         description: 'Easy 5k',
         location: 'Riverside Park',
         color: '#ff8800',
+        visibility: 'public',
         startAt: new Date('2026-01-07T06:00:00.000Z'),
         endAt: new Date('2026-01-07T06:45:00.000Z'),
       },
     ])
   })
+
+  it.each(['public', 'busy', 'private'] as const)(
+    'copies visibility "%s" onto the seed',
+    (visibility) => {
+      const series = makeSeries({ freq: 'daily', visibility })
+      const window: GenerationWindow = {
+        from: new Date('2026-01-07T00:00:00.000Z'),
+        to: new Date('2026-01-08T00:00:00.000Z'),
+      }
+      const [seed] = generateSeriesSeeds({ series, window })
+      expect(seed?.visibility).toBe(visibility)
+    },
+  )
 })
 
 describe('generateSeriesSeeds — daily', () => {

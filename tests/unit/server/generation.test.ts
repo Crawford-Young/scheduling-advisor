@@ -94,9 +94,9 @@ function makeSeriesRow(overrides: Partial<SeriesRow> = {}): SeriesRow {
 describe('generateEventsForSeries', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('inserts seeds stamped with seriesId/activityId/status and advances generatedThrough', async () => {
+  it('inserts seeds stamped with seriesId/activityId/status/visibility and advances generatedThrough', async () => {
     const now = new Date('2026-01-05T00:00:00.000Z') // Monday
-    const series = makeSeriesRow({ id: 'series-1', activityId: 'act-1' })
+    const series = makeSeriesRow({ id: 'series-1', activityId: 'act-1', visibility: 'public' })
 
     const count = await generateEventsForSeries(series, now)
 
@@ -109,12 +109,29 @@ describe('generateEventsForSeries', () => {
       activityId: 'act-1',
       status: 'pending',
       title: 'Gym',
+      visibility: 'public',
     })
     expect(mockUpdate).toHaveBeenCalledWith(eventSeries)
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({ generatedThrough: new Date('2026-03-02T00:00:00.000Z') }),
     )
   })
+
+  it.each(['public', 'busy', 'private'] as const)(
+    'stamps every inserted seed with the series visibility "%s"',
+    async (visibility) => {
+      const now = new Date('2026-01-05T00:00:00.000Z') // Monday
+      const series = makeSeriesRow({ id: 'series-1', visibility })
+
+      await generateEventsForSeries(series, now)
+
+      const insertedRows = mockInsertValues.mock.calls[0]![0] as Array<Record<string, unknown>>
+      expect(insertedRows.length).toBeGreaterThan(0)
+      for (const row of insertedRows) {
+        expect(row.visibility).toBe(visibility)
+      }
+    },
+  )
 
   it('advances the mark even when zero seeds are due', async () => {
     const now = new Date('2026-01-05T00:00:00.000Z')

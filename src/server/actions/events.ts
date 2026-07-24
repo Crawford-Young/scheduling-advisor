@@ -2,16 +2,21 @@
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/db'
-import { activities, events } from '@/db/schema'
+import { activities, events, calendarPrefs } from '@/db/schema'
 import { and, eq } from 'drizzle-orm'
 import { ratelimit } from '@/lib/redis'
 import { logger } from '@/lib/logger'
 import { createEventSchema, updateEventSchema, deleteEventSchema } from '@/lib/schemas/event'
+import type { Visibility } from '@/lib/schemas/visibility'
 
 type EventRow = (typeof events)['$inferSelect']
 type EventInsert = (typeof events)['$inferInsert']
 type EventActionResult = { data: EventRow } | { error: unknown }
 type DeleteEventResult = { data: { success: boolean } } | { error: unknown }
+
+// No calendarPrefs row (or a row whose defaultVisibility somehow reads
+// undefined) falls back to the most restrictive option.
+const FALLBACK_VISIBILITY: Visibility = 'private'
 
 // Verifies a client-supplied activityId belongs to the calling user before it
 // can be attached to an event (A9 hardening — A4 review Minor). Without this,
@@ -25,6 +30,20 @@ async function activityBelongsToUser(activityId: string, userId: string): Promis
     .where(and(eq(activities.id, activityId), eq(activities.userId, userId)))
     .limit(1)
   return owned !== undefined
+}
+
+// Default-visibility cascade (V3): a create payload that omits `visibility`
+// falls back to the caller's `calendarPrefs.defaultVisibility`, or
+// `FALLBACK_VISIBILITY` when the caller has no prefs row at all. Mirrors
+// `activityBelongsToUser`'s module-private, per-file shape (duplicated in
+// series.ts too, not imported).
+async function resolveDefaultVisibility(userId: string): Promise<Visibility> {
+  const [prefs] = await db
+    .select({ defaultVisibility: calendarPrefs.defaultVisibility })
+    .from(calendarPrefs)
+    .where(eq(calendarPrefs.userId, userId))
+    .limit(1)
+  return prefs?.defaultVisibility ?? FALLBACK_VISIBILITY
 }
 
 export async function createEvent(input: unknown): Promise<EventActionResult> {
@@ -44,6 +63,8 @@ export async function createEvent(input: unknown): Promise<EventActionResult> {
     return { error: 'Activity not found' }
   }
 
+  const visibility = data.visibility ?? (await resolveDefaultVisibility(userId))
+
   // No server-side seeding here — a created event is a standalone/one-off
   // original; only generateEventsForSeries (src/server/generation.ts)
   // produces events from an event series' rule.
@@ -59,6 +80,7 @@ export async function createEvent(input: unknown): Promise<EventActionResult> {
       endAt: data.endAt ? new Date(data.endAt) : null,
       allDay: data.allDay ?? false,
       color: data.color ?? null,
+      visibility,
     })
     .returning()
 
@@ -134,6 +156,7 @@ export async function updateEvent(input: unknown): Promise<EventActionResult> {
   }
   if (fields.allDay !== undefined) updateValues.allDay = fields.allDay
   if (fields.color !== undefined) updateValues.color = fields.color
+  if (fields.visibility !== undefined) updateValues.visibility = fields.visibility
   if (fields.status !== undefined) updateValues.status = fields.status
   if (fields.locked !== undefined) updateValues.locked = fields.locked
 

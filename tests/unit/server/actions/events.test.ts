@@ -49,6 +49,10 @@ vi.mock('@/db/schema', () => ({
     id: 'events.id',
     userId: 'events.userId',
   },
+  calendarPrefs: {
+    userId: 'calendarPrefs.userId',
+    defaultVisibility: 'calendarPrefs.defaultVisibility',
+  },
 }))
 
 vi.mock('drizzle-orm', () => ({
@@ -58,7 +62,7 @@ vi.mock('drizzle-orm', () => ({
 
 import { createEvent, updateEvent, deleteEvent } from '@/server/actions/events'
 import { revalidatePath } from 'next/cache'
-import { events } from '@/db/schema'
+import { activities, events, calendarPrefs } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 
 const VALID_ID = '550e8400-e29b-41d4-a716-446655440000'
@@ -78,6 +82,7 @@ function eventRow(overrides: Record<string, unknown> = {}): Record<string, unkno
     status: 'pending',
     locked: false,
     color: null,
+    visibility: 'private',
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     ...overrides,
@@ -155,10 +160,11 @@ describe('createEvent', () => {
     expect(result).toEqual({ data: inserted })
   })
 
-  it('skips the activityId ownership check for a standalone event (no activityId)', async () => {
+  it('skips the activityId ownership check for a standalone event, but still resolves the visibility cascade (V3)', async () => {
     await createEvent({ title: 'Lunch' })
 
-    expect(mockSelect).not.toHaveBeenCalled()
+    expect(mockSelectFrom).not.toHaveBeenCalledWith(activities)
+    expect(mockSelectFrom).toHaveBeenCalledWith(calendarPrefs)
   })
 
   it('validates and inserts an event with all optional fields provided', async () => {
@@ -218,6 +224,49 @@ describe('createEvent', () => {
 
     expect(mockInsert).toHaveBeenCalledWith(events)
     expect(result).toEqual({ data: inserted })
+  })
+
+  describe('visibility cascade (V3)', () => {
+    it('uses the explicit visibility when provided, skipping the prefs lookup', async () => {
+      const result = await createEvent({ title: 'Lunch', visibility: 'public' })
+
+      expect(mockSelect).not.toHaveBeenCalled()
+      expect(mockInsertValues).toHaveBeenCalledWith(
+        expect.objectContaining({ visibility: 'public' }),
+      )
+      expect(result).toEqual({ data: eventRow() })
+    })
+
+    it('falls back to calendarPrefs.defaultVisibility when visibility is omitted', async () => {
+      mockSelectLimit.mockResolvedValueOnce([{ defaultVisibility: 'public' }])
+
+      await createEvent({ title: 'Lunch' })
+
+      expect(mockSelectFrom).toHaveBeenCalledWith(calendarPrefs)
+      expect(mockInsertValues).toHaveBeenCalledWith(
+        expect.objectContaining({ visibility: 'public' }),
+      )
+    })
+
+    it('defaults to private when the caller has no calendarPrefs row', async () => {
+      mockSelectLimit.mockResolvedValueOnce([])
+
+      await createEvent({ title: 'Lunch' })
+
+      expect(mockInsertValues).toHaveBeenCalledWith(
+        expect.objectContaining({ visibility: 'private' }),
+      )
+    })
+
+    it('resolves both the activityId ownership check and the visibility cascade when an activityId is supplied', async () => {
+      mockSelectLimit
+        .mockResolvedValueOnce([{ id: ACTIVITY_ID }]) // ownership check
+        .mockResolvedValueOnce([{ defaultVisibility: 'busy' }]) // prefs cascade
+
+      await createEvent({ title: 'Gym', activityId: ACTIVITY_ID })
+
+      expect(mockInsertValues).toHaveBeenCalledWith(expect.objectContaining({ visibility: 'busy' }))
+    })
   })
 })
 
@@ -303,6 +352,7 @@ describe('updateEvent', () => {
       color: 'blue',
       status: 'completed' as const,
       locked: true,
+      visibility: 'busy' as const,
     }
     mockUpdateReturning.mockResolvedValueOnce([eventRow(fullEdit)])
 
@@ -320,9 +370,22 @@ describe('updateEvent', () => {
         color: 'blue',
         status: 'completed',
         locked: true,
+        visibility: 'busy',
       }),
     )
     expect(result).toEqual({ data: eventRow(fullEdit) })
+  })
+
+  it('updates visibility independently (V3)', async () => {
+    mockUpdateReturning.mockResolvedValueOnce([eventRow({ visibility: 'public' })])
+
+    const result = await updateEvent({ id: VALID_ID, visibility: 'public' })
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(expect.objectContaining({ visibility: 'public' }))
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.not.objectContaining({ status: expect.anything() }),
+    )
+    expect(result).toEqual({ data: eventRow({ visibility: 'public' }) })
   })
 
   it('clears startAt to null when explicitly set to null', async () => {

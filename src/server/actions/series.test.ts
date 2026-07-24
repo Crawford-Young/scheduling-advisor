@@ -58,6 +58,10 @@ vi.mock('@/db/schema', () => ({
     id: 'eventSeries.id',
     userId: 'eventSeries.userId',
   },
+  calendarPrefs: {
+    userId: 'calendarPrefs.userId',
+    defaultVisibility: 'calendarPrefs.defaultVisibility',
+  },
 }))
 
 vi.mock('drizzle-orm', () => ({
@@ -72,7 +76,7 @@ vi.mock('@/server/generation', () => ({
 
 import { createSeries, updateSeries, deleteSeries } from '@/server/actions/series'
 import { revalidatePath } from 'next/cache'
-import { events, eventSeries } from '@/db/schema'
+import { activities, events, eventSeries, calendarPrefs } from '@/db/schema'
 import { eq, gt } from 'drizzle-orm'
 
 const VALID_ID = '550e8400-e29b-41d4-a716-446655440000'
@@ -96,6 +100,7 @@ function seriesRow(overrides: Record<string, unknown> = {}): Record<string, unkn
     description: null,
     location: null,
     color: null,
+    visibility: 'private',
     freq: 'weekly',
     weekdays: [1, 3, 5],
     dayOfMonth: null,
@@ -241,10 +246,11 @@ describe('createSeries', () => {
     expect(result).toEqual({ data: inserted })
   })
 
-  it('skips the activityId ownership check for a standalone series (no activityId)', async () => {
+  it('skips the activityId ownership check for a standalone series, but still resolves the visibility cascade (V3)', async () => {
     await createSeries(VALID_WEEKLY_CREATE)
 
-    expect(mockSelect).not.toHaveBeenCalled()
+    expect(mockSelectFrom).not.toHaveBeenCalledWith(activities)
+    expect(mockSelectFrom).toHaveBeenCalledWith(calendarPrefs)
   })
 
   it('inserts weekdays as null for a daily series (no weekdays field)', async () => {
@@ -256,6 +262,49 @@ describe('createSeries', () => {
     })
 
     expect(mockInsertValues).toHaveBeenCalledWith(expect.objectContaining({ weekdays: null }))
+  })
+
+  describe('visibility cascade (V3)', () => {
+    it('uses the explicit visibility when provided, skipping the prefs lookup', async () => {
+      const result = await createSeries({ ...VALID_WEEKLY_CREATE, visibility: 'public' })
+
+      expect(mockSelect).not.toHaveBeenCalled()
+      expect(mockInsertValues).toHaveBeenCalledWith(
+        expect.objectContaining({ visibility: 'public' }),
+      )
+      expect(result).toEqual({ data: seriesRow() })
+    })
+
+    it('falls back to calendarPrefs.defaultVisibility when visibility is omitted', async () => {
+      mockSelectLimit.mockResolvedValueOnce([{ defaultVisibility: 'public' }])
+
+      await createSeries(VALID_WEEKLY_CREATE)
+
+      expect(mockSelectFrom).toHaveBeenCalledWith(calendarPrefs)
+      expect(mockInsertValues).toHaveBeenCalledWith(
+        expect.objectContaining({ visibility: 'public' }),
+      )
+    })
+
+    it('defaults to private when the caller has no calendarPrefs row', async () => {
+      mockSelectLimit.mockResolvedValueOnce([])
+
+      await createSeries(VALID_WEEKLY_CREATE)
+
+      expect(mockInsertValues).toHaveBeenCalledWith(
+        expect.objectContaining({ visibility: 'private' }),
+      )
+    })
+
+    it('resolves both the activityId ownership check and the visibility cascade when an activityId is supplied', async () => {
+      mockSelectLimit
+        .mockResolvedValueOnce([{ id: ACTIVITY_ID }]) // ownership check
+        .mockResolvedValueOnce([{ defaultVisibility: 'busy' }]) // prefs cascade
+
+      await createSeries({ ...VALID_WEEKLY_CREATE, activityId: ACTIVITY_ID })
+
+      expect(mockInsertValues).toHaveBeenCalledWith(expect.objectContaining({ visibility: 'busy' }))
+    })
   })
 })
 
@@ -321,6 +370,22 @@ describe('updateSeries', () => {
     expect(result).toEqual({ data: seriesRow({ title: 'Renamed' }) })
   })
 
+  it('fill-only edit (visibility) updates the row, does not delete events, and does not regenerate (V3)', async () => {
+    const current = seriesRow()
+    mockSelectLimit.mockResolvedValueOnce([current])
+    mockUpdateReturning.mockResolvedValueOnce([seriesRow({ visibility: 'public' })])
+
+    const result = await updateSeries({ id: VALID_ID, visibility: 'public' })
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(expect.objectContaining({ visibility: 'public' }))
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.not.objectContaining({ generatedThrough: expect.anything() }),
+    )
+    expect(mockDelete).not.toHaveBeenCalled()
+    expect(mockGenerateEventsForSeries).not.toHaveBeenCalled()
+    expect(result).toEqual({ data: seriesRow({ visibility: 'public' }) })
+  })
+
   it('fill-only edit (activityId) also touches no events', async () => {
     const current = seriesRow()
     mockSelectLimit.mockResolvedValueOnce([current]) // current-row fetch
@@ -375,6 +440,7 @@ describe('updateSeries', () => {
       description: 'Pay landlord',
       location: 'Bank app',
       color: 'red',
+      visibility: 'busy' as const,
       activityId: ACTIVITY_ID,
       freq: 'monthly' as const,
       dayOfMonth: 15,
@@ -393,6 +459,7 @@ describe('updateSeries', () => {
         description: 'Pay landlord',
         location: 'Bank app',
         color: 'red',
+        visibility: 'busy',
         activityId: ACTIVITY_ID,
         freq: 'monthly',
         dayOfMonth: 15,
@@ -502,6 +569,26 @@ describe('updateSeries', () => {
     expect(result).toEqual({ data: updatedRow })
     expect(mockDelete).toHaveBeenCalledWith(events)
     expect(mockGenerateEventsForSeries).toHaveBeenCalledWith(updatedRow, expect.any(Date))
+  })
+
+  it('preserves current visibility through a freq-change edit that omits it (V3)', async () => {
+    // Visibility is a fill field (like color), not gated by freqChanging the
+    // way weekdays/dayOfMonth/nthOrdinal/nthWeekday/month are — it must
+    // survive a rule-shape edit unchanged when the payload doesn't touch it,
+    // even while the rule-change machinery (delete + regenerate) still fires.
+    const current = seriesRow({ freq: 'daily', weekdays: null, visibility: 'public' })
+    mockSelectLimit.mockResolvedValueOnce([current])
+    const updatedRow = seriesRow({ freq: 'weekly', weekdays: [2, 4], visibility: 'public' })
+    mockUpdateReturning.mockResolvedValueOnce([updatedRow])
+
+    const result = await updateSeries({ id: VALID_ID, freq: 'weekly', weekdays: [2, 4] })
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ visibility: 'public', freq: 'weekly', weekdays: [2, 4] }),
+    )
+    expect(mockDelete).toHaveBeenCalledWith(events)
+    expect(mockGenerateEventsForSeries).toHaveBeenCalledWith(updatedRow, expect.any(Date))
+    expect(result).toEqual({ data: updatedRow })
   })
 
   it('rejects a merged payload missing a required new-freq field and does not write', async () => {
