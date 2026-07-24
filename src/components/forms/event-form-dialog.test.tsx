@@ -788,6 +788,47 @@ describe('repeat / recurrence', () => {
   })
 })
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// showRecurrence prop — hides Repeat at consumers whose submit path drops it
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('showRecurrence prop', () => {
+  it('renders no Repeat control and omits the recurrence key when showRecurrence={false}', async () => {
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <EventFormDialog
+        {...makeProps({
+          onSubmit,
+          showRecurrence: false,
+          initialValues: {
+            title: 'Plain edit',
+            startAt: '2025-06-15T09:00:00.000Z',
+            endAt: '2025-06-15T10:00:00.000Z',
+          },
+        })}
+      />,
+    )
+    expect(screen.queryByRole('combobox', { name: 'Repeat' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Repeat')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    const payload = onSubmit.mock.calls[0]![0] as EventFormValues
+    expect('recurrence' in payload).toBe(false)
+  })
+
+  it('still renders the Repeat control when showRecurrence is omitted (default true)', () => {
+    render(<EventFormDialog {...makeProps({ initialValues: { title: 'X' } })} />)
+    expect(screen.getByRole('combobox', { name: 'Repeat' })).toBeInTheDocument()
+  })
+
+  it('still renders the Repeat control for mode="edit" when showRecurrence is omitted', () => {
+    render(<EventFormDialog {...makeProps({ mode: 'edit', initialValues: { title: 'X' } })} />)
+    expect(screen.getByRole('combobox', { name: 'Repeat' })).toBeInTheDocument()
+  })
+})
+
 // ─── displayName ────────────────────────────────────────────────────────────
 
 describe('displayName', () => {

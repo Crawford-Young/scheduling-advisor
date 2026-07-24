@@ -278,6 +278,7 @@ export function useEventActions({ event, use24h }: UseEventActionsArgs): UseEven
           onSubmit={handleEditSubmit}
           isPending={isPending}
           use24h={use24h}
+          showRecurrence={false}
           initialValues={{
             title: event.title,
             startAt: event.startAt ?? undefined,
