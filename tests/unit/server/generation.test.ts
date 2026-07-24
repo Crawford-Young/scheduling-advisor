@@ -48,6 +48,7 @@ interface SeriesRow {
   description: string | null
   location: string | null
   color: string | null
+  readonly visibility: 'public' | 'busy' | 'private'
   freq: 'daily' | 'weekly' | 'monthly' | 'yearly'
   weekdays: readonly number[] | null
   dayOfMonth: number | null
@@ -72,6 +73,7 @@ function makeSeriesRow(overrides: Partial<SeriesRow> = {}): SeriesRow {
     description: null,
     location: null,
     color: null,
+    visibility: 'private',
     freq: 'weekly',
     weekdays: [1], // Monday
     dayOfMonth: null,

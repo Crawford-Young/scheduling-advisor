@@ -1,4 +1,4 @@
-import { activities, events, conversations, eventSeries } from '@/db/schema'
+import { activities, events, conversations, eventSeries, calendarPrefs } from '@/db/schema'
 
 it('activities has the template columns', () => {
   expect(activities.title).toBeDefined()
@@ -48,4 +48,25 @@ it('eventSeries has the recurrence-rule columns', () => {
 
 it('events carries the seriesId column', () => {
   expect(events.seriesId).toBeDefined()
+})
+
+it('events carries a visibility column with the enum values and a private default', () => {
+  expect(events.visibility).toBeDefined()
+  expect(events.visibility.notNull).toBe(true)
+  expect(events.visibility.default).toBe('private')
+  expect(events.visibility.enumValues).toEqual(['public', 'busy', 'private'])
+})
+
+it('eventSeries carries a visibility column with the enum values and a private default', () => {
+  expect(eventSeries.visibility).toBeDefined()
+  expect(eventSeries.visibility.notNull).toBe(true)
+  expect(eventSeries.visibility.default).toBe('private')
+  expect(eventSeries.visibility.enumValues).toEqual(['public', 'busy', 'private'])
+})
+
+it('calendarPrefs carries a defaultVisibility column with the enum values and a private default', () => {
+  expect(calendarPrefs.defaultVisibility).toBeDefined()
+  expect(calendarPrefs.defaultVisibility.notNull).toBe(true)
+  expect(calendarPrefs.defaultVisibility.default).toBe('private')
+  expect(calendarPrefs.defaultVisibility.enumValues).toEqual(['public', 'busy', 'private'])
 })
