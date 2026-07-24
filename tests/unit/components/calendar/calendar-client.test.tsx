@@ -364,8 +364,11 @@ describe('CalendarClient (unit tree)', () => {
     // Pinned mid-morning (not near a local day boundary) so nextFullHourRange's
     // start/end stay on the same local day — `shouldAdvanceTime` keeps
     // userEvent's internal timers (pointer/click delays) running for real.
+    // Built via the local Date constructor (not a fixed UTC instant) so "next
+    // full hour" is 10:00 LOCAL in any host TZ — holds in both CI (UTC) and a
+    // non-UTC dev machine.
     vi.useFakeTimers({ shouldAdvanceTime: true })
-    vi.setSystemTime(new Date('2026-01-06T14:22:00.000Z'))
+    vi.setSystemTime(new Date(2026, 0, 6, 9, 22))
     renderClient()
 
     await userEvent.click(screen.getByRole('button', { name: 'New event' }))
@@ -377,8 +380,9 @@ describe('CalendarClient (unit tree)', () => {
     await userEvent.click(within(listbox).getByText('Daily'))
     await userEvent.click(within(dialog).getByRole('button', { name: /^save$/i }))
 
-    // System time 14:22Z is 09:22 local (America/New_York, EST) → next full
-    // hour local 10:00 → 600 minutes, 1h duration (nextFullHourRange).
+    // Local system time 09:22 → next full hour local 10:00 → 600 minutes, 1h
+    // duration (nextFullHourRange) — TZ-invariant since both the system time
+    // and the expected anchor are read/built via local Date getters.
     await vi.waitFor(() => expect(mockCreateSeries).toHaveBeenCalledTimes(1))
     expect(mockCreateSeries).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -388,7 +392,7 @@ describe('CalendarClient (unit tree)', () => {
         startMinutes: 600,
         durationMin: 60,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        anchorStartAt: '2026-01-06T15:00:00.000Z',
+        anchorStartAt: new Date(2026, 0, 6, 10, 0).toISOString(),
         until: null,
       }),
     )

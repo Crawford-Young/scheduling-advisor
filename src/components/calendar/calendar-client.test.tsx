@@ -192,13 +192,15 @@ const STUB_EDIT_VALUES: MockEventFormValues = {
 // A minimal edit (all optional fields omitted) → exercises the ?? fallbacks.
 const STUB_EDIT_VALUES_MIN: MockEventFormValues = { title: 'Minimal edit' }
 
-// A recurring "New event" submit. Times are UTC instants whose LOCAL (America/
-// New_York, EST in January) reading is 9:30-10:15 → startMinutes 570,
-// durationMin 45 — the dispatch's worked example.
+// A recurring "New event" submit. Times are built via the local Date
+// constructor (9:30-10:15 LOCAL) rather than a fixed UTC instant, so the
+// component's local-wall-clock derivation (`localMinutesSinceMidnight`)
+// yields startMinutes 570 / durationMin 45 in any host TZ — the dispatch's
+// worked example, made TZ-invariant.
 const STUB_RECURRING_VALUES: MockEventFormValues = {
   title: 'Standup',
-  startAt: '2026-01-06T14:30:00.000Z',
-  endAt: '2026-01-06T15:15:00.000Z',
+  startAt: new Date(2026, 0, 6, 9, 30).toISOString(),
+  endAt: new Date(2026, 0, 6, 10, 15).toISOString(),
   allDay: false,
   color: 'blue',
   location: 'Office',
@@ -1176,7 +1178,7 @@ describe('CalendarClient — New event recurrence routing', () => {
       startMinutes: 570,
       durationMin: 45,
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      anchorStartAt: '2026-01-06T14:30:00.000Z',
+      anchorStartAt: STUB_RECURRING_VALUES.startAt,
       until: new Date(2026, 8, 30, 23, 59, 59, 999),
     })
     // The one-off path is never touched on a recurring submit.
