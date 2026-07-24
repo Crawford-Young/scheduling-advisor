@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { visibilitySchema } from '@/lib/schemas/visibility'
 
 const MAX_TITLE_LENGTH = 200
 const MAX_COLOR_LENGTH = 32
@@ -15,6 +16,7 @@ const eventBaseShape = z.object({
   endAt: z.string().datetime().nullable().optional(),
   allDay: z.boolean().optional(),
   color: z.string().max(MAX_COLOR_LENGTH).nullable().optional(),
+  visibility: visibilitySchema.optional(),
   location: z.string().max(MAX_LOCATION_LENGTH).nullable().optional(),
   description: z.string().max(MAX_DESCRIPTION_LENGTH).nullable().optional(),
 })

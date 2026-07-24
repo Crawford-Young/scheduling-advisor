@@ -95,6 +95,23 @@ describe('createSeriesSchema — valid payloads per freq', () => {
   })
 })
 
+describe('createSeriesSchema — visibility', () => {
+  it.each(['public', 'busy', 'private'] as const)('accepts visibility "%s"', (visibility) => {
+    const r = createSeriesSchema.safeParse({ ...base, freq: 'daily', visibility })
+    expect(r.success).toBe(true)
+  })
+
+  it('accepts an omitted visibility (server resolves the default)', () => {
+    const r = createSeriesSchema.safeParse({ ...base, freq: 'daily' })
+    expect(r.success).toBe(true)
+  })
+
+  it('rejects an unknown visibility value', () => {
+    const r = createSeriesSchema.safeParse({ ...base, freq: 'daily', visibility: 'secret' })
+    expect(r.success).toBe(false)
+  })
+})
+
 describe('createSeriesSchema — boundary values', () => {
   it('accepts startMinutes 0', () => {
     expect(createSeriesSchema.safeParse({ ...base, freq: 'daily', startMinutes: 0 }).success).toBe(
@@ -365,6 +382,16 @@ describe('updateSeriesSchema', () => {
     // updateSeriesSchema does not carry superRefine — merge-then-revalidate in the action.
     const r = updateSeriesSchema.safeParse({ id: crypto.randomUUID(), freq: 'weekly' })
     expect(r.success).toBe(true)
+  })
+
+  it('accepts a visibility update', () => {
+    const r = updateSeriesSchema.safeParse({ id: crypto.randomUUID(), visibility: 'busy' })
+    expect(r.success).toBe(true)
+  })
+
+  it('rejects an invalid visibility value', () => {
+    const r = updateSeriesSchema.safeParse({ id: crypto.randomUUID(), visibility: 'secret' })
+    expect(r.success).toBe(false)
   })
 })
 

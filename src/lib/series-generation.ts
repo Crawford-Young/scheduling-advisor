@@ -43,6 +43,7 @@ export interface GeneratedEventSeed {
   readonly description: string | null
   readonly location: string | null
   readonly color: string | null
+  readonly visibility: 'public' | 'busy' | 'private'
   readonly startAt: Date
   readonly endAt: Date
 }
@@ -53,6 +54,7 @@ export interface GenerationSeries {
   readonly description: string | null
   readonly location: string | null
   readonly color: string | null
+  readonly visibility: 'public' | 'busy' | 'private'
   readonly freq: 'daily' | 'weekly' | 'monthly' | 'yearly'
   readonly weekdays: readonly number[] | null
   readonly dayOfMonth: number | null
@@ -273,6 +275,7 @@ export function generateSeriesSeeds(args: GenerateSeriesSeedsArgs): GeneratedEve
           description: series.description,
           location: series.location,
           color: series.color,
+          visibility: series.visibility,
           startAt: slotStart,
           endAt: new Date(t + series.durationMin * MS_PER_MINUTE),
         })

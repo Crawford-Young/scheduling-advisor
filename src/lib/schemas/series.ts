@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { visibilitySchema } from '@/lib/schemas/visibility'
 
 // Sunday-first weekday index, matching Postgres/JS `Date#getDay()` (0-6).
 const MIN_WEEKDAY = 0
@@ -56,6 +57,7 @@ const seriesBaseShape = z.object({
   description: z.string().nullable().optional(),
   location: z.string().nullable().optional(),
   color: z.string().nullable().optional(),
+  visibility: visibilitySchema.optional(),
   freq: seriesFreqSchema,
   weekdays: z.array(z.number().int().min(MIN_WEEKDAY).max(MAX_WEEKDAY)).nonempty().optional(),
   dayOfMonth: z.number().int().min(MIN_DAY_OF_MONTH).max(MAX_DAY_OF_MONTH).optional(),

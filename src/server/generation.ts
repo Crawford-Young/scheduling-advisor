@@ -72,6 +72,7 @@ export async function generateEventsForSeries(series: SeriesRow, now: Date): Pro
         description: seed.description,
         location: seed.location,
         color: seed.color,
+        visibility: seed.visibility,
         startAt: seed.startAt,
         endAt: seed.endAt,
         status: 'pending' as const,

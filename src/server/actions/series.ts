@@ -2,11 +2,12 @@
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/db'
-import { activities, events, eventSeries } from '@/db/schema'
+import { activities, events, eventSeries, calendarPrefs } from '@/db/schema'
 import { and, eq, gt } from 'drizzle-orm'
 import { ratelimit } from '@/lib/redis'
 import { logger } from '@/lib/logger'
 import { createSeriesSchema, updateSeriesSchema, deleteSeriesSchema } from '@/lib/schemas/series'
+import type { Visibility } from '@/lib/schemas/visibility'
 import { generateEventsForSeries } from '@/server/generation'
 
 type SeriesRow = (typeof eventSeries)['$inferSelect']
@@ -19,6 +20,10 @@ type DeleteSeriesResult = { data: { success: boolean } } | { error: unknown }
 // occurrence itself eligible — generation begins AT the anchor, not today.
 const ANCHOR_GENERATED_THROUGH_OFFSET_MS = 60_000
 
+// No calendarPrefs row (or a row whose defaultVisibility somehow reads
+// undefined) falls back to the most restrictive option.
+const FALLBACK_VISIBILITY: Visibility = 'private'
+
 // Mirrors `activityBelongsToUser` in events.ts (module-private there too, so
 // duplicated rather than imported) — verifies a client-supplied activityId
 // belongs to the calling user before a series can be attached to it.
@@ -29,6 +34,20 @@ async function activityBelongsToUser(activityId: string, userId: string): Promis
     .where(and(eq(activities.id, activityId), eq(activities.userId, userId)))
     .limit(1)
   return owned !== undefined
+}
+
+// Mirrors `resolveDefaultVisibility` in events.ts (module-private there too,
+// so duplicated rather than imported) — default-visibility cascade (V3): a
+// create payload that omits `visibility` falls back to the caller's
+// `calendarPrefs.defaultVisibility`, or `FALLBACK_VISIBILITY` when the caller
+// has no prefs row at all.
+async function resolveDefaultVisibility(userId: string): Promise<Visibility> {
+  const [prefs] = await db
+    .select({ defaultVisibility: calendarPrefs.defaultVisibility })
+    .from(calendarPrefs)
+    .where(eq(calendarPrefs.userId, userId))
+    .limit(1)
+  return prefs?.defaultVisibility ?? FALLBACK_VISIBILITY
 }
 
 function numOrNull(value: number | null | undefined): number | null {
@@ -78,6 +97,8 @@ export async function createSeries(input: unknown): Promise<SeriesActionResult> 
     ? new Date(data.anchorStartAt.getTime() - ANCHOR_GENERATED_THROUGH_OFFSET_MS)
     : null
 
+  const visibility = data.visibility ?? (await resolveDefaultVisibility(userId))
+
   const [series] = await db
     .insert(eventSeries)
     .values({
@@ -87,6 +108,7 @@ export async function createSeries(input: unknown): Promise<SeriesActionResult> 
       description: data.description ?? null,
       location: data.location ?? null,
       color: data.color ?? null,
+      visibility,
       freq: data.freq,
       weekdays: data.weekdays ?? null,
       dayOfMonth: data.dayOfMonth ?? null,
@@ -156,6 +178,7 @@ export async function updateSeries(input: unknown): Promise<SeriesActionResult> 
     description: fields.description !== undefined ? fields.description : current.description,
     location: fields.location !== undefined ? fields.location : current.location,
     color: fields.color !== undefined ? fields.color : current.color,
+    visibility: fields.visibility !== undefined ? fields.visibility : current.visibility,
     freq: fields.freq !== undefined ? fields.freq : current.freq,
     weekdays:
       fields.weekdays !== undefined
@@ -219,6 +242,7 @@ export async function updateSeries(input: unknown): Promise<SeriesActionResult> 
     description: merged.description ?? null,
     location: merged.location ?? null,
     color: merged.color ?? null,
+    visibility: merged.visibility,
     freq: merged.freq,
     weekdays: merged.weekdays ?? null,
     dayOfMonth: merged.dayOfMonth ?? null,
