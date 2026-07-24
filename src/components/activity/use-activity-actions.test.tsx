@@ -1,12 +1,14 @@
 import * as React from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, beforeAll, afterAll } from 'vitest'
 import {
   useActivityActions,
   useEventActions,
+  useSeriesActions,
   type ActivityActionsRow,
   type EventActionsRow,
+  type SeriesActionsRow,
 } from './use-activity-actions'
 
 const refreshMock = vi.fn()
@@ -14,7 +16,18 @@ const updateActivityMock = vi.fn().mockResolvedValue({ data: {} })
 const deleteActivityMock = vi.fn().mockResolvedValue({ data: { success: true } })
 const updateEventMock = vi.fn().mockResolvedValue({ data: {} })
 const deleteEventMock = vi.fn().mockResolvedValue({ data: { success: true } })
+const updateSeriesMock = vi.fn().mockResolvedValue({ data: {} })
+const deleteSeriesMock = vi.fn().mockResolvedValue({ data: { success: true } })
 const toastErrorMock = vi.fn()
+
+// Pin TZ so series anchor-date derivation (local getters) is deterministic.
+const ORIGINAL_TZ = process.env.TZ
+beforeAll(() => {
+  process.env.TZ = 'America/New_York'
+})
+afterAll(() => {
+  process.env.TZ = ORIGINAL_TZ
+})
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: refreshMock }),
@@ -30,6 +43,11 @@ vi.mock('@/server/actions/events', () => ({
   deleteEvent: (input: unknown) => deleteEventMock(input),
 }))
 
+vi.mock('@/server/actions/series', () => ({
+  updateSeries: (input: unknown) => updateSeriesMock(input),
+  deleteSeries: (input: unknown) => deleteSeriesMock(input),
+}))
+
 interface MockTemplateValues {
   readonly title: string
   readonly color?: string | null
@@ -40,6 +58,16 @@ interface MockTemplateValues {
   readonly weeklyTargetSessions: number
 }
 
+interface MockRecurrence {
+  readonly freq: string
+  readonly weekdays?: readonly number[]
+  readonly dayOfMonth?: number
+  readonly nthOrdinal?: number
+  readonly nthWeekday?: number
+  readonly month?: number
+  readonly until?: string | null
+}
+
 interface MockEventValues {
   readonly title: string
   readonly startAt?: string | null
@@ -48,6 +76,7 @@ interface MockEventValues {
   readonly color?: string | null
   readonly location?: string | null
   readonly description?: string | null
+  readonly recurrence?: MockRecurrence | null
 }
 
 const TEMPLATE_SUBMIT: MockTemplateValues = {
@@ -80,6 +109,42 @@ const EVENT_SUBMIT: MockEventValues = {
 
 // Minimal edit (all optional fields omitted) → exercises the ?? null fallbacks.
 const EVENT_SUBMIT_MIN: MockEventValues = { title: 'Minimal event' }
+
+// 2026-07-06T13:00:00Z is 9:00 AM America/New_York (EDT, UTC-4 in July).
+const SERIES_SUBMIT_WEEKLY: MockEventValues = {
+  title: 'Edited stretch',
+  startAt: '2026-07-06T13:00:00.000Z',
+  endAt: '2026-07-06T13:30:00.000Z',
+  allDay: false,
+  color: 'blue',
+  location: 'Home',
+  description: 'daily notes',
+  recurrence: { freq: 'weekly', weekdays: [1, 3, 5], until: '2026-12-31' },
+}
+
+const SERIES_SUBMIT_DAILY_NO_UNTIL: MockEventValues = {
+  title: 'Edited daily stretch',
+  startAt: '2026-07-06T13:00:00.000Z',
+  endAt: '2026-07-06T13:15:00.000Z',
+  recurrence: { freq: 'daily' },
+}
+
+// No recurrence at all (the dialog's "Does not repeat" option) — the hook
+// must guard against submitting a series edit with no rule.
+const SERIES_SUBMIT_NO_RECURRENCE: MockEventValues = {
+  title: 'No repeat',
+  startAt: '2026-07-06T13:00:00.000Z',
+  endAt: '2026-07-06T13:30:00.000Z',
+}
+
+// No endAt (defensive fallback path — the dialog always emits both in
+// practice, but the hook must not crash if it doesn't).
+const SERIES_SUBMIT_NO_END: MockEventValues = {
+  title: 'No end',
+  startAt: '2026-07-06T13:00:00.000Z',
+  endAt: null,
+  recurrence: { freq: 'daily' },
+}
 
 vi.mock('@/lib/ui', () => ({
   toast: { error: (...args: unknown[]) => toastErrorMock(...args) },
@@ -166,6 +231,7 @@ vi.mock('@/components/forms/event-form-dialog', () => ({
     React.useEffect(() => {
       eventMountCount += 1
     }, [])
+    const recurrence = initialValues?.recurrence
     return open ? (
       <div role="dialog" aria-label="event-form">
         <span data-testid="evt-title">{initialValues?.title ?? ''}</span>
@@ -177,11 +243,30 @@ vi.mock('@/components/forms/event-form-dialog', () => ({
         <span data-testid="evt-description">{initialValues?.description ?? ''}</span>
         <span data-testid="evt-use24h">{String(use24h ?? '')}</span>
         <span data-testid="evt-mode">{mode ?? ''}</span>
+        <span data-testid="evt-recur-freq">{recurrence?.freq ?? ''}</span>
+        <span data-testid="evt-recur-weekdays">{(recurrence?.weekdays ?? []).join(',')}</span>
+        <span data-testid="evt-recur-day-of-month">{String(recurrence?.dayOfMonth ?? '')}</span>
+        <span data-testid="evt-recur-nth-ordinal">{String(recurrence?.nthOrdinal ?? '')}</span>
+        <span data-testid="evt-recur-nth-weekday">{String(recurrence?.nthWeekday ?? '')}</span>
+        <span data-testid="evt-recur-month">{String(recurrence?.month ?? '')}</span>
+        <span data-testid="evt-recur-until">{recurrence?.until ?? ''}</span>
         <button type="button" onClick={() => onSubmit(EVENT_SUBMIT)}>
           event-save
         </button>
         <button type="button" onClick={() => onSubmit(EVENT_SUBMIT_MIN)}>
           event-save-min
+        </button>
+        <button type="button" onClick={() => onSubmit(SERIES_SUBMIT_WEEKLY)}>
+          series-save-weekly
+        </button>
+        <button type="button" onClick={() => onSubmit(SERIES_SUBMIT_DAILY_NO_UNTIL)}>
+          series-save-daily
+        </button>
+        <button type="button" onClick={() => onSubmit(SERIES_SUBMIT_NO_RECURRENCE)}>
+          series-save-no-recurrence
+        </button>
+        <button type="button" onClick={() => onSubmit(SERIES_SUBMIT_NO_END)}>
+          series-save-no-end
         </button>
         <button type="button" onClick={() => onOpenChange(false)}>
           event-close
@@ -201,8 +286,6 @@ function makeActivity(over: Partial<ActivityActionsRow> = {}): ActivityActionsRo
     minDurationMin: 30,
     maxDurationMin: 60,
     weeklyTargetSessions: 3,
-    schedule: [{ day: 1, startMinutes: 420, durationMin: 45 }],
-    timeZone: 'America/New_York',
     ...over,
   }
 }
@@ -255,6 +338,40 @@ function EventHarness(props: { event: EventActionsRow; use24h?: boolean }): Reac
       {dialogs}
     </>
   )
+}
+
+/** Host exposing the series hook's controls as buttons. */
+function SeriesHarness(props: { series: SeriesActionsRow; use24h?: boolean }): React.JSX.Element {
+  const { isPending, openEdit, openDelete, dialogs } = useSeriesActions(props)
+  return (
+    <>
+      <button onClick={openEdit} disabled={isPending}>
+        edit-series
+      </button>
+      <button onClick={openDelete}>delete-series</button>
+      {dialogs}
+    </>
+  )
+}
+
+function makeSeries(over: Partial<SeriesActionsRow> = {}): SeriesActionsRow {
+  return {
+    id: 'series-1',
+    title: 'Stretch',
+    description: 'daily notes',
+    location: 'Home',
+    color: 'blue',
+    freq: 'weekly',
+    weekdays: [1, 3, 5],
+    dayOfMonth: null,
+    nthOrdinal: null,
+    nthWeekday: null,
+    month: null,
+    startMinutes: 540,
+    durationMin: 30,
+    until: null,
+    ...over,
+  }
 }
 
 const DELETE_ACTIVITY_TITLE = 'Delete this activity?'
@@ -571,6 +688,273 @@ describe('useEventActions (one-off events)', () => {
     await user.click(screen.getByRole('button', { name: 'delete-event' }))
     await user.click(screen.getByRole('button', { name: 'Confirm delete' }))
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not delete event'))
+    expect(refreshMock).not.toHaveBeenCalled()
+  })
+})
+
+const DELETE_SERIES_TITLE = 'Delete this series?'
+const DELETE_SERIES_DESCRIPTION = 'Past and completed events are always kept.'
+
+describe('useSeriesActions', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    updateSeriesMock.mockClear().mockResolvedValue({ data: {} })
+    deleteSeriesMock.mockClear().mockResolvedValue({ data: { success: true } })
+    toastErrorMock.mockClear()
+    templateMountCount = 0
+    eventMountCount = 0
+  })
+
+  it('opens the event dialog in edit mode seeded from a weekly series', async () => {
+    const user = userEvent.setup()
+    render(<SeriesHarness series={makeSeries()} use24h />)
+    await user.click(screen.getByRole('button', { name: 'edit-series' }))
+
+    expect(screen.getByTestId('evt-title')).toHaveTextContent('Stretch')
+    expect(screen.getByTestId('evt-mode')).toHaveTextContent('edit')
+    expect(screen.getByTestId('evt-all-day')).toHaveTextContent('false')
+    expect(screen.getByTestId('evt-color')).toHaveTextContent('blue')
+    expect(screen.getByTestId('evt-location')).toHaveTextContent('Home')
+    expect(screen.getByTestId('evt-description')).toHaveTextContent('daily notes')
+    expect(screen.getByTestId('evt-use24h')).toHaveTextContent('true')
+    expect(screen.getByTestId('evt-recur-freq')).toHaveTextContent('weekly')
+    expect(screen.getByTestId('evt-recur-weekdays')).toHaveTextContent('1,3,5')
+
+    // Anchor time-of-day matches startMinutes (540 = 9:00 AM local).
+    const start = new Date(screen.getByTestId('evt-start').textContent!)
+    expect(start.getHours()).toBe(9)
+    expect(start.getMinutes()).toBe(0)
+    const end = new Date(screen.getByTestId('evt-end').textContent!)
+    expect((end.getTime() - start.getTime()) / 60000).toBe(30)
+  })
+
+  it('seeds a monthly day-of-month series anchored on the matching day (no month rollover for day 31)', async () => {
+    const user = userEvent.setup()
+    render(
+      <SeriesHarness
+        series={makeSeries({
+          freq: 'monthly',
+          weekdays: null,
+          dayOfMonth: 31,
+          nthOrdinal: null,
+          nthWeekday: null,
+        })}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'edit-series' }))
+    expect(screen.getByTestId('evt-recur-freq')).toHaveTextContent('monthly')
+    expect(screen.getByTestId('evt-recur-day-of-month')).toHaveTextContent('31')
+    expect(screen.getByTestId('evt-recur-nth-ordinal')).toHaveTextContent('')
+    const start = new Date(screen.getByTestId('evt-start').textContent!)
+    expect(start.getDate()).toBe(31)
+  })
+
+  it('seeds a monthly nth-weekday series', async () => {
+    const user = userEvent.setup()
+    render(
+      <SeriesHarness
+        series={makeSeries({
+          freq: 'monthly',
+          weekdays: null,
+          dayOfMonth: null,
+          nthOrdinal: 3,
+          nthWeekday: 4,
+        })}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'edit-series' }))
+    expect(screen.getByTestId('evt-recur-freq')).toHaveTextContent('monthly')
+    expect(screen.getByTestId('evt-recur-nth-ordinal')).toHaveTextContent('3')
+    expect(screen.getByTestId('evt-recur-nth-weekday')).toHaveTextContent('4')
+    expect(screen.getByTestId('evt-recur-day-of-month')).toHaveTextContent('')
+  })
+
+  it('seeds a yearly Feb 29 series anchored on a leap year (no rollover into March)', async () => {
+    const user = userEvent.setup()
+    render(
+      <SeriesHarness
+        series={makeSeries({
+          freq: 'yearly',
+          weekdays: null,
+          dayOfMonth: 29,
+          month: 2,
+        })}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'edit-series' }))
+    expect(screen.getByTestId('evt-recur-freq')).toHaveTextContent('yearly')
+    expect(screen.getByTestId('evt-recur-month')).toHaveTextContent('2')
+    expect(screen.getByTestId('evt-recur-day-of-month')).toHaveTextContent('29')
+    const start = new Date(screen.getByTestId('evt-start').textContent!)
+    expect(start.getMonth()).toBe(1) // February (0-based)
+    expect(start.getDate()).toBe(29)
+  })
+
+  it('seeds a daily series with no rule fields', async () => {
+    const user = userEvent.setup()
+    render(
+      <SeriesHarness series={makeSeries({ freq: 'daily', weekdays: null, durationMin: 15 })} />,
+    )
+    await user.click(screen.getByRole('button', { name: 'edit-series' }))
+    expect(screen.getByTestId('evt-recur-freq')).toHaveTextContent('daily')
+    expect(screen.getByTestId('evt-recur-weekdays')).toHaveTextContent('')
+  })
+
+  it('seeds the "ends on" date as a local YYYY-MM-DD string', async () => {
+    const user = userEvent.setup()
+    render(
+      <SeriesHarness series={makeSeries({ until: '2026-12-31T18:00:00.000Z' })} />, // 1pm EST local
+    )
+    await user.click(screen.getByRole('button', { name: 'edit-series' }))
+    expect(screen.getByTestId('evt-recur-until')).toHaveTextContent('2026-12-31')
+  })
+
+  it('seeds an empty "ends on" when the series has no until', async () => {
+    const user = userEvent.setup()
+    render(<SeriesHarness series={makeSeries({ until: null })} />)
+    await user.click(screen.getByRole('button', { name: 'edit-series' }))
+    expect(screen.getByTestId('evt-recur-until')).toHaveTextContent('')
+  })
+
+  it('seeds empty optional fields when the series has null color/location/description', async () => {
+    const user = userEvent.setup()
+    render(
+      <SeriesHarness series={makeSeries({ color: null, location: null, description: null })} />,
+    )
+    await user.click(screen.getByRole('button', { name: 'edit-series' }))
+    expect(screen.getByTestId('evt-color')).toHaveTextContent('')
+    expect(screen.getByTestId('evt-location')).toHaveTextContent('')
+    expect(screen.getByTestId('evt-description')).toHaveTextContent('')
+  })
+
+  it('remounts the series edit dialog fresh on each open (no stale draft on reopen)', async () => {
+    const user = userEvent.setup()
+    render(<SeriesHarness series={makeSeries()} />)
+    await user.click(screen.getByRole('button', { name: 'edit-series' }))
+    expect(eventMountCount).toBe(1)
+    await user.click(screen.getByRole('button', { name: 'event-close' }))
+    expect(screen.queryByRole('dialog', { name: 'event-form' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'edit-series' }))
+    expect(eventMountCount).toBe(2)
+  })
+
+  it('saves a weekly edit via updateSeries with mapped startMinutes/durationMin/rule fields', async () => {
+    const user = userEvent.setup()
+    render(<SeriesHarness series={makeSeries()} />)
+    await user.click(screen.getByRole('button', { name: 'edit-series' }))
+    await user.click(screen.getByRole('button', { name: 'series-save-weekly' }))
+
+    await waitFor(() => expect(updateSeriesMock).toHaveBeenCalled())
+    const payload = updateSeriesMock.mock.calls[0]![0] as Record<string, unknown>
+    expect(payload).toMatchObject({
+      id: 'series-1',
+      title: 'Edited stretch',
+      description: 'daily notes',
+      location: 'Home',
+      color: 'blue',
+      freq: 'weekly',
+      weekdays: [1, 3, 5],
+      startMinutes: 540, // 9:00 AM local
+      durationMin: 30,
+    })
+    expect(payload.dayOfMonth).toBeUndefined()
+    expect(payload.nthOrdinal).toBeUndefined()
+    expect(payload.nthWeekday).toBeUndefined()
+    expect(payload.month).toBeUndefined()
+    const until = payload.until as Date
+    expect(until.getFullYear()).toBe(2026)
+    expect(until.getMonth()).toBe(11)
+    expect(until.getDate()).toBe(31)
+
+    expect(refreshMock).toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: 'event-form' })).not.toBeInTheDocument()
+  })
+
+  it('saves a daily edit with no until as until: null', async () => {
+    const user = userEvent.setup()
+    render(<SeriesHarness series={makeSeries({ freq: 'daily', weekdays: null })} />)
+    await user.click(screen.getByRole('button', { name: 'edit-series' }))
+    await user.click(screen.getByRole('button', { name: 'series-save-daily' }))
+
+    await waitFor(() => expect(updateSeriesMock).toHaveBeenCalled())
+    const payload = updateSeriesMock.mock.calls[0]![0] as Record<string, unknown>
+    expect(payload).toMatchObject({ freq: 'daily', startMinutes: 540, durationMin: 15 })
+    expect(payload.until).toBeNull()
+    expect(payload.weekdays).toBeUndefined()
+  })
+
+  it('defaults durationMin to 0 when the submit carries no endAt', async () => {
+    const user = userEvent.setup()
+    render(<SeriesHarness series={makeSeries({ freq: 'daily', weekdays: null })} />)
+    await user.click(screen.getByRole('button', { name: 'edit-series' }))
+    await user.click(screen.getByRole('button', { name: 'series-save-no-end' }))
+    await waitFor(() => expect(updateSeriesMock).toHaveBeenCalled())
+    const payload = updateSeriesMock.mock.calls[0]![0] as Record<string, unknown>
+    expect(payload).toMatchObject({ startMinutes: 540, durationMin: 0 })
+  })
+
+  it('guards against submitting with no recurrence (toast, no updateSeries call)', async () => {
+    const user = userEvent.setup()
+    render(<SeriesHarness series={makeSeries()} />)
+    await user.click(screen.getByRole('button', { name: 'edit-series' }))
+    await user.click(screen.getByRole('button', { name: 'series-save-no-recurrence' }))
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith('A series must repeat — choose a repeat option'),
+    )
+    expect(updateSeriesMock).not.toHaveBeenCalled()
+    expect(refreshMock).not.toHaveBeenCalled()
+  })
+
+  it('shows a toast and does not refresh when the series edit save fails', async () => {
+    updateSeriesMock.mockResolvedValueOnce({ error: 'Not found' })
+    const user = userEvent.setup()
+    render(<SeriesHarness series={makeSeries()} />)
+    await user.click(screen.getByRole('button', { name: 'edit-series' }))
+    await user.click(screen.getByRole('button', { name: 'series-save-weekly' }))
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not save series'))
+    expect(refreshMock).not.toHaveBeenCalled()
+  })
+
+  it('opens the two-mode delete confirm dialog with the series copy', async () => {
+    const user = userEvent.setup()
+    render(<SeriesHarness series={makeSeries()} />)
+    await user.click(screen.getByRole('button', { name: 'delete-series' }))
+    expect(screen.getByText(DELETE_SERIES_TITLE)).toBeInTheDocument()
+    expect(screen.getByText(DELETE_SERIES_DESCRIPTION)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Keep events' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete future events too' })).toBeInTheDocument()
+  })
+
+  it('deletes keeping events via deleteSeries({ mode: "keep" })', async () => {
+    const user = userEvent.setup()
+    render(<SeriesHarness series={makeSeries()} />)
+    await user.click(screen.getByRole('button', { name: 'delete-series' }))
+    await user.click(screen.getByRole('button', { name: 'Keep events' }))
+    await waitFor(() =>
+      expect(deleteSeriesMock).toHaveBeenCalledWith({ id: 'series-1', mode: 'keep' }),
+    )
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('deletes future events too via deleteSeries({ mode: "deleteFuture" })', async () => {
+    const user = userEvent.setup()
+    render(<SeriesHarness series={makeSeries()} />)
+    await user.click(screen.getByRole('button', { name: 'delete-series' }))
+    await user.click(screen.getByRole('button', { name: 'Delete future events too' }))
+    await waitFor(() =>
+      expect(deleteSeriesMock).toHaveBeenCalledWith({ id: 'series-1', mode: 'deleteFuture' }),
+    )
+    expect(refreshMock).toHaveBeenCalled()
+  })
+
+  it('shows a toast and does not refresh when the series delete fails', async () => {
+    deleteSeriesMock.mockResolvedValueOnce({ error: 'Not found' })
+    const user = userEvent.setup()
+    render(<SeriesHarness series={makeSeries()} />)
+    await user.click(screen.getByRole('button', { name: 'delete-series' }))
+    await user.click(screen.getByRole('button', { name: 'Keep events' }))
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('Could not delete series'))
     expect(refreshMock).not.toHaveBeenCalled()
   })
 })
