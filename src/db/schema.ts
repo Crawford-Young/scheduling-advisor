@@ -97,6 +97,9 @@ export const calendarPrefs = pgTable('calendar_prefs', {
   use24h: boolean('use_24h').notNull().default(false),
   // TTL auto-delete window in days; null = disabled.
   ttlDays: integer('ttl_days'),
+  defaultVisibility: text('default_visibility', { enum: ['public', 'busy', 'private'] })
+    .notNull()
+    .default('private'),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
@@ -194,6 +197,9 @@ export const eventSeries = pgTable('event_series', {
   description: text('description'),
   location: text('location'),
   color: text('color'),
+  visibility: text('visibility', { enum: ['public', 'busy', 'private'] })
+    .notNull()
+    .default('private'),
   freq: text('freq', { enum: ['daily', 'weekly', 'monthly', 'yearly'] }).notNull(),
   // Weekly: selected weekdays 0–6 Sun-first.
   weekdays: jsonb('weekdays').$type<readonly number[]>(),
@@ -235,6 +241,9 @@ export const events = pgTable('events', {
     .default('pending'),
   locked: boolean('locked').notNull().default(false),
   color: text('color'),
+  visibility: text('visibility', { enum: ['public', 'busy', 'private'] })
+    .notNull()
+    .default('private'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
