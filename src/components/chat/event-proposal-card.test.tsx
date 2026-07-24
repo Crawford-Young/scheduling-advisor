@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { EventProposalCard } from './event-proposal-card'
 import { createEvent } from '@/server/actions/events'
-import { createEvents } from '@/server/actions/chat-mutations'
+import { createSeries } from '@/server/actions/series'
 
 vi.mock('@/lib/ui', () => ({
   Card: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -16,10 +16,10 @@ vi.mock('@/lib/ui', () => ({
 }))
 
 vi.mock('@/server/actions/events', () => ({ createEvent: vi.fn() }))
-vi.mock('@/server/actions/chat-mutations', () => ({ createEvents: vi.fn() }))
+vi.mock('@/server/actions/series', () => ({ createSeries: vi.fn() }))
 
 const createEventMock = vi.mocked(createEvent)
-const createEventsMock = vi.mocked(createEvents)
+const createSeriesMock = vi.mocked(createSeries)
 
 // Local-wall-clock ISO — constructed the SAME way the component does so the
 // assertion holds in any host TZ (CI is UTC, dev is Eastern). Never a literal.
@@ -38,18 +38,18 @@ function baseProps() {
 }
 
 type CreateEventResult = Awaited<ReturnType<typeof createEvent>>
-type CreateEventsResult = Awaited<ReturnType<typeof createEvents>>
+type CreateSeriesResult = Awaited<ReturnType<typeof createSeries>>
 
 describe('EventProposalCard', () => {
   beforeEach(() => {
     createEventMock.mockReset()
-    createEventsMock.mockReset()
+    createSeriesMock.mockReset()
     createEventMock.mockResolvedValue({
       data: { id: 'event-1', title: 'Standup' },
     } as CreateEventResult)
-    createEventsMock.mockResolvedValue({
-      data: [{ id: 'event-1', title: 'Standup' }],
-    } as CreateEventsResult)
+    createSeriesMock.mockResolvedValue({
+      data: { id: 'series-1', title: 'Standup' },
+    } as CreateSeriesResult)
   })
 
   it('renders the title and a deterministic time label', () => {
@@ -112,7 +112,7 @@ describe('EventProposalCard', () => {
     expect(screen.queryByText(/^Repeats/)).not.toBeInTheDocument()
   })
 
-  it('fans a weekly series into independent events via createEvents on confirm', async () => {
+  it('creates a real event series (createSeries) on confirm for a weekly recurrence, never createEvent', async () => {
     render(
       <EventProposalCard
         {...baseProps()}
@@ -122,27 +122,69 @@ describe('EventProposalCard', () => {
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
-    await waitFor(() => expect(createEventsMock).toHaveBeenCalled())
-    // 2 weekdays × 8 weeks = 16 standalone events, no series linkage.
-    const arg = createEventsMock.mock.calls[0]![0] as { events: readonly unknown[] }
-    expect(arg.events).toHaveLength(16)
-    arg.events.forEach((e) => expect(e).toMatchObject({ title: 'Standup' }))
+    await waitFor(() => expect(createSeriesMock).toHaveBeenCalled())
+    const arg = createSeriesMock.mock.calls[0]![0] as Record<string, unknown>
+    expect(arg).toMatchObject({
+      title: 'Standup',
+      freq: 'weekly',
+      weekdays: [1, 5], // Mon, Fri (Sun-first index)
+      startMinutes: 9 * 60,
+      durationMin: 60,
+      anchorStartAt: EXPECTED_START,
+    })
+    expect(arg.timeZone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone)
     expect(createEventMock).not.toHaveBeenCalled()
   })
 
-  it('fans a daily count into that many events via createEvents', async () => {
-    render(<EventProposalCard {...baseProps()} recurrence="daily" recurrenceCount={4} />)
+  it('falls back to the anchor weekday when a weekly recurrence carries no recurrenceDays', async () => {
+    render(<EventProposalCard {...baseProps()} recurrence="weekly" recurrenceCount={4} />)
     fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
-    await waitFor(() => expect(createEventsMock).toHaveBeenCalled())
-    const arg = createEventsMock.mock.calls[0]![0] as {
-      events: readonly { startAt: string }[]
-    }
-    expect(arg.events).toHaveLength(4)
-    // First occurrence is the anchor's local-wall-clock instant.
-    expect(arg.events[0]!.startAt).toBe(EXPECTED_START)
+    await waitFor(() => expect(createSeriesMock).toHaveBeenCalled())
+    const arg = createSeriesMock.mock.calls[0]![0] as { weekdays: readonly number[] }
+    // 2026-06-02 is a Tuesday (index 2).
+    expect(arg.weekdays).toEqual([2])
   })
 
-  it('creates a single event via createEvent (not createEvents) for a non-recurring proposal', async () => {
+  it('sends dayOfMonth (never weekdays) for a monthly recurrence', async () => {
+    render(<EventProposalCard {...baseProps()} recurrence="monthly" recurrenceCount={6} />)
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
+    await waitFor(() => expect(createSeriesMock).toHaveBeenCalled())
+    const arg = createSeriesMock.mock.calls[0]![0] as Record<string, unknown>
+    expect(arg.dayOfMonth).toBe(2)
+    expect(arg).not.toHaveProperty('weekdays')
+  })
+
+  it('sends neither weekdays nor dayOfMonth for a daily recurrence', async () => {
+    render(<EventProposalCard {...baseProps()} recurrence="daily" recurrenceCount={4} />)
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
+    await waitFor(() => expect(createSeriesMock).toHaveBeenCalled())
+    const arg = createSeriesMock.mock.calls[0]![0] as Record<string, unknown>
+    expect(arg).not.toHaveProperty('weekdays')
+    expect(arg).not.toHaveProperty('dayOfMonth')
+  })
+
+  it('sends a computed until date when recurrenceCount is present', async () => {
+    render(<EventProposalCard {...baseProps()} recurrence="daily" recurrenceCount={4} />)
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
+    await waitFor(() => expect(createSeriesMock).toHaveBeenCalled())
+    const arg = createSeriesMock.mock.calls[0]![0] as { until: Date }
+    // anchor 2026-06-02 + 3 days = 2026-06-05, local end-of-day.
+    expect(arg.until.getFullYear()).toBe(2026)
+    expect(arg.until.getMonth()).toBe(5)
+    expect(arg.until.getDate()).toBe(5)
+    expect(arg.until.getHours()).toBe(23)
+    expect(arg.until.getMinutes()).toBe(59)
+  })
+
+  it('sends a null until when recurrenceCount is omitted (infinite series)', async () => {
+    render(<EventProposalCard {...baseProps()} recurrence="daily" />)
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
+    await waitFor(() => expect(createSeriesMock).toHaveBeenCalled())
+    const arg = createSeriesMock.mock.calls[0]![0] as { until: Date | null }
+    expect(arg.until).toBeNull()
+  })
+
+  it('creates a single event via createEvent (not createSeries) for a non-recurring proposal', async () => {
     render(<EventProposalCard {...baseProps()} />)
     fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
     await waitFor(() => expect(createEventMock).toHaveBeenCalled())
@@ -151,7 +193,7 @@ describe('EventProposalCard', () => {
       startAt: EXPECTED_START,
       endAt: EXPECTED_END,
     })
-    expect(createEventsMock).not.toHaveBeenCalled()
+    expect(createSeriesMock).not.toHaveBeenCalled()
   })
 
   it('marks the confirmed transcript line as recurring for a series', async () => {
@@ -168,11 +210,42 @@ describe('EventProposalCard', () => {
     )
   })
 
+  it('fires onConfirmed with the anchor occurrence for a series', async () => {
+    const props = baseProps()
+    render(<EventProposalCard {...props} recurrence="daily" recurrenceCount={4} />)
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
+    await waitFor(() =>
+      expect(props.onConfirmed).toHaveBeenCalledWith({
+        id: 'series-1',
+        title: 'Standup',
+        start: EXPECTED_START,
+        end: EXPECTED_END,
+      }),
+    )
+  })
+
   it('passes the typed description through as-is on confirm', async () => {
     render(<EventProposalCard {...baseProps()} description="Daily sync" />)
     fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
     await waitFor(() =>
       expect(createEventMock).toHaveBeenCalledWith(
+        expect.objectContaining({ description: 'Daily sync' }),
+      ),
+    )
+  })
+
+  it('passes the typed description through on a recurring confirm too', async () => {
+    render(
+      <EventProposalCard
+        {...baseProps()}
+        description="Daily sync"
+        recurrence="daily"
+        recurrenceCount={4}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
+    await waitFor(() =>
+      expect(createSeriesMock).toHaveBeenCalledWith(
         expect.objectContaining({ description: 'Daily sync' }),
       ),
     )
@@ -233,8 +306,8 @@ describe('EventProposalCard', () => {
     expect(props.onConfirmed).not.toHaveBeenCalled()
   })
 
-  it('enters the error state when a batch create succeeds but returns no rows', async () => {
-    createEventsMock.mockResolvedValue({ data: [] } as CreateEventsResult)
+  it('enters the error state with a Retry button when a series create fails', async () => {
+    createSeriesMock.mockResolvedValue({ error: 'boom' } as CreateSeriesResult)
     const props = baseProps()
     render(<EventProposalCard {...props} recurrence="daily" recurrenceCount={4} />)
     fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
