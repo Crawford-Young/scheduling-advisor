@@ -10,7 +10,7 @@ import {
   type RecurrenceFrequency,
 } from '@/components/chat/event-proposal-card'
 import { DayProposalPreview } from '@/components/chat/day-proposal-preview'
-import type { DayOfWeek } from '@/lib/chat/proposal-occurrences'
+import type { DayOfWeek } from '@/lib/chat/weekdays'
 import {
   ActivityCard,
   WeekCalendarView,

@@ -124,10 +124,38 @@ describe('buildChatTools (activity model)', () => {
       minDurationMin: 30,
       maxDurationMin: 60,
       weeklyTargetSessions: 3,
-      schedule: [{ day: 1, startMinutes: 420, durationMin: 60 }],
     }
     await expect(execute(all, 'createActivity', params)).resolves.toEqual({ data: { id: 'a1' } })
     expect(createActivity).toHaveBeenCalledWith(params)
+  })
+
+  describe('createActivity schema', () => {
+    const schema = buildChatTools('u1').createActivity.inputSchema as z.ZodTypeAny
+    const valid = {
+      title: 'Gym',
+      minDurationMin: 30,
+      maxDurationMin: 60,
+      weeklyTargetSessions: 3,
+    }
+
+    it('accepts a metadata-only payload with no schedule/timeZone', () => {
+      expect(schema.safeParse(valid).success).toBe(true)
+    })
+
+    it('strips a schedule field (retired — activities carry no schedule of their own)', () => {
+      const result = schema.safeParse({
+        ...valid,
+        schedule: [{ day: 1, startMinutes: 420, durationMin: 60 }],
+      })
+      expect(result.success).toBe(true)
+      expect(result.success && (result.data as Record<string, unknown>).schedule).toBeUndefined()
+    })
+
+    it('strips a timeZone field (retired alongside schedule)', () => {
+      const result = schema.safeParse({ ...valid, timeZone: 'America/New_York' })
+      expect(result.success).toBe(true)
+      expect(result.success && (result.data as Record<string, unknown>).timeZone).toBeUndefined()
+    })
   })
 
   it('createEvent delegates to the events action', async () => {

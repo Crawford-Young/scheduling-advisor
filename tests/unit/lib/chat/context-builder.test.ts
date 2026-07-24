@@ -5,10 +5,12 @@ vi.mock('@/auth', () => ({ auth: vi.fn().mockResolvedValue({ user: { id: 'user-1
 vi.mock('@/server/queries/activities', () => ({ getUserActivities: vi.fn() }))
 vi.mock('@/server/queries/events', () => ({ getUserEvents: vi.fn() }))
 vi.mock('@/server/queries/tokens', () => ({ getTokenBalance: vi.fn().mockResolvedValue(847) }))
+vi.mock('@/server/queries/series', () => ({ getSeriesForUser: vi.fn() }))
 
 import { getUserActivities } from '@/server/queries/activities'
 import { getUserEvents } from '@/server/queries/events'
 import { getTokenBalance } from '@/server/queries/tokens'
+import { getSeriesForUser } from '@/server/queries/series'
 import { buildContextBlock } from '@/lib/chat/context-builder'
 
 // Local-constructed dates so the local-wall-clock week math in computeWeeklyFit
@@ -24,7 +26,6 @@ function activity(overrides: Record<string, unknown> = {}): Record<string, unkno
     minDurationMin: 30,
     maxDurationMin: 45,
     weeklyTargetSessions: 3,
-    schedule: [{ day: 1, startMinutes: 420, durationMin: 30 }],
     ...overrides,
   }
 }
@@ -42,12 +43,31 @@ function event(overrides: Record<string, unknown> = {}): Record<string, unknown>
   }
 }
 
-describe('buildContextBlock (activity model)', () => {
+function series(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'series-1',
+    activityId: null,
+    title: 'Morning Run',
+    freq: 'weekly',
+    weekdays: [1],
+    dayOfMonth: null,
+    nthOrdinal: null,
+    nthWeekday: null,
+    month: null,
+    startMinutes: 420,
+    durationMin: 30,
+    until: null,
+    ...overrides,
+  }
+}
+
+describe('buildContextBlock (event-series model)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(getUserActivities).mockResolvedValue([] as never)
     vi.mocked(getUserEvents).mockResolvedValue([] as never)
     vi.mocked(getTokenBalance).mockResolvedValue(847)
+    vi.mocked(getSeriesForUser).mockResolvedValue([] as never)
   })
 
   it('includes date, timezone, and credit balance', async () => {
@@ -69,18 +89,71 @@ describe('buildContextBlock (activity model)', () => {
     expect(ctx).toContain('this week 1/3')
   })
 
-  it('renders each activity schedule slot as weekday, time and duration', async () => {
-    vi.mocked(getUserActivities).mockResolvedValueOnce([
-      activity({ schedule: [{ day: 1, startMinutes: 420, durationMin: 30 }] }),
+  it("renders an activity's linked series as a formatSeriesLabel summary", async () => {
+    vi.mocked(getUserActivities).mockResolvedValueOnce([activity()] as never)
+    vi.mocked(getSeriesForUser).mockResolvedValueOnce([
+      series({
+        activityId: 'act-1',
+        freq: 'weekly',
+        weekdays: [1],
+        startMinutes: 420,
+        durationMin: 30,
+      }),
     ] as never)
     const ctx = await buildContextBlock('UTC', NOW)
-    expect(ctx).toContain('Mon 07:00 (30m)')
+    // formatSeriesLabel(weekly, [Mon], 7:00, 30m, 24h) => "Mon · 7:00 · 30m"
+    expect(ctx).toContain('Mon · 7:00 · 30m')
   })
 
-  it('summarises an activity with no schedule slots as "no fixed slots"', async () => {
-    vi.mocked(getUserActivities).mockResolvedValueOnce([activity({ schedule: [] })] as never)
+  it('summarises an activity with no linked series as "no fixed slots"', async () => {
+    vi.mocked(getUserActivities).mockResolvedValueOnce([activity()] as never)
     const ctx = await buildContextBlock('UTC', NOW)
     expect(ctx).toContain('no fixed slots')
+  })
+
+  it("joins an activity's multiple linked series with a comma", async () => {
+    vi.mocked(getUserActivities).mockResolvedValueOnce([activity()] as never)
+    vi.mocked(getSeriesForUser).mockResolvedValueOnce([
+      series({ id: 's1', activityId: 'act-1', freq: 'daily', startMinutes: 420, durationMin: 30 }),
+      series({ id: 's2', activityId: 'act-1', freq: 'daily', startMinutes: 1080, durationMin: 30 }),
+    ] as never)
+    const ctx = await buildContextBlock('UTC', NOW)
+    expect(ctx).toContain('Daily · 7:00, Daily · 18:00')
+  })
+
+  it('lists standalone series (no linked activity) in their own block', async () => {
+    vi.mocked(getSeriesForUser).mockResolvedValueOnce([
+      series({
+        id: 'standalone-1',
+        activityId: null,
+        title: 'Book club',
+        freq: 'weekly',
+        weekdays: [2],
+      }),
+    ] as never)
+    const ctx = await buildContextBlock('UTC', NOW)
+    expect(ctx).toContain('Repeating series (standalone')
+    expect(ctx).toContain('[standalone-1] Book club')
+  })
+
+  it('excludes an activity-linked series from the standalone series block', async () => {
+    vi.mocked(getUserActivities).mockResolvedValueOnce([activity()] as never)
+    vi.mocked(getSeriesForUser).mockResolvedValueOnce([
+      series({ id: 'linked-1', activityId: 'act-1', title: 'Morning Run' }),
+    ] as never)
+    const ctx = await buildContextBlock('UTC', NOW)
+    expect(ctx).not.toContain('[linked-1]')
+  })
+
+  it('caps the standalone series block at 20 lines', async () => {
+    const many = Array.from({ length: 25 }, (_, i) =>
+      series({ id: `s-${i}`, activityId: null, title: `Series ${i}` }),
+    )
+    vi.mocked(getSeriesForUser).mockResolvedValueOnce(many as never)
+    const ctx = await buildContextBlock('UTC', NOW)
+    expect(ctx).toContain('[s-0]')
+    expect(ctx).toContain('[s-19]')
+    expect(ctx).not.toContain('[s-20]')
   })
 
   it('renders an all-day event without a wall-clock time', async () => {
@@ -111,11 +184,12 @@ describe('buildContextBlock (activity model)', () => {
     expect(ctx).toMatch(/Upcoming.*pending/)
   })
 
-  it('shows (none) for both blocks when there is no data', async () => {
+  it('shows (none) for all three blocks when there is no data', async () => {
     const ctx = await buildContextBlock('UTC', NOW)
     expect(ctx).toContain('Activities')
     expect(ctx).toContain("This week's events")
-    expect((ctx.match(/\(none\)/g) ?? []).length).toBe(2)
+    expect(ctx).toContain('Repeating series')
+    expect((ctx.match(/\(none\)/g) ?? []).length).toBe(3)
   })
 
   it('uses an empty userId when unauthenticated and still renders the header', async () => {
@@ -124,5 +198,6 @@ describe('buildContextBlock (activity model)', () => {
     const ctx = await buildContextBlock('UTC', NOW)
     expect(ctx).toContain('--- Current Context ---')
     expect(getTokenBalance).toHaveBeenCalledWith('')
+    expect(getSeriesForUser).toHaveBeenCalledWith('')
   })
 })

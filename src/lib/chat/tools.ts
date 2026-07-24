@@ -27,19 +27,6 @@ export const CHAT_TOOL_NAMES = [
 export type ChatToolName = (typeof CHAT_TOOL_NAMES)[number]
 export type ChatToolSet = Record<ChatToolName, Tool>
 
-const MINUTES_IN_DAY = 1440
-
-const scheduleSlotSchema = z.object({
-  day: z.number().int().min(0).max(6).describe('weekday, 0=Sunday … 6=Saturday'),
-  startMinutes: z
-    .number()
-    .int()
-    .min(0)
-    .max(MINUTES_IN_DAY - 1)
-    .describe('minutes since local midnight'),
-  durationMin: z.number().int().positive(),
-})
-
 const eventInputSchema = z.object({
   title: z.string(),
   activityId: z.string().optional().describe('link this event to an activity template'),
@@ -195,7 +182,7 @@ export function buildChatTools(userId: string): ChatToolSet {
     // ── Mutation tools (only after [CONFIRM]) ───────────────────────────────
     createActivity: tool({
       description:
-        'Create a recurring activity template. It fans out into concrete events on the user’s calendar per its weekly schedule.',
+        'Create an activity template (a category/goal an event can link to, with a weekly session target). It carries no schedule of its own — use createEvent/createEvents or proposeEvent to put sessions on the calendar, optionally linked via activityId.',
       inputSchema: z.object({
         title: z.string(),
         color: z.string().optional(),
@@ -204,8 +191,6 @@ export function buildChatTools(userId: string): ChatToolSet {
         minDurationMin: z.number().int().positive(),
         maxDurationMin: z.number().int().positive(),
         weeklyTargetSessions: z.number().int().positive(),
-        schedule: z.array(scheduleSlotSchema),
-        timeZone: z.string().optional().describe('IANA zone the schedule times are wall-clock in'),
       }),
       execute: async (props) => createActivity(props),
     }),

@@ -3,13 +3,9 @@ import * as React from 'react'
 import { Check, X } from 'lucide-react'
 import { Badge, Button, Card, CardContent, Input } from '@/lib/ui'
 import { createEvent } from '@/server/actions/events'
-import { createEvents } from '@/server/actions/chat-mutations'
-import {
-  expandProposalOccurrences,
-  WEEKDAY_ORDER,
-  type DayOfWeek,
-  type RecurrenceFrequency,
-} from '@/lib/chat/proposal-occurrences'
+import { createSeries } from '@/server/actions/series'
+import { computeUntilFromCount } from '@/lib/chat/proposal-until'
+import { WEEKDAY_ORDER, type DayOfWeek, type RecurrenceFrequency } from '@/lib/chat/weekdays'
 
 // Re-exported so existing importers (tool-result-renderer, day-proposal-preview)
 // keep pulling the recurrence type from the card.
@@ -72,6 +68,123 @@ function buildRecurrenceSummary(
   return segments.join(' · ')
 }
 
+// ─── createSeries mapping (recurring confirm) ──────────────────────────────
+// Mirrors calendar-client.tsx's `toSeriesSubmitInput` conventions: local
+// calendar/wall-clock math only (never toISOString/UTC-string parsing for date
+// components), and a per-freq payload that OMITS every field the freq doesn't
+// use (createSeriesSchema's superRefine rejects stray extras from another
+// freq's rule shape).
+
+const MINUTES_PER_HOUR = 60
+const MS_PER_MINUTE = 60 * 1000
+// A local `YYYY-MM-DD` `until` date's END OF DAY, inclusive — the series stops
+// generating occurrences after this local instant.
+const UNTIL_END_HOUR = 23
+const UNTIL_END_MINUTE = 59
+const UNTIL_END_SECOND = 59
+const UNTIL_END_MS = 999
+// `until` from computeUntilFromCount is `'YYYY-MM-DD'` (1-based month); `Date`'s
+// month constructor arg is 0-based.
+const UNTIL_MONTH_OFFSET = 1
+
+/** Local Date from a 'YYYY-MM-DD' date + 'HH:MM' time (wall-clock, host TZ). */
+function localDateTime(date: string, time: string): Date {
+  const [y, mo, d] = date.split('-').map(Number)
+  const [h, min] = time.split(':').map(Number)
+  return new Date(y!, mo! - 1, d!, h!, min!)
+}
+
+/** Minutes since local midnight from an 'HH:MM' time string. */
+function minutesSinceMidnight(time: string): number {
+  const [h, min] = time.split(':').map(Number)
+  return h! * MINUTES_PER_HOUR + min!
+}
+
+// Local end-of-day `Date` for a `'YYYY-MM-DD'` string (never `new
+// Date(dateStr)`, which parses UTC midnight — local-wall-clock invariant).
+function localEndOfDay(dateStr: string): Date {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  return new Date(
+    year!,
+    month! - UNTIL_MONTH_OFFSET,
+    day!,
+    UNTIL_END_HOUR,
+    UNTIL_END_MINUTE,
+    UNTIL_END_SECOND,
+    UNTIL_END_MS,
+  )
+}
+
+interface SeriesRuleFields {
+  readonly weekdays?: readonly number[]
+  readonly dayOfMonth?: number
+}
+
+/** Per-freq rule fields only — daily sends neither, matching createSeriesSchema. */
+function buildSeriesRuleFields(
+  recurrence: RecurrenceFrequency,
+  recurrenceDays: readonly DayOfWeek[] | undefined,
+  anchorStart: Date,
+): SeriesRuleFields {
+  if (recurrence === 'weekly') {
+    const tokens =
+      recurrenceDays && recurrenceDays.length > 0
+        ? recurrenceDays
+        : [WEEKDAY_ORDER[anchorStart.getDay()]!]
+    return { weekdays: tokens.map((token) => WEEKDAY_ORDER.indexOf(token)) }
+  }
+  if (recurrence === 'monthly') {
+    return { dayOfMonth: anchorStart.getDate() }
+  }
+  return {}
+}
+
+interface RecurringProposalInput {
+  readonly title: string
+  readonly date: string
+  readonly start: string
+  readonly description?: string
+  readonly recurrence: RecurrenceFrequency
+  readonly recurrenceDays?: readonly DayOfWeek[]
+  readonly recurrenceCount?: number
+}
+
+// createSeries' input shape as this card emits it (analog of calendar-client's
+// SeriesSubmitInput) — typed so a field-name typo fails tsc, not just the
+// runtime zod parse.
+interface SeriesSubmitInput extends SeriesRuleFields {
+  readonly title: string
+  readonly description?: string
+  readonly freq: RecurrenceFrequency
+  readonly startMinutes: number
+  readonly durationMin: number
+  readonly timeZone: string
+  readonly anchorStartAt: string
+  readonly until: Date | null
+}
+
+/** Maps a recurring proposal onto `createSeries`' input shape (see module doc above). */
+function buildSeriesInput(
+  input: RecurringProposalInput,
+  anchorStart: Date,
+  durationMin: number,
+): SeriesSubmitInput {
+  return {
+    title: input.title,
+    ...(input.description !== undefined && { description: input.description }),
+    freq: input.recurrence,
+    ...buildSeriesRuleFields(input.recurrence, input.recurrenceDays, anchorStart),
+    startMinutes: minutesSinceMidnight(input.start),
+    durationMin,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    anchorStartAt: anchorStart.toISOString(),
+    until:
+      input.recurrenceCount !== undefined
+        ? localEndOfDay(computeUntilFromCount(input.date, input.recurrence, input.recurrenceCount))
+        : null,
+  }
+}
+
 export interface EventProposalCardProps {
   readonly title: string
   readonly date: string
@@ -109,31 +222,36 @@ export function EventProposalCard({
 
   async function handleConfirm(): Promise<void> {
     setSubmitting(true)
-    // Expand the proposal into standalone events (no series linkage — the old
-    // tasks fan-out is gone). A single event calls createEvent; a recurrence
-    // fans out into N independent rows and calls createEvents.
-    const occurrences = expandProposalOccurrences({
-      title,
-      date,
-      start,
-      end,
-      ...(description !== undefined && { description }),
-      ...(recurrence !== undefined && { recurrence }),
-      ...(recurrenceDays !== undefined && { recurrenceDays }),
-      ...(recurrenceCount !== undefined && { recurrenceCount }),
-    })
-    const anchor = occurrences[0]!
-    const result =
-      occurrences.length === 1
-        ? await createEvent(anchor)
-        : await createEvents({ events: occurrences })
+    const anchorStart = localDateTime(date, start)
+    const anchorEnd = localDateTime(date, end)
+    // No recurrence → the plain single-event path (createEvent), byte-unchanged.
+    // A recurrence proposal now creates a REAL event series (createSeries) —
+    // the sliding-window generation sweep materialises its occurrences server-
+    // side; there is no more client-side occurrence fan-out.
+    const result = recurrence
+      ? await createSeries(
+          buildSeriesInput(
+            {
+              title,
+              date,
+              start,
+              recurrence,
+              ...(description !== undefined && { description }),
+              ...(recurrenceDays !== undefined && { recurrenceDays }),
+              ...(recurrenceCount !== undefined && { recurrenceCount }),
+            },
+            anchorStart,
+            (anchorEnd.getTime() - anchorStart.getTime()) / MS_PER_MINUTE,
+          ),
+        )
+      : await createEvent({
+          title,
+          startAt: anchorStart.toISOString(),
+          endAt: anchorEnd.toISOString(),
+          ...(description !== undefined && { description }),
+        })
     setSubmitting(false)
     if ('error' in result) {
-      setState('error')
-      return
-    }
-    const created = Array.isArray(result.data) ? result.data[0] : result.data
-    if (!created) {
       setState('error')
       return
     }
@@ -143,7 +261,12 @@ export function EventProposalCard({
       role: 'user',
       content: `[CONFIRMED] ${title} — ${date} ${start}–${end}${recurringNote}`,
     })
-    onConfirmed({ id: created.id, title, start: anchor.startAt, end: anchor.endAt })
+    onConfirmed({
+      id: result.data.id,
+      title,
+      start: anchorStart.toISOString(),
+      end: anchorEnd.toISOString(),
+    })
   }
 
   function handleDenyClick(): void {

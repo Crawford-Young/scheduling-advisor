@@ -2,31 +2,37 @@ import { auth } from '@/auth'
 import { getUserActivities } from '@/server/queries/activities'
 import { getUserEvents } from '@/server/queries/events'
 import { getTokenBalance } from '@/server/queries/tokens'
+import { getSeriesForUser, type SeriesRowDb } from '@/server/queries/series'
 import { computeWeeklyFit, localWeekBounds } from '@/lib/weekly-fit'
-import type { ActivityScheduleSlot } from '@/lib/schemas/activity'
+import { formatSeriesLabel } from '@/lib/pattern-label'
 
-// Sunday-first, matching Date#getDay() and the activity schedule's `day` index.
-const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
-const MINUTES_PER_HOUR = 60
+// `formatSeriesLabel`'s time rendering — the context block is a fixed
+// convention (not user-preference-threaded), 24h keeps it compact/unambiguous
+// for the model.
+const SERIES_LABEL_USE_24H = true
+// The standalone-series block (event_series rows with no linked activity) has
+// no natural time-window bound the way `eventLines` bounds itself to the
+// current week — cap the line count directly so an unbounded rule count can
+// never blow up the context block.
+const MAX_STANDALONE_SERIES_LINES = 20
 
-function padTwo(value: number): string {
-  return value.toString().padStart(2, '0')
+/** Comma-joined series-rule labels for one activity's linked series, or a "no fixed slots" fallback. */
+function activitySeriesSummary(activityId: string, seriesList: readonly SeriesRowDb[]): string {
+  const linked = seriesList.filter((series) => series.activityId === activityId)
+  if (linked.length === 0) return 'no fixed slots'
+  return linked.map((series) => formatSeriesLabel(series, SERIES_LABEL_USE_24H)).join(', ')
 }
 
-function minutesToHhmm(minutes: number): string {
-  const hours = Math.floor(minutes / MINUTES_PER_HOUR)
-  const mins = minutes % MINUTES_PER_HOUR
-  return `${padTwo(hours)}:${padTwo(mins)}`
-}
-
-function scheduleSummary(schedule: readonly ActivityScheduleSlot[]): string {
-  if (schedule.length === 0) return 'no fixed slots'
-  return schedule
+/** `[id] Title — <series label>` lines for standalone (activityId: null) series, capped for token budget. */
+function standaloneSeriesLines(seriesList: readonly SeriesRowDb[]): string {
+  const standalone = seriesList.filter((series) => series.activityId === null)
+  return standalone
+    .slice(0, MAX_STANDALONE_SERIES_LINES)
     .map(
-      (slot) =>
-        `${WEEKDAY_NAMES[slot.day]} ${minutesToHhmm(slot.startMinutes)} (${slot.durationMin}m)`,
+      (series) =>
+        `  [${series.id}] ${series.title} — ${formatSeriesLabel(series, SERIES_LABEL_USE_24H)}`,
     )
-    .join(', ')
+    .join('\n')
 }
 
 /**
@@ -38,10 +44,11 @@ export async function buildContextBlock(timezone: string, now: Date = new Date()
   const session = await auth()
   const userId = session?.user?.id ?? ''
 
-  const [activities, events, balance] = await Promise.all([
+  const [activities, events, balance, seriesList] = await Promise.all([
     getUserActivities(),
     getUserEvents(),
     getTokenBalance(userId),
+    getSeriesForUser(userId),
   ])
 
   const dateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: timezone })
@@ -71,7 +78,7 @@ export async function buildContextBlock(timezone: string, now: Date = new Date()
   const activityLines = activities
     .map((activity) => {
       const fit = computeWeeklyFit(activity, events, now)
-      return `  [${activity.id}] ${activity.title} — ${activity.minDurationMin}-${activity.maxDurationMin}m · target ${activity.weeklyTargetSessions}/wk · this week ${fit.completed}/${fit.target} · ${scheduleSummary(activity.schedule)}`
+      return `  [${activity.id}] ${activity.title} — ${activity.minDurationMin}-${activity.maxDurationMin}m · target ${activity.weeklyTargetSessions}/wk · this week ${fit.completed}/${fit.target} · ${activitySeriesSummary(activity.id, seriesList)}`
     })
     .join('\n')
 
@@ -91,6 +98,8 @@ export async function buildContextBlock(timezone: string, now: Date = new Date()
     })
     .join('\n')
 
+  const seriesLines = standaloneSeriesLines(seriesList)
+
   return `--- Current Context ---
 Date: ${todayStr}
 Week: ${weekRange}
@@ -102,5 +111,8 @@ ${activityLines || '  (none)'}
 
 This week's events:
 ${eventLines || '  (none)'}
+
+Repeating series (standalone, not linked to an activity):
+${seriesLines || '  (none)'}
 --- End Context ---`
 }

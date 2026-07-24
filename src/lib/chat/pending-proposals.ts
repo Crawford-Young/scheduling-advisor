@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { dayOfWeekSchema, recurrenceFrequencySchema } from '@/lib/chat/proposal-occurrences'
+import { dayOfWeekSchema, recurrenceFrequencySchema } from '@/lib/chat/weekdays'
 import type { EventProposal } from '@/components/chat/tool-result-renderer'
 
 // One-shot sessionStorage handoff for pending event proposals across the chat
