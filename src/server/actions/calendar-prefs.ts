@@ -39,6 +39,9 @@ export async function setCalendarWindow(input: unknown) {
       ...(parsed.data.dayOverrides !== undefined && { dayOverrides: parsed.data.dayOverrides }),
       ...(parsed.data.use24h !== undefined && { use24h: parsed.data.use24h }),
       ...(parsed.data.ttlDays !== undefined && { ttlDays: parsed.data.ttlDays }),
+      ...(parsed.data.defaultVisibility !== undefined && {
+        defaultVisibility: parsed.data.defaultVisibility,
+      }),
     })
     .onConflictDoUpdate({
       target: calendarPrefs.userId,
@@ -48,6 +51,9 @@ export async function setCalendarWindow(input: unknown) {
         ...(parsed.data.dayOverrides !== undefined && { dayOverrides: parsed.data.dayOverrides }),
         ...(parsed.data.use24h !== undefined && { use24h: parsed.data.use24h }),
         ...(parsed.data.ttlDays !== undefined && { ttlDays: parsed.data.ttlDays }),
+        ...(parsed.data.defaultVisibility !== undefined && {
+          defaultVisibility: parsed.data.defaultVisibility,
+        }),
         updatedAt: new Date(),
       },
     })

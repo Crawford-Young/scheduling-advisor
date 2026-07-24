@@ -114,6 +114,24 @@ describe('updateWakeSleepSchema (minutes-since-midnight)', () => {
     })
     expect(result.success).toBe(false)
   })
+
+  it('accepts a payload with defaultVisibility', () => {
+    const result = updateWakeSleepSchema.safeParse({
+      workingHoursStart: 540,
+      workingHoursEnd: 1020,
+      defaultVisibility: 'busy',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects an invalid defaultVisibility value', () => {
+    const result = updateWakeSleepSchema.safeParse({
+      workingHoursStart: 540,
+      workingHoursEnd: 1020,
+      defaultVisibility: 'friends',
+    })
+    expect(result.success).toBe(false)
+  })
 })
 
 describe('updateCalendarPrefsSchema (minutes-since-midnight)', () => {

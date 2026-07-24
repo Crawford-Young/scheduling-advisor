@@ -38,6 +38,7 @@ export default async function SettingsPage() {
           initialUse24h={prefs?.use24h ?? false}
           initialDayOverrides={prefs?.dayOverrides ?? {}}
           initialTtlDays={prefs?.ttlDays ?? null}
+          initialDefaultVisibility={prefs?.defaultVisibility ?? 'private'}
         />
       </StaggerReveal>
     </ViewTransition>
