@@ -90,6 +90,7 @@ function toOneOffRow(event: EventRowDb): OneOffEventRow {
     location: event.location,
     description: event.description,
     status: event.status,
+    visibility: event.visibility,
   }
 }
 
@@ -100,6 +101,7 @@ function toSeriesActionsRow(series: SeriesRowDb): SeriesActionsRow {
     description: series.description,
     location: series.location,
     color: series.color,
+    visibility: series.visibility,
     // DB `freq` is a plain string but zod-validated at write time; the dialog
     // contract narrows it to the 4-value literal union.
     freq: series.freq as SeriesActionsRow['freq'],

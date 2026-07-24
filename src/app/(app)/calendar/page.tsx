@@ -68,6 +68,7 @@ export default async function CalendarPage({
       status: e.status,
       locked: e.locked,
       activityId: e.activityId ?? null,
+      visibility: e.visibility,
     }))
 
   // Full activity templates threaded to CalendarClient: they feed both the
@@ -95,6 +96,7 @@ export default async function CalendarPage({
           sleepHour={sleepHour}
           dayWindows={dayWindows}
           use24h={prefs?.use24h ?? false}
+          defaultVisibility={prefs?.defaultVisibility ?? 'private'}
         />
       </div>
     </ViewTransition>

@@ -76,6 +76,7 @@ interface MockEventValues {
   readonly color?: string | null
   readonly location?: string | null
   readonly description?: string | null
+  readonly visibility?: string
   readonly recurrence?: MockRecurrence | null
 }
 
@@ -105,6 +106,7 @@ const EVENT_SUBMIT: MockEventValues = {
   color: 'blue',
   location: 'Office',
   description: 'notes',
+  visibility: 'public',
 }
 
 // Minimal edit (all optional fields omitted) → exercises the ?? null fallbacks.
@@ -119,6 +121,7 @@ const SERIES_SUBMIT_WEEKLY: MockEventValues = {
   color: 'blue',
   location: 'Home',
   description: 'daily notes',
+  visibility: 'busy',
   recurrence: { freq: 'weekly', weekdays: [1, 3, 5], until: '2026-12-31' },
 }
 
@@ -243,6 +246,7 @@ vi.mock('@/components/forms/event-form-dialog', () => ({
         <span data-testid="evt-color">{initialValues?.color ?? ''}</span>
         <span data-testid="evt-location">{initialValues?.location ?? ''}</span>
         <span data-testid="evt-description">{initialValues?.description ?? ''}</span>
+        <span data-testid="evt-visibility">{initialValues?.visibility ?? ''}</span>
         <span data-testid="evt-use24h">{String(use24h ?? '')}</span>
         <span data-testid="evt-mode">{mode ?? ''}</span>
         <span data-testid="evt-show-recurrence">{String(showRecurrence ?? 'default')}</span>
@@ -304,6 +308,7 @@ function makeEvent(over: Partial<EventActionsRow> = {}): EventActionsRow {
     location: 'Clinic',
     description: 'checkup',
     status: 'pending',
+    visibility: 'private',
     ...over,
   }
 }
@@ -364,6 +369,7 @@ function makeSeries(over: Partial<SeriesActionsRow> = {}): SeriesActionsRow {
     description: 'daily notes',
     location: 'Home',
     color: 'blue',
+    visibility: 'private',
     freq: 'weekly',
     weekdays: [1, 3, 5],
     dayOfMonth: null,
@@ -559,6 +565,7 @@ describe('useEventActions (one-off events)', () => {
     expect(screen.getByTestId('evt-start')).toHaveTextContent('2026-07-02T09:00:00.000Z')
     expect(screen.getByTestId('evt-end')).toHaveTextContent('2026-07-02T10:00:00.000Z')
     expect(screen.getByTestId('evt-location')).toHaveTextContent('Clinic')
+    expect(screen.getByTestId('evt-visibility')).toHaveTextContent('private')
     expect(screen.getByTestId('evt-use24h')).toHaveTextContent('true')
     expect(screen.getByTestId('evt-mode')).toHaveTextContent('edit')
     // One-off event edit site: submit path (updateEvent) discards recurrence.
@@ -610,6 +617,7 @@ describe('useEventActions (one-off events)', () => {
         endAt: '2026-07-02T10:30:00.000Z',
         allDay: false,
         color: 'blue',
+        visibility: 'public',
         location: 'Office',
         description: 'notes',
       }),
@@ -721,6 +729,7 @@ describe('useSeriesActions', () => {
     expect(screen.getByTestId('evt-color')).toHaveTextContent('blue')
     expect(screen.getByTestId('evt-location')).toHaveTextContent('Home')
     expect(screen.getByTestId('evt-description')).toHaveTextContent('daily notes')
+    expect(screen.getByTestId('evt-visibility')).toHaveTextContent('private')
     expect(screen.getByTestId('evt-use24h')).toHaveTextContent('true')
     expect(screen.getByTestId('evt-recur-freq')).toHaveTextContent('weekly')
     expect(screen.getByTestId('evt-recur-weekdays')).toHaveTextContent('1,3,5')
@@ -860,6 +869,7 @@ describe('useSeriesActions', () => {
       description: 'daily notes',
       location: 'Home',
       color: 'blue',
+      visibility: 'busy',
       freq: 'weekly',
       weekdays: [1, 3, 5],
       startMinutes: 540, // 9:00 AM local

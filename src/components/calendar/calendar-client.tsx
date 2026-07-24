@@ -33,6 +33,7 @@ import {
 import { createEvent, updateEvent, deleteEvent } from '@/server/actions/events'
 import { createActivity, updateActivity } from '@/server/actions/activities'
 import { createSeries } from '@/server/actions/series'
+import type { Visibility } from '@/lib/schemas/visibility'
 
 const ONE_HOUR_MS = 60 * 60 * 1000
 const MINUTES_PER_HOUR = 60
@@ -80,6 +81,8 @@ interface AppCalendarEvent {
    * event. Non-null drives the chip popover's "Edit activity" action.
    */
   readonly activityId: string | null
+  /** Who can see this event when it surfaces on someone else's profile view. */
+  readonly visibility: Visibility
 }
 
 /**
@@ -129,8 +132,10 @@ function toLibraryEvent(e: AppCalendarEvent): LibraryCalendarEvent {
 }
 
 // Seeds the app-owned EventFormDialog from the library event the popover's Edit
-// action delivered (start/end are already real UTC instants).
-function toEventFormValues(e: LibraryCalendarEvent): EventFormValues {
+// action delivered (start/end are already real UTC instants). `visibility` is
+// NOT part of the library's CalendarEvent contract, so the caller looks it up
+// from the app's own persisted `events` state and passes it in here.
+function toEventFormValues(e: LibraryCalendarEvent, visibility?: Visibility): EventFormValues {
   return {
     title: e.title,
     startAt: e.start,
@@ -139,6 +144,7 @@ function toEventFormValues(e: LibraryCalendarEvent): EventFormValues {
     color: e.color ?? null,
     location: e.location ?? null,
     description: e.description ?? null,
+    visibility,
   }
 }
 
@@ -154,6 +160,7 @@ interface SeriesSubmitInput {
   readonly description: string | null
   readonly location: string | null
   readonly color: string | null
+  readonly visibility?: Visibility
   readonly activityId: null
   readonly freq: EventFormRecurrence['freq']
   readonly weekdays?: readonly number[]
@@ -201,6 +208,7 @@ function toSeriesSubmitInput(values: EventFormValues): SeriesSubmitInput {
     description: values.description ?? null,
     location: values.location ?? null,
     color: values.color ?? null,
+    visibility: values.visibility,
     activityId: null,
     freq: recurrence.freq,
     weekdays: recurrence.weekdays,
@@ -232,6 +240,8 @@ interface CalendarClientProps {
   readonly dayWindows: readonly DayWindow[]
   /** Render event times as 24-hour instead of 12-hour with AM/PM. */
   readonly use24h: boolean
+  /** Account default (`calendarPrefs.defaultVisibility`) — seeds the "New event" dialog's Visibility select. */
+  readonly defaultVisibility: Visibility
 }
 
 export function CalendarClient({
@@ -242,6 +252,7 @@ export function CalendarClient({
   sleepHour,
   dayWindows,
   use24h,
+  defaultVisibility,
 }: CalendarClientProps): React.JSX.Element {
   const [showFullDay, setShowFullDay] = useState(false)
   const hourStart = showFullDay ? 0 : wakeHour
@@ -334,6 +345,7 @@ export function CalendarClient({
         endAt: values.endAt ?? null,
         allDay: values.allDay ?? false,
         color: values.color ?? null,
+        visibility: values.visibility,
         location: values.location ?? null,
         description: values.description ?? null,
       })
@@ -485,6 +497,7 @@ export function CalendarClient({
         endAt: values.endAt ?? null,
         allDay: values.allDay ?? false,
         color: values.color ?? null,
+        visibility: values.visibility,
         location: values.location ?? null,
         description: values.description ?? null,
         activityId: null,
@@ -616,11 +629,15 @@ export function CalendarClient({
           open
           mode="edit"
           onOpenChange={handleEditOpenChange}
-          initialValues={toEventFormValues(editTarget)}
+          initialValues={toEventFormValues(
+            editTarget,
+            events.find((e) => e.id === editTarget.id)?.visibility,
+          )}
           onSubmit={(values) => handleEditSubmit(editTarget, values)}
           isPending={isPending}
           use24h={use24h}
           showRecurrence={false}
+          defaultVisibility={defaultVisibility}
         />
       )}
 
@@ -647,6 +664,7 @@ export function CalendarClient({
           onSubmit={handleNewEventSubmit}
           isPending={isPending}
           use24h={use24h}
+          defaultVisibility={defaultVisibility}
         />
       )}
 

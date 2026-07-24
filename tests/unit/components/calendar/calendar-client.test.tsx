@@ -77,6 +77,7 @@ const events = [
     description: 'cardio',
     status: 'pending' as const,
     activityId: 'act-1',
+    visibility: 'public' as const,
   },
   {
     id: 'e2',
@@ -86,6 +87,7 @@ const events = [
     color: 'violet',
     status: 'completed' as const,
     activityId: null,
+    visibility: 'private' as const,
   },
   {
     id: 'e3',
@@ -95,6 +97,7 @@ const events = [
     status: 'pending' as const,
     locked: true,
     activityId: null,
+    visibility: 'busy' as const,
   },
 ]
 
@@ -123,6 +126,7 @@ function renderClient(use24h = false): void {
       sleepHour={17}
       dayWindows={DAY_WINDOWS}
       use24h={use24h}
+      defaultVisibility="private"
     />,
   )
 }
@@ -161,6 +165,7 @@ describe('CalendarClient (unit tree)', () => {
         sleepHour={17}
         dayWindows={DAY_WINDOWS}
         use24h={false}
+        defaultVisibility="private"
       />,
     )
     expect(await axe(container)).toHaveNoViolations()
