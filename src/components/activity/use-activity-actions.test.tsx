@@ -38,7 +38,6 @@ interface MockTemplateValues {
   readonly minDurationMin: number
   readonly maxDurationMin: number
   readonly weeklyTargetSessions: number
-  readonly schedule: ReadonlyArray<{ day: number; startMinutes: number; durationMin: number }>
 }
 
 interface MockEventValues {
@@ -59,7 +58,6 @@ const TEMPLATE_SUBMIT: MockTemplateValues = {
   minDurationMin: 25,
   maxDurationMin: 55,
   weeklyTargetSessions: 4,
-  schedule: [{ day: 2, startMinutes: 400, durationMin: 50 }],
 }
 
 // Optional fields omitted → exercises the ?? null fallbacks in updateActivity.
@@ -68,7 +66,6 @@ const TEMPLATE_SUBMIT_MIN: MockTemplateValues = {
   minDurationMin: 20,
   maxDurationMin: 40,
   weeklyTargetSessions: 2,
-  schedule: [],
 }
 
 const EVENT_SUBMIT: MockEventValues = {
@@ -134,7 +131,6 @@ vi.mock('@/components/forms/activity-template-dialog', () => ({
         <span data-testid="tpl-min">{String(initialValues?.minDurationMin ?? '')}</span>
         <span data-testid="tpl-max">{String(initialValues?.maxDurationMin ?? '')}</span>
         <span data-testid="tpl-weekly">{String(initialValues?.weeklyTargetSessions ?? '')}</span>
-        <span data-testid="tpl-schedule-len">{String(initialValues?.schedule?.length ?? '')}</span>
         <span data-testid="tpl-use24h">{String(use24h ?? '')}</span>
         <button type="button" onClick={() => onSubmit(TEMPLATE_SUBMIT)}>
           template-save
@@ -194,8 +190,6 @@ vi.mock('@/components/forms/event-form-dialog', () => ({
     ) : null
   },
 }))
-
-const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 function makeActivity(over: Partial<ActivityActionsRow> = {}): ActivityActionsRow {
   return {
@@ -289,7 +283,6 @@ describe('useActivityActions (activity templates)', () => {
     expect(screen.getByTestId('tpl-min')).toHaveTextContent('30')
     expect(screen.getByTestId('tpl-max')).toHaveTextContent('60')
     expect(screen.getByTestId('tpl-weekly')).toHaveTextContent('3')
-    expect(screen.getByTestId('tpl-schedule-len')).toHaveTextContent('1')
     expect(screen.getByTestId('tpl-use24h')).toHaveTextContent('true')
   })
 
@@ -299,7 +292,7 @@ describe('useActivityActions (activity templates)', () => {
     expect(screen.getByTestId('tpl-title')).toHaveTextContent('Running')
   })
 
-  it('saves an edit via updateActivity with the mapped payload and browser time zone', async () => {
+  it('saves an edit via updateActivity with the mapped metadata-only payload (no schedule/timeZone)', async () => {
     const user = userEvent.setup()
     render(<ActivityHarness activity={makeActivity()} />)
     await user.click(screen.getByRole('button', { name: 'edit-activity' }))
@@ -315,10 +308,11 @@ describe('useActivityActions (activity templates)', () => {
         minDurationMin: 25,
         maxDurationMin: 55,
         weeklyTargetSessions: 4,
-        schedule: [{ day: 2, startMinutes: 400, durationMin: 50 }],
-        timeZone: BROWSER_TZ,
       }),
     )
+    const payload = updateActivityMock.mock.calls[0]![0] as Record<string, unknown>
+    expect(payload).not.toHaveProperty('schedule')
+    expect(payload).not.toHaveProperty('timeZone')
     expect(refreshMock).toHaveBeenCalled()
     expect(screen.queryByRole('dialog', { name: 'activity-template' })).not.toBeInTheDocument()
   })
@@ -337,7 +331,6 @@ describe('useActivityActions (activity templates)', () => {
           color: null,
           description: null,
           defaultLocation: null,
-          schedule: [],
         }),
       ),
     )

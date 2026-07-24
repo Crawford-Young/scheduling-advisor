@@ -1,8 +1,17 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventFormDialog } from './event-form-dialog'
 import type { EventFormDialogProps, EventFormValues } from './event-form-dialog'
+
+// Radix Select relies on pointer-capture + scrollIntoView DOM APIs happy-dom
+// does not implement; stub them so the Repeat select can be driven in tests.
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = vi.fn(() => false)
+  Element.prototype.setPointerCapture = vi.fn()
+  Element.prototype.releasePointerCapture = vi.fn()
+  Element.prototype.scrollIntoView = vi.fn()
+})
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -13,6 +22,17 @@ function makeProps(overrides: Partial<EventFormDialogProps> = {}): EventFormDial
     onSubmit: vi.fn(),
     ...overrides,
   }
+}
+
+/** Opens a Radix Select combobox and clicks the option with the given text. */
+async function selectComboboxOption(
+  user: ReturnType<typeof userEvent.setup>,
+  comboboxName: string,
+  optionText: string,
+): Promise<void> {
+  await user.click(screen.getByRole('combobox', { name: comboboxName }))
+  const listbox = await screen.findByRole('listbox')
+  await user.click(within(listbox).getByText(optionText))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -87,16 +107,6 @@ describe('surfaces that no longer exist', () => {
   it('renders no social section', () => {
     render(<EventFormDialog {...makeProps()} />)
     expect(screen.queryByText(/social/i)).not.toBeInTheDocument()
-  })
-
-  it('renders no recurrence controls', () => {
-    render(<EventFormDialog {...makeProps()} />)
-    const recurrenceTrigger = screen
-      .queryAllByRole('combobox')
-      .find((c) => c.getAttribute('aria-label') === 'Recurrence')
-    expect(recurrenceTrigger).toBeUndefined()
-    expect(screen.queryByRole('group', { name: 'Recurrence days' })).not.toBeInTheDocument()
-    expect(screen.queryByLabelText(/repeat count/i)).not.toBeInTheDocument()
   })
 })
 
@@ -476,6 +486,305 @@ describe('initialValues hydration', () => {
       'aria-pressed',
       'true',
     )
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Repeat (recurrence)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('repeat / recurrence', () => {
+  // Anchor pinned to UTC so getDate/getDay/getMonth are deterministic across
+  // hosts. 2025-06-18 (UTC) is a Wednesday (getDay 3), the 3rd Wednesday of the
+  // month (dayOfMonth 18), in June (month 6).
+  const START_AT = '2025-06-18T14:00:00.000Z'
+  const END_AT = '2025-06-18T15:00:00.000Z'
+  const ANCHOR_WEEKDAY = 3 // Wednesday
+  const ANCHOR_DAY_OF_MONTH = 18
+  const ANCHOR_MONTH = 6
+
+  const ORIGINAL_TZ = process.env['TZ']
+
+  beforeEach(() => {
+    process.env['TZ'] = 'UTC'
+  })
+
+  afterEach(() => {
+    if (ORIGINAL_TZ === undefined) {
+      delete process.env['TZ']
+    } else {
+      process.env['TZ'] = ORIGINAL_TZ
+    }
+  })
+
+  function timedProps(overrides: Partial<EventFormDialogProps> = {}): EventFormDialogProps {
+    return makeProps({
+      initialValues: { title: 'Standup', startAt: START_AT, endAt: END_AT },
+      ...overrides,
+    })
+  }
+
+  async function saveAndReadPayload(
+    onSubmit: ReturnType<typeof vi.fn>,
+    call = 0,
+  ): Promise<EventFormValues> {
+    await userEvent.setup().click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(call + 1))
+    return onSubmit.mock.calls[call]![0] as EventFormValues
+  }
+
+  it('renders the Repeat select defaulting to "Does not repeat"', () => {
+    render(<EventFormDialog {...timedProps()} />)
+    expect(screen.getByRole('combobox', { name: 'Repeat' })).toHaveTextContent(/does not repeat/i)
+  })
+
+  it('omits the recurrence key from the payload when freq stays none', async () => {
+    const onSubmit = vi.fn()
+    render(<EventFormDialog {...timedProps({ onSubmit })} />)
+    const payload = await saveAndReadPayload(onSubmit)
+    expect('recurrence' in payload).toBe(false)
+  })
+
+  it('emits daily recurrence (no extra fields) when selected via the Repeat control', async () => {
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(<EventFormDialog {...timedProps({ onSubmit })} />)
+    await selectComboboxOption(user, 'Repeat', 'Daily')
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    const payload = onSubmit.mock.calls[0]![0] as EventFormValues
+    expect(payload.recurrence).toEqual({ freq: 'daily' })
+  })
+
+  it('weekly via the Repeat control defaults the weekday to the anchor date', async () => {
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(<EventFormDialog {...timedProps({ onSubmit })} />)
+    await selectComboboxOption(user, 'Repeat', 'Weekly')
+    expect(
+      within(screen.getByRole('group', { name: 'Repeat days' })).getByRole('button', {
+        name: 'Wednesday',
+      }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    const payload = onSubmit.mock.calls[0]![0] as EventFormValues
+    expect(payload.recurrence).toEqual({ freq: 'weekly', weekdays: [ANCHOR_WEEKDAY] })
+  })
+
+  it('lets the user override the nth ordinal and weekday selects', async () => {
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(<EventFormDialog {...timedProps({ onSubmit })} />)
+    await selectComboboxOption(user, 'Repeat', 'Monthly')
+    await selectComboboxOption(user, 'Monthly mode', 'On the Nth weekday')
+    // Anchor defaults are 3rd (ordinal) / Wednesday (weekday); pick different
+    // values so Radix fires onValueChange for both selects.
+    await selectComboboxOption(user, 'Ordinal', 'Second')
+    await selectComboboxOption(user, 'Weekday', 'Friday')
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    const payload = onSubmit.mock.calls[0]![0] as EventFormValues
+    expect(payload.recurrence).toEqual({ freq: 'monthly', nthOrdinal: 2, nthWeekday: 5 })
+  })
+
+  it('seeds weekly weekdays from initialValues and toggles day buttons into the payload', async () => {
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <EventFormDialog
+        {...timedProps({
+          onSubmit,
+          initialValues: {
+            title: 'X',
+            startAt: START_AT,
+            endAt: END_AT,
+            recurrence: { freq: 'weekly', weekdays: [ANCHOR_WEEKDAY] },
+          },
+        })}
+      />,
+    )
+    const group = screen.getByRole('group', { name: 'Repeat days' })
+    expect(within(group).getByRole('button', { name: 'Wednesday' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    // Add Monday (1) → payload weekdays sorted [1, 3].
+    await user.click(within(group).getByRole('button', { name: 'Monday' }))
+    const payload = await saveAndReadPayload(onSubmit)
+    expect(payload.recurrence).toEqual({ freq: 'weekly', weekdays: [1, ANCHOR_WEEKDAY] })
+  })
+
+  it('disables Save when weekly has zero selected weekdays', async () => {
+    const user = userEvent.setup()
+    render(
+      <EventFormDialog
+        {...timedProps({
+          initialValues: {
+            title: 'X',
+            startAt: START_AT,
+            endAt: END_AT,
+            recurrence: { freq: 'weekly', weekdays: [ANCHOR_WEEKDAY] },
+          },
+        })}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Wednesday' }))
+    expect(screen.getByRole('button', { name: /save/i })).toBeDisabled()
+  })
+
+  it('emits monthly day-mode dayOfMonth derived from the anchor date', async () => {
+    const onSubmit = vi.fn()
+    render(
+      <EventFormDialog
+        {...timedProps({
+          onSubmit,
+          initialValues: {
+            title: 'X',
+            startAt: START_AT,
+            endAt: END_AT,
+            recurrence: { freq: 'monthly', dayOfMonth: ANCHOR_DAY_OF_MONTH },
+          },
+        })}
+      />,
+    )
+    const payload = await saveAndReadPayload(onSubmit)
+    expect(payload.recurrence).toEqual({ freq: 'monthly', dayOfMonth: ANCHOR_DAY_OF_MONTH })
+  })
+
+  it('emits monthly nth-weekday mode from seeded ordinal + weekday', async () => {
+    const onSubmit = vi.fn()
+    render(
+      <EventFormDialog
+        {...timedProps({
+          onSubmit,
+          initialValues: {
+            title: 'X',
+            startAt: START_AT,
+            endAt: END_AT,
+            recurrence: { freq: 'monthly', nthOrdinal: 2, nthWeekday: 4 },
+          },
+        })}
+      />,
+    )
+    const payload = await saveAndReadPayload(onSubmit)
+    expect(payload.recurrence).toEqual({ freq: 'monthly', nthOrdinal: 2, nthWeekday: 4 })
+  })
+
+  it('emits yearly month + dayOfMonth derived from the anchor date', async () => {
+    const onSubmit = vi.fn()
+    render(
+      <EventFormDialog
+        {...timedProps({
+          onSubmit,
+          initialValues: {
+            title: 'X',
+            startAt: START_AT,
+            endAt: END_AT,
+            recurrence: { freq: 'yearly', month: ANCHOR_MONTH, dayOfMonth: ANCHOR_DAY_OF_MONTH },
+          },
+        })}
+      />,
+    )
+    const payload = await saveAndReadPayload(onSubmit)
+    expect(payload.recurrence).toEqual({
+      freq: 'yearly',
+      month: ANCHOR_MONTH,
+      dayOfMonth: ANCHOR_DAY_OF_MONTH,
+    })
+  })
+
+  it('defaults the nth ordinal to "Last" for a 5th-occurrence anchor', async () => {
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    // 2025-06-29 (UTC) is the 5th Sunday → ordinal caps to -1 ("Last").
+    render(
+      <EventFormDialog
+        {...timedProps({
+          onSubmit,
+          initialValues: {
+            title: 'X',
+            startAt: '2025-06-29T14:00:00.000Z',
+            endAt: '2025-06-29T15:00:00.000Z',
+          },
+        })}
+      />,
+    )
+    await selectComboboxOption(user, 'Repeat', 'Monthly')
+    await selectComboboxOption(user, 'Monthly mode', 'On the Nth weekday')
+    expect(screen.getByRole('combobox', { name: 'Ordinal' })).toHaveTextContent(/last/i)
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    const payload = onSubmit.mock.calls[0]![0] as EventFormValues
+    expect(payload.recurrence).toEqual({ freq: 'monthly', nthOrdinal: -1, nthWeekday: 0 })
+  })
+
+  it('composes all-day with recurrence — emits real day-boundary instants and the rule', async () => {
+    const onSubmit = vi.fn()
+    render(
+      <EventFormDialog
+        {...timedProps({
+          onSubmit,
+          initialValues: {
+            title: 'Holiday',
+            allDay: true,
+            startAt: START_AT,
+            endAt: END_AT,
+            recurrence: { freq: 'daily' },
+          },
+        })}
+      />,
+    )
+    const payload = await saveAndReadPayload(onSubmit)
+    expect(payload.allDay).toBe(true)
+    expect(payload.startAt).toBe('2025-06-18T00:00:00.000Z')
+    expect(payload.endAt).toBe('2025-06-18T23:59:00.000Z')
+    expect(payload.recurrence).toEqual({ freq: 'daily' })
+  })
+
+  it('carries the "Ends on" until date (YYYY-MM-DD) into the payload', async () => {
+    const onSubmit = vi.fn()
+    render(
+      <EventFormDialog
+        {...timedProps({
+          onSubmit,
+          initialValues: {
+            title: 'X',
+            startAt: START_AT,
+            endAt: END_AT,
+            recurrence: { freq: 'daily', until: '2025-12-31' },
+          },
+        })}
+      />,
+    )
+    const payload = await saveAndReadPayload(onSubmit)
+    expect(payload.recurrence).toEqual({ freq: 'daily', until: '2025-12-31' })
+  })
+
+  it('resets the previous freq’s rule fields when the frequency is switched', async () => {
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    // Seeded weekly with two weekdays; switching to Daily must drop weekdays.
+    render(
+      <EventFormDialog
+        {...timedProps({
+          onSubmit,
+          initialValues: {
+            title: 'X',
+            startAt: START_AT,
+            endAt: END_AT,
+            recurrence: { freq: 'weekly', weekdays: [1, ANCHOR_WEEKDAY] },
+          },
+        })}
+      />,
+    )
+    expect(screen.getByRole('group', { name: 'Repeat days' })).toBeInTheDocument()
+    await selectComboboxOption(user, 'Repeat', 'Daily')
+    expect(screen.queryByRole('group', { name: 'Repeat days' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    const payload = onSubmit.mock.calls[0]![0] as EventFormValues
+    expect(payload.recurrence).toEqual({ freq: 'daily' })
   })
 })
 

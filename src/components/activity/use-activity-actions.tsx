@@ -16,9 +16,9 @@ import {
 import { EventFormDialog, type EventFormValues } from '@/components/forms/event-form-dialog'
 import {
   ActivityTemplateDialog,
-  type ActivityScheduleSlot,
   type ActivityTemplateValues,
 } from '@/components/forms/activity-template-dialog'
+import type { ActivityScheduleSlot } from '@/lib/schemas/activity'
 import { updateActivity, deleteActivity } from '@/server/actions/activities'
 import { updateEvent, deleteEvent } from '@/server/actions/events'
 
@@ -117,8 +117,7 @@ export function useActivityActions({
         minDurationMin: values.minDurationMin,
         maxDurationMin: values.maxDurationMin,
         weeklyTargetSessions: values.weeklyTargetSessions,
-        schedule: values.schedule,
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        // Metadata-only (A5): no schedule/timeZone stamp.
       })
       if ('error' in result) {
         toast.error('Could not save activity')
@@ -160,7 +159,6 @@ export function useActivityActions({
             minDurationMin: activity.minDurationMin,
             maxDurationMin: activity.maxDurationMin,
             weeklyTargetSessions: activity.weeklyTargetSessions,
-            schedule: activity.schedule,
           }}
         />
       )}

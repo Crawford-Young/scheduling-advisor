@@ -70,6 +70,16 @@ describe('createActivitySchema', () => {
     expect(r.success).toBe(true)
   })
 
+  it('accepts a metadata-only payload with no schedule field (A5 optional-and-ignored)', () => {
+    const r = createActivitySchema.safeParse({
+      title: 'Gym',
+      minDurationMin: 30,
+      maxDurationMin: 60,
+      weeklyTargetSessions: 3,
+    })
+    expect(r.success).toBe(true)
+  })
+
   it('rejects when minDurationMin > maxDurationMin', () => {
     const r = createActivitySchema.safeParse({
       ...baseValid,

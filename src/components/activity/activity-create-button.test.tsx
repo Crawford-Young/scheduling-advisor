@@ -24,7 +24,6 @@ interface MockTemplateValues {
   readonly minDurationMin: number
   readonly maxDurationMin: number
   readonly weeklyTargetSessions: number
-  readonly schedule: ReadonlyArray<{ day: number; startMinutes: number; durationMin: number }>
 }
 
 const FULL_TEMPLATE: MockTemplateValues = {
@@ -35,7 +34,6 @@ const FULL_TEMPLATE: MockTemplateValues = {
   minDurationMin: 30,
   maxDurationMin: 60,
   weeklyTargetSessions: 3,
-  schedule: [{ day: 1, startMinutes: 420, durationMin: 45 }],
 }
 
 // Optional fields omitted → exercises the ?? null fallbacks.
@@ -44,7 +42,6 @@ const MIN_TEMPLATE: MockTemplateValues = {
   minDurationMin: 20,
   maxDurationMin: 40,
   weeklyTargetSessions: 2,
-  schedule: [],
 }
 
 vi.mock('@/lib/ui', () => ({
@@ -88,8 +85,6 @@ vi.mock('@/components/forms/activity-template-dialog', () => ({
   },
 }))
 
-const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone
-
 describe('ActivityCreateButton', () => {
   beforeEach(() => {
     refreshMock.mockClear()
@@ -113,7 +108,7 @@ describe('ActivityCreateButton', () => {
     expect(screen.getByTestId('dialog-use24h')).toHaveTextContent('true')
   })
 
-  it('creates an activity with the mapped payload and browser time zone', async () => {
+  it('creates an activity with the mapped metadata-only payload (no schedule/timeZone stamp)', async () => {
     const user = userEvent.setup()
     render(<ActivityCreateButton />)
     await user.click(screen.getByRole('button', { name: /new/i }))
@@ -128,10 +123,11 @@ describe('ActivityCreateButton', () => {
         minDurationMin: 30,
         maxDurationMin: 60,
         weeklyTargetSessions: 3,
-        schedule: [{ day: 1, startMinutes: 420, durationMin: 45 }],
-        timeZone: BROWSER_TZ,
       }),
     )
+    const payload = createActivityMock.mock.calls[0]![0] as Record<string, unknown>
+    expect(payload).not.toHaveProperty('schedule')
+    expect(payload).not.toHaveProperty('timeZone')
     expect(refreshMock).toHaveBeenCalled()
     expect(screen.queryByRole('dialog', { name: 'activity-template' })).not.toBeInTheDocument()
   })
@@ -149,7 +145,6 @@ describe('ActivityCreateButton', () => {
           color: null,
           description: null,
           defaultLocation: null,
-          schedule: [],
         }),
       ),
     )

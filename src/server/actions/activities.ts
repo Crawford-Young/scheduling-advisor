@@ -2,7 +2,7 @@
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/auth'
 import { db } from '@/db'
-import { activities, events } from '@/db/schema'
+import { activities, events, eventSeries } from '@/db/schema'
 import { and, eq, gt } from 'drizzle-orm'
 import { ratelimit } from '@/lib/redis'
 import { logger } from '@/lib/logger'
@@ -41,8 +41,9 @@ export async function createActivity(input: unknown): Promise<ActivityActionResu
       minDurationMin: data.minDurationMin,
       maxDurationMin: data.maxDurationMin,
       weeklyTargetSessions: data.weeklyTargetSessions,
-      schedule: data.schedule,
-      timeZone: data.timeZone ?? null,
+      // schedule/timeZone are optional-and-ignored (A5): activities are
+      // metadata-only templates now. schedule falls to the column default `[]`
+      // and timeZone to null; neither is written from input.
     })
     .returning()
 
@@ -94,8 +95,7 @@ export async function updateActivity(input: unknown): Promise<ActivityActionResu
       fields.weeklyTargetSessions !== undefined
         ? fields.weeklyTargetSessions
         : current.weeklyTargetSessions,
-    schedule: fields.schedule !== undefined ? fields.schedule : current.schedule,
-    timeZone: fields.timeZone !== undefined ? fields.timeZone : (current.timeZone ?? undefined),
+    // schedule/timeZone are optional-and-ignored (A5) — never merged or written.
   }
 
   const revalidated = createActivitySchema.safeParse(merged)
@@ -112,8 +112,6 @@ export async function updateActivity(input: unknown): Promise<ActivityActionResu
       minDurationMin: merged.minDurationMin,
       maxDurationMin: merged.maxDurationMin,
       weeklyTargetSessions: merged.weeklyTargetSessions,
-      schedule: merged.schedule,
-      timeZone: merged.timeZone ?? null,
       updatedAt: now,
     })
     .where(and(eq(activities.id, id), eq(activities.userId, userId)))
@@ -143,9 +141,18 @@ export async function deleteActivity(input: unknown): Promise<DeleteActivityResu
 
   // Sequential deletes (no db.transaction — the neon-http driver used here
   // does not support transactions; mirrors deleteSeries's sequential-delete
-  // shape, src/server/actions/series-mutations.ts). Only future pending
-  // children are removed; past/completed events and the FK's SET NULL orphan
-  // the rest — an original event outlives its template.
+  // shape, src/server/actions/series.ts).
+  //
+  // First: the activity's child recurrence rules. A series's rule dies with its
+  // activity — the FK is SET NULL, so without this the orphaned rules would keep
+  // generating events. Scoped by BOTH activityId and userId (the eventSeries
+  // delete is a client-callable path via this 'use server' export).
+  await db
+    .delete(eventSeries)
+    .where(and(eq(eventSeries.activityId, id), eq(eventSeries.userId, userId)))
+
+  // Then: only future pending children. Past/completed events and the events
+  // FK's SET NULL orphan the rest — an original event outlives its template.
   await db
     .delete(events)
     .where(

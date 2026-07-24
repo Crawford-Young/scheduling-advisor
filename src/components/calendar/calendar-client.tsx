@@ -28,14 +28,6 @@ import {
 } from '@/components/forms/activity-template-dialog'
 import { createEvent, updateEvent, deleteEvent } from '@/server/actions/events'
 import { createActivity, updateActivity } from '@/server/actions/activities'
-import type { ActivityScheduleSlot } from '@/lib/schemas/activity'
-
-// The browser's IANA zone, stamped on a newly-created activity so server-side
-// schedule generation lands its events on the correct LOCAL weekday/wall-clock
-// (local-wall-clock invariant, 0.19.0).
-function resolvedTimeZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone
-}
 
 const ONE_HOUR_MS = 60 * 60 * 1000
 
@@ -89,8 +81,6 @@ interface CalendarActivity {
   readonly minDurationMin: number
   readonly maxDurationMin: number
   readonly weeklyTargetSessions: number
-  readonly schedule: readonly ActivityScheduleSlot[]
-  readonly timeZone: string | null
 }
 
 // ─── Mapping (app → library) ──────────────────────────────────────────────────
@@ -372,8 +362,7 @@ export function CalendarClient({
         minDurationMin: values.minDurationMin,
         maxDurationMin: values.maxDurationMin,
         weeklyTargetSessions: values.weeklyTargetSessions,
-        schedule: values.schedule,
-        timeZone: resolvedTimeZone(),
+        // Metadata-only (A5): no schedule/timeZone stamp.
       })
       if ('error' in result) {
         toast.error('Could not create activity — calendar restored')
@@ -458,8 +447,7 @@ export function CalendarClient({
         minDurationMin: values.minDurationMin,
         maxDurationMin: values.maxDurationMin,
         weeklyTargetSessions: values.weeklyTargetSessions,
-        schedule: values.schedule,
-        timeZone: resolvedTimeZone(),
+        // Metadata-only (A5): no schedule/timeZone stamp.
       })
       if ('error' in result) {
         toast.error('Could not save activity — calendar restored')
@@ -571,8 +559,6 @@ export function CalendarClient({
             minDurationMin: editActivity.minDurationMin,
             maxDurationMin: editActivity.maxDurationMin,
             weeklyTargetSessions: editActivity.weeklyTargetSessions,
-            // App schedule (day: number) narrows to the dialog's 0-6 literal.
-            schedule: editActivity.schedule as ActivityTemplateValues['schedule'],
           }}
         />
       )}
