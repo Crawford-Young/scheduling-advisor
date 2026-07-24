@@ -829,6 +829,121 @@ describe('showRecurrence prop', () => {
   })
 })
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Visibility — renders in every mode, seeded from initialValues / defaultVisibility,
+// always emitted explicitly in the submit payload.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('visibility', () => {
+  it('defaults to Private when neither initialValues.visibility nor defaultVisibility is given', () => {
+    render(<EventFormDialog {...makeProps()} />)
+    expect(screen.getByRole('combobox', { name: 'Visibility' })).toHaveTextContent(/^private$/i)
+  })
+
+  it('seeds from the defaultVisibility prop in create mode when initialValues carries no visibility', () => {
+    render(
+      <EventFormDialog
+        {...makeProps({
+          mode: 'create',
+          defaultVisibility: 'public',
+          initialValues: { title: 'X' },
+        })}
+      />,
+    )
+    expect(screen.getByRole('combobox', { name: 'Visibility' })).toHaveTextContent(/^public$/i)
+  })
+
+  it('seeds from initialValues.visibility in edit mode, overriding a defaultVisibility prop', () => {
+    render(
+      <EventFormDialog
+        {...makeProps({
+          mode: 'edit',
+          defaultVisibility: 'public',
+          initialValues: { title: 'X', visibility: 'busy' },
+        })}
+      />,
+    )
+    expect(screen.getByRole('combobox', { name: 'Visibility' })).toHaveTextContent(
+      /^busy \(time only\)$/i,
+    )
+  })
+
+  it('renders the Visibility select even when showRecurrence={false} (plain-event edit sites)', () => {
+    render(<EventFormDialog {...makeProps({ showRecurrence: false })} />)
+    expect(screen.getByRole('combobox', { name: 'Visibility' })).toBeInTheDocument()
+  })
+
+  it('renders all three visibility options', async () => {
+    const user = userEvent.setup()
+    render(<EventFormDialog {...makeProps()} />)
+    await user.click(screen.getByRole('combobox', { name: 'Visibility' }))
+    const listbox = await screen.findByRole('listbox')
+    expect(within(listbox).getByText('Public')).toBeInTheDocument()
+    expect(within(listbox).getByText('Busy (time only)')).toBeInTheDocument()
+    expect(within(listbox).getByText('Private')).toBeInTheDocument()
+  })
+
+  it('emits the default (unseeded) visibility explicitly in the submit payload', async () => {
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <EventFormDialog
+        {...makeProps({
+          onSubmit,
+          initialValues: {
+            title: 'X',
+            startAt: '2025-06-15T09:00:00.000Z',
+            endAt: '2025-06-15T10:00:00.000Z',
+          },
+        })}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    const payload = onSubmit.mock.calls[0]![0] as EventFormValues
+    expect(payload.visibility).toBe('private')
+  })
+
+  it('carries a user-selected visibility into the submit payload', async () => {
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <EventFormDialog
+        {...makeProps({
+          onSubmit,
+          initialValues: {
+            title: 'X',
+            startAt: '2025-06-15T09:00:00.000Z',
+            endAt: '2025-06-15T10:00:00.000Z',
+          },
+        })}
+      />,
+    )
+    await selectComboboxOption(user, 'Visibility', 'Public')
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    const payload = onSubmit.mock.calls[0]![0] as EventFormValues
+    expect(payload.visibility).toBe('public')
+  })
+
+  it('reseeds the default visibility on a fresh mount after a prior edit dialog carried a different value (create-after-edit reseed)', () => {
+    const { unmount } = render(
+      <EventFormDialog
+        {...makeProps({ mode: 'edit', initialValues: { title: 'X', visibility: 'public' } })}
+      />,
+    )
+    expect(screen.getByRole('combobox', { name: 'Visibility' })).toHaveTextContent(/^public$/i)
+    unmount()
+
+    render(
+      <EventFormDialog
+        {...makeProps({ mode: 'create', defaultVisibility: 'private', initialValues: undefined })}
+      />,
+    )
+    expect(screen.getByRole('combobox', { name: 'Visibility' })).toHaveTextContent(/^private$/i)
+  })
+})
+
 // ─── displayName ────────────────────────────────────────────────────────────
 
 describe('displayName', () => {

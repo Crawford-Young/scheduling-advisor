@@ -20,6 +20,7 @@ import {
   type CalendarEventColor,
 } from '@/lib/ui'
 import type { SeriesFreq } from '@/lib/schemas/series'
+import type { Visibility } from '@/lib/schemas/visibility'
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -58,6 +59,8 @@ export interface EventFormValues {
   readonly color?: string | null
   readonly location?: string | null
   readonly description?: string | null
+  /** Who can see this event/series when it surfaces on someone else's profile. */
+  readonly visibility?: Visibility
   /** Absent/null = one-off event. Present = the event is (or becomes) a series. */
   readonly recurrence?: EventFormRecurrence | null
 }
@@ -70,6 +73,13 @@ export interface EventFormDialogProps {
   readonly isPending?: boolean
   /** Display event times as 24-hour instead of 12-hour with AM/PM. */
   readonly use24h?: boolean
+  /**
+   * Seeds the Visibility select in CREATE mode when `initialValues` carries no
+   * `visibility` (the account's `calendarPrefs.defaultVisibility`). Ignored
+   * whenever `initialValues.visibility` is present — an edit site's persisted
+   * value always wins.
+   */
+  readonly defaultVisibility?: Visibility
   /**
    * Dialog intent for the heading. When omitted, falls back to inferring from
    * `initialValues` (present → "Edit event"), preserved for back-compat.
@@ -91,6 +101,7 @@ const DEFAULT_END_TIME = '10:00'
 const ALL_DAY_START_TIME = '00:00'
 const ALL_DAY_END_TIME = '23:59'
 const DEFAULT_COLOR: CalendarEventColor = 'default'
+const DEFAULT_VISIBILITY: Visibility = 'private'
 const MAX_TITLE_LENGTH = 200
 
 const DAY_ABBR = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const
@@ -168,6 +179,7 @@ export function EventFormDialog({
   use24h = false,
   mode,
   showRecurrence = true,
+  defaultVisibility,
 }: EventFormDialogProps): React.JSX.Element {
   const [title, setTitle] = React.useState(initialValues?.title ?? '')
 
@@ -188,6 +200,9 @@ export function EventFormDialog({
   )
   const [color, setColor] = React.useState<CalendarEventColor>(
     (initialValues?.color as CalendarEventColor | undefined) ?? DEFAULT_COLOR,
+  )
+  const [visibility, setVisibility] = React.useState<Visibility>(
+    initialValues?.visibility ?? defaultVisibility ?? DEFAULT_VISIBILITY,
   )
   const [location, setLocation] = React.useState(initialValues?.location ?? '')
   const [description, setDescription] = React.useState(initialValues?.description ?? '')
@@ -228,6 +243,7 @@ export function EventFormDialog({
   const titleId = React.useId()
   const dateFieldId = React.useId()
   const repeatId = React.useId()
+  const visibilityId = React.useId()
   const monthlyModeId = React.useId()
   const untilId = React.useId()
 
@@ -305,6 +321,7 @@ export function EventFormDialog({
       endAt: buildIso(taskDate, allDay ? ALL_DAY_END_TIME : endTime),
       allDay,
       color: color === DEFAULT_COLOR ? null : color,
+      visibility,
       location: location.trim() || null,
       description: description.trim() || null,
       ...(recurrence !== undefined ? { recurrence } : {}),
@@ -471,6 +488,21 @@ export function EventFormDialog({
           Color
         </p>
         <ColorSwatchPicker value={color} onChange={setColor} />
+      </div>
+
+      {/* Visibility — who can see this event/series on a profile view. */}
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={visibilityId}>Visibility</Label>
+        <Select value={visibility} onValueChange={(v) => setVisibility(v as Visibility)}>
+          <SelectTrigger id={visibilityId} aria-label="Visibility">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="public">Public</SelectItem>
+            <SelectItem value="busy">Busy (time only)</SelectItem>
+            <SelectItem value="private">Private</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Location */}

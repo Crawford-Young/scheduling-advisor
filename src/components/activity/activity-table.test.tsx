@@ -92,6 +92,7 @@ function makeSeriesActionsRow(over: Partial<SeriesActionsRow> = {}): SeriesActio
     description: 'daily notes',
     location: 'Home',
     color: '#22c55e',
+    visibility: 'private',
     freq: 'weekly',
     weekdays: [1, 3, 5],
     dayOfMonth: null,
@@ -133,6 +134,7 @@ function makeEventRow(over: Partial<OneOffEventRow> = {}): OneOffEventRow {
     location: 'Clinic',
     description: 'checkup',
     status: 'pending',
+    visibility: 'private',
     ...over,
   }
 }

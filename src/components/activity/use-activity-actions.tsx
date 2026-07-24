@@ -23,6 +23,7 @@ import {
   type ActivityTemplateValues,
 } from '@/components/forms/activity-template-dialog'
 import type { SeriesFreq } from '@/lib/schemas/series'
+import type { Visibility } from '@/lib/schemas/visibility'
 import { updateActivity, deleteActivity } from '@/server/actions/activities'
 import { updateEvent, deleteEvent } from '@/server/actions/events'
 import { updateSeries, deleteSeries } from '@/server/actions/series'
@@ -196,6 +197,8 @@ export interface EventActionsRow {
   readonly location: string | null
   readonly description: string | null
   readonly status: EventStatus
+  /** Who can see this event when it surfaces on someone else's profile view. */
+  readonly visibility: Visibility
 }
 
 export interface UseEventActionsArgs {
@@ -245,6 +248,7 @@ export function useEventActions({ event, use24h }: UseEventActionsArgs): UseEven
         endAt: values.endAt ?? null,
         allDay: values.allDay ?? false,
         color: values.color ?? null,
+        visibility: values.visibility,
         location: values.location ?? null,
         description: values.description ?? null,
       })
@@ -285,6 +289,7 @@ export function useEventActions({ event, use24h }: UseEventActionsArgs): UseEven
             endAt: event.endAt ?? undefined,
             allDay: event.allDay,
             color: event.color ?? undefined,
+            visibility: event.visibility,
             location: event.location ?? undefined,
             description: event.description ?? undefined,
           }}
@@ -341,6 +346,8 @@ export interface SeriesActionsRow {
   readonly description: string | null
   readonly location: string | null
   readonly color: string | null
+  /** Who can see this series' occurrences when they surface on someone else's profile view. */
+  readonly visibility: Visibility
   readonly freq: SeriesFreq
   readonly weekdays: readonly number[] | null
   readonly dayOfMonth: number | null
@@ -503,6 +510,7 @@ export function useSeriesActions({ series, use24h }: UseSeriesActionsArgs): UseS
         description: values.description ?? null,
         location: values.location ?? null,
         color: values.color ?? null,
+        visibility: values.visibility,
         freq: recurrence.freq,
         weekdays: recurrence.weekdays,
         dayOfMonth: recurrence.dayOfMonth,
@@ -548,6 +556,7 @@ export function useSeriesActions({ series, use24h }: UseSeriesActionsArgs): UseS
             ...buildSeriesAnchor(series),
             allDay: false,
             color: series.color ?? undefined,
+            visibility: series.visibility,
             location: series.location ?? undefined,
             description: series.description ?? undefined,
             recurrence: buildSeriesRecurrence(series),

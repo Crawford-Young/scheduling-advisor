@@ -58,6 +58,7 @@ const events = [
     color: null,
     status: 'pending' as const,
     activityId: null,
+    visibility: 'private' as const,
   },
 ]
 
@@ -86,6 +87,7 @@ function renderClient(): void {
       sleepHour={24}
       dayWindows={DAY_WINDOWS}
       use24h={false}
+      defaultVisibility="private"
     />,
   )
 }

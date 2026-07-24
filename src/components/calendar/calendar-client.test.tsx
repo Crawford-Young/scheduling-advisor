@@ -136,6 +136,7 @@ interface MockEventFormValues {
   readonly color?: string | null
   readonly location?: string | null
   readonly description?: string | null
+  readonly visibility?: string
   readonly recurrence?: MockEventFormRecurrence | null
 }
 
@@ -146,6 +147,7 @@ interface MockEventFormDialogProps {
   readonly initialValues?: Partial<MockEventFormValues>
   readonly use24h?: boolean
   readonly mode?: 'create' | 'edit'
+  readonly defaultVisibility?: string
 }
 
 interface MockActivityTemplateValues {
@@ -187,6 +189,7 @@ const STUB_EDIT_VALUES: MockEventFormValues = {
   color: 'violet',
   location: 'Office',
   description: 'notes',
+  visibility: 'public',
 }
 
 // A minimal edit (all optional fields omitted) → exercises the ?? fallbacks.
@@ -205,6 +208,7 @@ const STUB_RECURRING_VALUES: MockEventFormValues = {
   color: 'blue',
   location: 'Office',
   description: 'daily sync',
+  visibility: 'busy',
   recurrence: { freq: 'weekly', weekdays: [1, 3, 5], until: '2026-09-30' },
 }
 
@@ -463,6 +467,8 @@ vi.mock('@/components/forms/event-form-dialog', () => ({
         data-initial-color={props.initialValues?.color ?? ''}
         data-initial-location={props.initialValues?.location ?? ''}
         data-initial-description={props.initialValues?.description ?? ''}
+        data-initial-visibility={props.initialValues?.visibility ?? ''}
+        data-default-visibility={props.defaultVisibility ?? ''}
         data-use24h={String(props.use24h ?? '')}
         data-mode={props.mode ?? ''}
       >
@@ -534,6 +540,7 @@ const EVENTS = [
     description: 'leg day',
     status: 'pending' as const,
     activityId: 'act-1',
+    visibility: 'public' as const,
   },
   {
     id: 'evt-done',
@@ -543,6 +550,7 @@ const EVENTS = [
     color: 'violet',
     status: 'completed' as const,
     activityId: null,
+    visibility: 'private' as const,
   },
   {
     id: 'evt-locked',
@@ -552,6 +560,7 @@ const EVENTS = [
     status: 'pending' as const,
     locked: true,
     activityId: null,
+    visibility: 'busy' as const,
   },
 ]
 
@@ -588,6 +597,7 @@ function renderClient(): void {
       sleepHour={17}
       dayWindows={DAY_WINDOWS}
       use24h={false}
+      defaultVisibility="busy"
     />,
   )
 }
@@ -731,6 +741,10 @@ describe('CalendarClient — edit persistence', () => {
     expect(dialog.dataset.initialTitle).toBe('Test event')
     expect(dialog.dataset.initialStart).toBe('2026-01-06T09:00:00.000Z')
     expect(dialog.dataset.initialLocation).toBe('Gym')
+    // visibility is NOT part of the library event — looked up from app `events`
+    // state by id (evt-1's persisted visibility is 'public').
+    expect(dialog.dataset.initialVisibility).toBe('public')
+    expect(dialog.dataset.defaultVisibility).toBe('busy')
     expect(dialog.dataset.mode).toBe('edit')
 
     await user.click(screen.getByRole('button', { name: 'event-form-save' }))
@@ -743,6 +757,7 @@ describe('CalendarClient — edit persistence', () => {
         endAt: '2026-01-06T10:30:00.000Z',
         allDay: false,
         color: 'violet',
+        visibility: 'public',
         location: 'Office',
         description: 'notes',
       }),
@@ -1075,6 +1090,8 @@ describe('CalendarClient — header New event button', () => {
     expect(dialog.dataset.initialEnd).toBe('2026-01-06T16:00:00.000Z')
     expect(dialog.dataset.initialAllDay).toBe('false')
     expect(dialog.dataset.mode).toBe('create')
+    // No seeded visibility on a fresh create — falls to the account default.
+    expect(dialog.dataset.defaultVisibility).toBe('busy')
   })
 
   it('creates a standalone event (activityId null) via createEvent and resyncs on submit', async () => {
@@ -1091,6 +1108,7 @@ describe('CalendarClient — header New event button', () => {
         endAt: '2026-01-06T10:30:00.000Z',
         allDay: false,
         color: 'violet',
+        visibility: 'public',
         location: 'Office',
         description: 'notes',
         activityId: null,
@@ -1172,6 +1190,7 @@ describe('CalendarClient — New event recurrence routing', () => {
       description: 'daily sync',
       location: 'Office',
       color: 'blue',
+      visibility: 'busy',
       activityId: null,
       freq: 'weekly',
       weekdays: [1, 3, 5],
