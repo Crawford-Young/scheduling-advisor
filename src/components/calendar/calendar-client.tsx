@@ -584,7 +584,10 @@ export function CalendarClient({
           onWeekChange={(week) => {
             const params = new URLSearchParams(window.location.search)
             params.set('week', week)
-            router.replace(`?${params.toString()}`, { scroll: false })
+            // Programmatic nav under experimental.viewTransition must run inside a
+            // React transition or the browser aborts it (InvalidStateError) — see
+            // the AGENTS.md live-QA-only entry; same class as the gs-p1 router.push fix.
+            React.startTransition(() => router.replace(`?${params.toString()}`, { scroll: false }))
           }}
           onEventMove={handleTimeChange}
           onEventResize={handleTimeChange}
