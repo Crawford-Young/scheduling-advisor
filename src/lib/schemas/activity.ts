@@ -59,7 +59,10 @@ const activityBaseShape = z.object({
   minDurationMin: z.number().int().positive(),
   maxDurationMin: z.number().int().positive(),
   weeklyTargetSessions: z.number().int().min(MIN_WEEKLY_TARGET_SESSIONS),
-  schedule: z.array(activityScheduleSlotSchema).readonly(),
+  // Optional-and-ignored (wave 4, A5): activities are metadata-only templates
+  // now — `schedule`/`timeZone` are still accepted for backward compat (old
+  // callers, existing rows) but never written by the actions. Full removal is A9.
+  schedule: z.array(activityScheduleSlotSchema).readonly().optional(),
   timeZone: timeZoneSchema.optional(),
 })
 
@@ -80,7 +83,7 @@ export const createActivitySchema = activityBaseShape
     message: 'minDurationMin must be <= maxDurationMin',
     path: ['minDurationMin'],
   })
-  .refine((d) => scheduleWithinBounds(d.schedule, d.minDurationMin, d.maxDurationMin), {
+  .refine((d) => scheduleWithinBounds(d.schedule ?? [], d.minDurationMin, d.maxDurationMin), {
     message: 'Each schedule slot durationMin must fall within [minDurationMin, maxDurationMin]',
     path: ['schedule'],
   })

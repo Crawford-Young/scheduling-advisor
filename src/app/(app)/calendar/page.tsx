@@ -82,8 +82,6 @@ export default async function CalendarPage({
     minDurationMin: a.minDurationMin,
     maxDurationMin: a.maxDurationMin,
     weeklyTargetSessions: a.weeklyTargetSessions,
-    schedule: a.schedule,
-    timeZone: a.timeZone,
   }))
 
   return (

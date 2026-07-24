@@ -140,7 +140,6 @@ interface MockActivityTemplateValues {
   readonly minDurationMin: number
   readonly maxDurationMin: number
   readonly weeklyTargetSessions: number
-  readonly schedule: ReadonlyArray<{ day: number; startMinutes: number; durationMin: number }>
 }
 
 interface MockActivityTemplateDialogProps {
@@ -185,7 +184,6 @@ const STUB_TEMPLATE_VALUES: MockActivityTemplateValues = {
   minDurationMin: 30,
   maxDurationMin: 60,
   weeklyTargetSessions: 3,
-  schedule: [{ day: 1, startMinutes: 420, durationMin: 45 }],
 }
 
 // A minimal template (color/description/defaultLocation omitted) → exercises
@@ -195,7 +193,6 @@ const STUB_TEMPLATE_VALUES_MIN: MockActivityTemplateValues = {
   minDurationMin: 20,
   maxDurationMin: 40,
   weeklyTargetSessions: 2,
-  schedule: [],
 }
 
 vi.mock('@/lib/ui', () => ({
@@ -467,7 +464,6 @@ vi.mock('@/components/forms/activity-template-dialog', () => ({
         data-initial-min={String(props.initialValues?.minDurationMin ?? '')}
         data-initial-max={String(props.initialValues?.maxDurationMin ?? '')}
         data-initial-weekly={String(props.initialValues?.weeklyTargetSessions ?? '')}
-        data-initial-schedule-length={String(props.initialValues?.schedule?.length ?? '')}
       >
         <button type="button" onClick={() => props.onSubmit(STUB_TEMPLATE_VALUES)}>
           template-save
@@ -534,8 +530,6 @@ const ACTIVITIES = [
     minDurationMin: 30,
     maxDurationMin: 60,
     weeklyTargetSessions: 3,
-    schedule: [{ day: 1, startMinutes: 420, durationMin: 45 }],
-    timeZone: 'America/New_York',
   },
   {
     id: 'act-2',
@@ -546,8 +540,6 @@ const ACTIVITIES = [
     minDurationMin: 45,
     maxDurationMin: 90,
     weeklyTargetSessions: 2,
-    schedule: [],
-    timeZone: null,
   },
 ]
 
@@ -974,8 +966,6 @@ describe('CalendarClient — header New activity button', () => {
         minDurationMin: 30,
         maxDurationMin: 60,
         weeklyTargetSessions: 3,
-        schedule: [{ day: 1, startMinutes: 420, durationMin: 45 }],
-        timeZone: expect.any(String),
       }),
     )
     // No follow-up event popover — the template dialog just closes.
@@ -1228,7 +1218,6 @@ describe('CalendarClient — edit activity (in-calendar)', () => {
     expect(dialog.dataset.initialMin).toBe('30')
     expect(dialog.dataset.initialMax).toBe('60')
     expect(dialog.dataset.initialWeekly).toBe('3')
-    expect(dialog.dataset.initialScheduleLength).toBe('1')
     expect(pushMock).not.toHaveBeenCalled()
   })
 
@@ -1249,8 +1238,6 @@ describe('CalendarClient — edit activity (in-calendar)', () => {
         minDurationMin: 30,
         maxDurationMin: 60,
         weeklyTargetSessions: 3,
-        schedule: [{ day: 1, startMinutes: 420, durationMin: 45 }],
-        timeZone: expect.any(String),
       }),
     )
     expect(refreshMock).toHaveBeenCalled()

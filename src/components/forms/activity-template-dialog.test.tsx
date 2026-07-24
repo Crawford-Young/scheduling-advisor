@@ -72,107 +72,16 @@ describe('sections render', () => {
     expect(screen.getByLabelText('Min duration')).toBeInTheDocument()
     expect(screen.getByLabelText('Max duration')).toBeInTheDocument()
     expect(screen.getByLabelText('Weekly target')).toBeInTheDocument()
-    expect(screen.getByRole('group', { name: 'Schedule days' })).toBeInTheDocument()
   })
 
-  it('renders all seven weekday toggle buttons', () => {
+  it('renders no schedule builder — activities are metadata-only templates (A5)', () => {
     render(<ActivityTemplateDialog {...makeProps()} />)
-    for (const day of [
-      'Sunday',
-      'Monday',
-      'Tuesday',
-      'Wednesday',
-      'Thursday',
-      'Friday',
-      'Saturday',
-    ]) {
-      expect(screen.getByRole('button', { name: day })).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Schedule days' })).not.toBeInTheDocument()
+    for (const day of ['Sunday', 'Monday', 'Tuesday', 'Saturday']) {
+      expect(screen.queryByRole('button', { name: day })).not.toBeInTheDocument()
     }
-  })
-
-  it('renders no schedule slot rows until a day is toggled on', () => {
-    render(<ActivityTemplateDialog {...makeProps()} />)
     expect(screen.queryByLabelText('Monday start hour')).not.toBeInTheDocument()
-  })
-})
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Schedule builder — day toggle add / remove
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe('schedule builder', () => {
-  it('adds a slot row when a day toggle is activated', async () => {
-    const user = userEvent.setup()
-    render(<ActivityTemplateDialog {...makeProps()} />)
-    const monday = screen.getByRole('button', { name: 'Monday' })
-    expect(monday).toHaveAttribute('aria-pressed', 'false')
-
-    await user.click(monday)
-
-    expect(monday).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByLabelText('Monday start hour')).toBeInTheDocument()
-    expect(screen.getByLabelText('Monday duration')).toBeInTheDocument()
-  })
-
-  it('removes the slot row when the day toggle is deactivated', async () => {
-    const user = userEvent.setup()
-    render(<ActivityTemplateDialog {...makeProps()} />)
-    const monday = screen.getByRole('button', { name: 'Monday' })
-    await user.click(monday)
-    expect(screen.getByLabelText('Monday start hour')).toBeInTheDocument()
-
-    await user.click(monday)
-
-    expect(screen.queryByLabelText('Monday start hour')).not.toBeInTheDocument()
-  })
-
-  it('updates a slot start time and emits the new startMinutes', async () => {
-    const onSubmit = vi.fn()
-    const user = userEvent.setup()
-    render(<ActivityTemplateDialog {...makeProps({ onSubmit })} />)
-    await user.type(screen.getByLabelText('Title'), 'Yoga')
-    await user.click(screen.getByRole('button', { name: 'Monday' }))
-
-    // Default start is 09:00 (540). Increment hour once → 10:00 (600).
-    await user.click(screen.getByLabelText('Increment hour'))
-    await user.click(getSubmitButton())
-
-    expect(onSubmit).toHaveBeenCalledTimes(1)
-    const values = onSubmit.mock.calls[0]![0] as ActivityTemplateValues
-    expect(values.schedule).toEqual([{ day: 1, startMinutes: 600, durationMin: 30 }])
-  })
-
-  it('keeps other slots untouched when one slot is edited, sorted by day', async () => {
-    const onSubmit = vi.fn()
-    const user = userEvent.setup()
-    render(<ActivityTemplateDialog {...makeProps({ onSubmit })} />)
-    await user.type(screen.getByLabelText('Title'), 'Yoga')
-    // Toggle Wednesday first, then Monday — the schedule must sort to Mon, Wed.
-    await user.click(screen.getByRole('button', { name: 'Wednesday' }))
-    await user.click(screen.getByRole('button', { name: 'Monday' }))
-
-    fireEvent.change(screen.getByLabelText('Monday duration'), { target: { value: '50' } })
-    await user.click(getSubmitButton())
-
-    const values = onSubmit.mock.calls[0]![0] as ActivityTemplateValues
-    expect(values.schedule).toEqual([
-      { day: 1, startMinutes: 540, durationMin: 50 },
-      { day: 3, startMinutes: 540, durationMin: 30 },
-    ])
-  })
-
-  it('updates a slot duration and emits the new durationMin', async () => {
-    const onSubmit = vi.fn()
-    const user = userEvent.setup()
-    render(<ActivityTemplateDialog {...makeProps({ onSubmit })} />)
-    await user.type(screen.getByLabelText('Title'), 'Yoga')
-    await user.click(screen.getByRole('button', { name: 'Monday' }))
-
-    fireEvent.change(screen.getByLabelText('Monday duration'), { target: { value: '45' } })
-    await user.click(getSubmitButton())
-
-    const values = onSubmit.mock.calls[0]![0] as ActivityTemplateValues
-    expect(values.schedule).toEqual([{ day: 1, startMinutes: 540, durationMin: 45 }])
+    expect(screen.queryByText(/weekly schedule/i)).not.toBeInTheDocument()
   })
 })
 
@@ -204,52 +113,6 @@ describe('validation', () => {
 
     expect(onSubmit).not.toHaveBeenCalled()
     expect(screen.getByText(/minimum duration must be/i)).toBeInTheDocument()
-  })
-
-  it('blocks submit when a slot duration is below the minimum', async () => {
-    const onSubmit = vi.fn()
-    const user = userEvent.setup()
-    render(
-      <ActivityTemplateDialog
-        {...makeProps({
-          onSubmit,
-          initialValues: {
-            title: 'Yoga',
-            minDurationMin: 60,
-            maxDurationMin: 120,
-            schedule: [{ day: 1, startMinutes: 540, durationMin: 30 }],
-          },
-        })}
-      />,
-    )
-
-    await user.click(getSubmitButton())
-
-    expect(onSubmit).not.toHaveBeenCalled()
-    expect(screen.getByText(/within the min and max/i)).toBeInTheDocument()
-  })
-
-  it('blocks submit when a slot duration exceeds the maximum', async () => {
-    const onSubmit = vi.fn()
-    const user = userEvent.setup()
-    render(
-      <ActivityTemplateDialog
-        {...makeProps({
-          onSubmit,
-          initialValues: {
-            title: 'Yoga',
-            minDurationMin: 15,
-            maxDurationMin: 60,
-            schedule: [{ day: 1, startMinutes: 540, durationMin: 90 }],
-          },
-        })}
-      />,
-    )
-
-    await user.click(getSubmitButton())
-
-    expect(onSubmit).not.toHaveBeenCalled()
-    expect(screen.getByText(/within the min and max/i)).toBeInTheDocument()
   })
 
   it('blocks submit and shows an error when the weekly target is below one', async () => {
@@ -295,7 +158,6 @@ describe('submit payload', () => {
     const user = userEvent.setup()
     render(<ActivityTemplateDialog {...makeProps({ onSubmit })} />)
     await user.type(screen.getByLabelText('Title'), 'Yoga')
-    await user.click(screen.getByRole('button', { name: 'Monday' }))
 
     await user.click(getSubmitButton())
 
@@ -308,8 +170,19 @@ describe('submit payload', () => {
       minDurationMin: 15,
       maxDurationMin: 60,
       weeklyTargetSessions: 1,
-      schedule: [{ day: 1, startMinutes: 540, durationMin: 30 }],
     } satisfies ActivityTemplateValues)
+  })
+
+  it('emits no schedule field in the payload (metadata-only)', async () => {
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(<ActivityTemplateDialog {...makeProps({ onSubmit })} />)
+    await user.type(screen.getByLabelText('Title'), 'Yoga')
+
+    await user.click(getSubmitButton())
+
+    const values = onSubmit.mock.calls[0]![0] as ActivityTemplateValues
+    expect(values).not.toHaveProperty('schedule')
   })
 
   it('emits filled optional fields and the selected color', async () => {
@@ -328,7 +201,6 @@ describe('submit payload', () => {
     expect(values.description).toBe('Morning flow')
     expect(values.defaultLocation).toBe('Studio')
     expect(values.title).toBe('Yoga')
-    expect(values.schedule).toEqual([])
   })
 
   it('trims whitespace-only optionals to null and trims the title', async () => {
@@ -363,7 +235,6 @@ describe('initialValues seeding', () => {
             minDurationMin: 20,
             maxDurationMin: 90,
             weeklyTargetSessions: 3,
-            schedule: [{ day: 2, startMinutes: 480, durationMin: 45 }],
           },
         })}
       />,
@@ -379,8 +250,6 @@ describe('initialValues seeding', () => {
       'aria-pressed',
       'true',
     )
-    expect(screen.getByRole('button', { name: 'Tuesday' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByLabelText('Tuesday duration')).toHaveValue(45)
   })
 
   it('treats a null color in initialValues as the default (no color pressed)', () => {

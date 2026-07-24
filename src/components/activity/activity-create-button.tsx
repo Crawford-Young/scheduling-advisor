@@ -31,8 +31,7 @@ export function ActivityCreateButton({ use24h }: ActivityCreateButtonProps): Rea
         minDurationMin: values.minDurationMin,
         maxDurationMin: values.maxDurationMin,
         weeklyTargetSessions: values.weeklyTargetSessions,
-        schedule: values.schedule,
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        // Metadata-only (A5): no schedule/timeZone stamp.
       })
       if ('error' in result) {
         toast.error('Could not create activity')

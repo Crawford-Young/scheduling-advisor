@@ -52,6 +52,10 @@ vi.mock('@/db/schema', () => ({
     status: 'events.status',
     startAt: 'events.startAt',
   },
+  eventSeries: {
+    activityId: 'eventSeries.activityId',
+    userId: 'eventSeries.userId',
+  },
 }))
 
 vi.mock('drizzle-orm', () => ({
@@ -62,8 +66,8 @@ vi.mock('drizzle-orm', () => ({
 
 import { createActivity, updateActivity, deleteActivity } from '@/server/actions/activities'
 import { revalidatePath } from 'next/cache'
-import { activities, events } from '@/db/schema'
-import { gt } from 'drizzle-orm'
+import { activities, events, eventSeries } from '@/db/schema'
+import { eq, gt } from 'drizzle-orm'
 
 const VALID_ID = '550e8400-e29b-41d4-a716-446655440000'
 
@@ -159,6 +163,28 @@ describe('createActivity', () => {
 
     expect(result).toEqual({ error: 'Insert failed' })
   })
+
+  it('accepts a metadata-only input with no schedule (A5)', async () => {
+    const result = await createActivity({
+      title: 'Gym',
+      minDurationMin: 30,
+      maxDurationMin: 60,
+      weeklyTargetSessions: 3,
+    })
+
+    expect(result).toHaveProperty('data')
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'user-123', title: 'Gym' }),
+    )
+  })
+
+  it('never writes schedule or timeZone even when supplied (A5 optional-and-ignored)', async () => {
+    await createActivity({ ...VALID_CREATE_INPUT, timeZone: 'America/New_York' })
+
+    const insertArg = mockInsertValues.mock.calls[0]![0] as Record<string, unknown>
+    expect(insertArg).not.toHaveProperty('schedule')
+    expect(insertArg).not.toHaveProperty('timeZone')
+  })
 })
 
 describe('updateActivity', () => {
@@ -234,13 +260,45 @@ describe('updateActivity', () => {
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
-  it('fetch-merge-revalidate: rejects a schedule-only edit whose slot falls outside the stored [min,max]', async () => {
+  it('ignores a schedule-only edit — schedule is never written (A5 metadata-only)', async () => {
+    // A slot 90m wide would have been rejected against a [30,60] bound before A5;
+    // now schedule is optional-and-ignored, so the edit succeeds and writes no
+    // schedule at all.
     mockSelectLimit.mockResolvedValueOnce([currentRow({ minDurationMin: 30, maxDurationMin: 60 })])
+    mockUpdateReturning.mockResolvedValueOnce([currentRow()])
 
     const result = await updateActivity({
       id: VALID_ID,
       schedule: [{ day: 0, startMinutes: 0, durationMin: 90 }],
     })
+
+    expect(result).toHaveProperty('data')
+    const setArg = mockUpdateSet.mock.calls[0]![0] as Record<string, unknown>
+    expect(setArg).not.toHaveProperty('schedule')
+  })
+
+  it('never writes schedule or timeZone even when supplied (A5 optional-and-ignored)', async () => {
+    mockSelectLimit.mockResolvedValueOnce([currentRow()])
+    mockUpdateReturning.mockResolvedValueOnce([currentRow()])
+
+    await updateActivity({
+      id: VALID_ID,
+      title: 'New',
+      timeZone: 'America/New_York',
+      schedule: [],
+    })
+
+    const setArg = mockUpdateSet.mock.calls[0]![0] as Record<string, unknown>
+    expect(setArg).not.toHaveProperty('schedule')
+    expect(setArg).not.toHaveProperty('timeZone')
+  })
+
+  it('fetch-merge-revalidate: rejects a partial edit whose merged [min,max] inverts', async () => {
+    // Current [30,60]; a min-only edit to 90 inverts min > max post-merge, so the
+    // full-object re-validation fails and no update runs.
+    mockSelectLimit.mockResolvedValueOnce([currentRow({ minDurationMin: 30, maxDurationMin: 60 })])
+
+    const result = await updateActivity({ id: VALID_ID, minDurationMin: 90 })
 
     expect(result).toHaveProperty('error')
     expect(mockUpdate).not.toHaveBeenCalled()
@@ -322,15 +380,23 @@ describe('deleteActivity', () => {
     expect(mockDelete).not.toHaveBeenCalled()
   })
 
-  it('deletes only future pending children, then the activity, and revalidates', async () => {
+  it('deletes child series, then future pending children, then the activity, and revalidates', async () => {
     const result = await deleteActivity({ id: VALID_ID })
 
-    expect(mockDelete).toHaveBeenNthCalledWith(1, events)
-    expect(mockDelete).toHaveBeenNthCalledWith(2, activities)
+    expect(mockDelete).toHaveBeenNthCalledWith(1, eventSeries)
+    expect(mockDelete).toHaveBeenNthCalledWith(2, events)
+    expect(mockDelete).toHaveBeenNthCalledWith(3, activities)
     expect(vi.mocked(gt).mock.calls).toContainEqual(['events.startAt', expect.any(Date)])
     expect(revalidatePath).toHaveBeenCalledWith('/calendar')
     expect(revalidatePath).toHaveBeenCalledWith('/activities')
     expect(result).toEqual({ data: { success: true } })
+  })
+
+  it('scopes the child-series delete by both activityId and userId', async () => {
+    await deleteActivity({ id: VALID_ID })
+
+    expect(vi.mocked(eq).mock.calls).toContainEqual(['eventSeries.activityId', VALID_ID])
+    expect(vi.mocked(eq).mock.calls).toContainEqual(['eventSeries.userId', 'user-123'])
   })
 
   it('returns Not found when the activity does not belong to the user', async () => {
