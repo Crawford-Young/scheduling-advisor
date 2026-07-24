@@ -12,7 +12,6 @@ import {
   boolean,
 } from 'drizzle-orm/pg-core'
 import type { CalendarDayOverrides } from '@/lib/schemas/calendar-prefs'
-import type { ActivityScheduleSlot } from '@/lib/schemas/activity'
 
 // ── Auth.js v5 required tables ────────────────────────────────────────────────
 
@@ -155,9 +154,12 @@ export const tokenLedger = pgTable(
 
 // ── Activity model (Wave 3) ──────────────────────────────────────────────────
 // The old `tasks`/`seriesSlotTombstones`/`checkIns` model was dropped in the
-// A8 teardown migration (0019). `activities` is a TEMPLATE (min/max session
-// length, weekly session target, per-day schedule); `events` are independent
-// originals — no shared-field sync, no grouped deletes. See
+// A8 teardown migration (0019). `activities` is a metadata-only TEMPLATE
+// (min/max session length, weekly session target); `events` are independent
+// originals — no shared-field sync, no grouped deletes. The activity's own
+// `schedule`/`timeZone`/`generatedThrough` columns were dropped in migration
+// 0022 (event-series wave, A9) — generation is series-driven (`eventSeries`
+// below) now. See
 // docs/scheduling-advisor/specs/2026-07-15-activity-abstraction-design.md.
 
 export const activities = pgTable('activities', {
@@ -172,13 +174,6 @@ export const activities = pgTable('activities', {
   minDurationMin: integer('min_duration_min').notNull(),
   maxDurationMin: integer('max_duration_min').notNull(),
   weeklyTargetSessions: integer('weekly_target_sessions').notNull(),
-  schedule: jsonb('schedule').$type<readonly ActivityScheduleSlot[]>().notNull().default([]),
-  // IANA zone the per-day schedule times are local wall-clock in; null falls
-  // back to UTC in generation (mirrors tasks.timeZone, wave 2.6 S12).
-  timeZone: text('time_zone'),
-  // Sliding-window generation high-water mark: the sweep only creates events
-  // with slotStart > generatedThrough, then advances it to the window end.
-  generatedThrough: timestamp('generated_through', { withTimezone: true, mode: 'date' }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })

@@ -41,9 +41,10 @@ export async function createActivity(input: unknown): Promise<ActivityActionResu
       minDurationMin: data.minDurationMin,
       maxDurationMin: data.maxDurationMin,
       weeklyTargetSessions: data.weeklyTargetSessions,
-      // schedule/timeZone are optional-and-ignored (A5): activities are
-      // metadata-only templates now. schedule falls to the column default `[]`
-      // and timeZone to null; neither is written from input.
+      // schedule/timeZone columns were dropped from `activities` in migration
+      // 0022 (event-series wave, A9) — activities are metadata-only templates
+      // now. A legacy client payload's schedule/timeZone keys are stripped by
+      // createActivitySchema and never reach this insert.
     })
     .returning()
 
@@ -95,7 +96,8 @@ export async function updateActivity(input: unknown): Promise<ActivityActionResu
       fields.weeklyTargetSessions !== undefined
         ? fields.weeklyTargetSessions
         : current.weeklyTargetSessions,
-    // schedule/timeZone are optional-and-ignored (A5) — never merged or written.
+    // schedule/timeZone columns were dropped in migration 0022 (A9) — a legacy
+    // client payload's keys are stripped by the schema, never merged or written.
   }
 
   const revalidated = createActivitySchema.safeParse(merged)

@@ -181,7 +181,6 @@ type ActivityOverrides = {
   title?: string
   weeklyTargetSessions?: number
   color?: string | null
-  timeZone?: string | null
 }
 
 function makeActivity(over: ActivityOverrides = {}) {
@@ -195,7 +194,6 @@ function makeActivity(over: ActivityOverrides = {}) {
     minDurationMin: 30,
     maxDurationMin: 60,
     weeklyTargetSessions: 3,
-    generatedThrough: null,
     createdAt: new Date('2026-06-01T00:00:00.000Z'),
     updatedAt: new Date('2026-06-01T00:00:00.000Z'),
     ...over,
