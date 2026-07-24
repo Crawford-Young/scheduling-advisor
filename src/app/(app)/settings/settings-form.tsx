@@ -11,11 +11,17 @@ import {
   CardTitle,
   Label,
   NumberInput,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Switch,
   TimeInput,
 } from '@/lib/ui'
 import { setCalendarWindow } from '@/server/actions/calendar-prefs'
 import type { CalendarDayOverrides } from '@/lib/schemas/calendar-prefs'
+import type { Visibility } from '@/lib/schemas/visibility'
 import { MAX_DISPLAY_MINUTES } from '@/lib/calendar-windows'
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
@@ -26,6 +32,12 @@ const TIME_PAD_LENGTH = 2
 const TTL_MIN_DAYS = 1
 const TTL_MAX_DAYS = 365
 const DEFAULT_TTL_DAYS = 30
+
+const VISIBILITY_OPTIONS: readonly { readonly value: Visibility; readonly label: string }[] = [
+  { value: 'public', label: 'Public' },
+  { value: 'busy', label: 'Busy (time only)' },
+  { value: 'private', label: 'Private' },
+]
 
 function minutesToTimeString(totalMinutes: number): string {
   const hours = Math.floor(totalMinutes / MINUTES_PER_HOUR)
@@ -63,6 +75,7 @@ interface SettingsFormProps {
   readonly initialUse24h: boolean
   readonly initialDayOverrides: CalendarDayOverrides
   readonly initialTtlDays: number | null
+  readonly initialDefaultVisibility: Visibility
 }
 
 export function SettingsForm({
@@ -71,6 +84,7 @@ export function SettingsForm({
   initialUse24h,
   initialDayOverrides,
   initialTtlDays,
+  initialDefaultVisibility,
 }: SettingsFormProps): React.JSX.Element {
   const [wakeMinutes, setWakeMinutes] = useState(initialWakeMinutes)
   const [sleepMinutes, setSleepMinutes] = useState(initialSleepMinutes)
@@ -80,6 +94,7 @@ export function SettingsForm({
   )
   const [ttlEnabled, setTtlEnabled] = useState(initialTtlDays !== null)
   const [ttlDays, setTtlDays] = useState(initialTtlDays ?? DEFAULT_TTL_DAYS)
+  const [defaultVisibility, setDefaultVisibility] = useState<Visibility>(initialDefaultVisibility)
   const [calStatus, setCalStatus] = useState<'idle' | 'saved' | 'error'>('idle')
   const [isCalPending, startCalTransition] = useTransition()
 
@@ -96,6 +111,7 @@ export function SettingsForm({
     sleepMinutes !== initialSleepMinutes ||
     use24h !== initialUse24h ||
     effectiveTtlDays !== initialTtlDays ||
+    defaultVisibility !== initialDefaultVisibility ||
     dayOverridesDirty
 
   function clearCalStatus(): void {
@@ -119,6 +135,7 @@ export function SettingsForm({
         use24h,
         dayOverrides: activeDayOverrides,
         ttlDays: effectiveTtlDays,
+        defaultVisibility,
       })
       if ('data' in result) {
         setCalStatus('saved')
@@ -286,6 +303,29 @@ export function SettingsForm({
               />
             </div>
           )}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="default-visibility">Default visibility</Label>
+          <Select
+            value={defaultVisibility}
+            onValueChange={(value) => {
+              setDefaultVisibility(value as Visibility)
+              clearCalStatus()
+            }}
+          >
+            <SelectTrigger id="default-visibility" aria-label="Default visibility" className="w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {VISIBILITY_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-muted-foreground text-xs">New events start with this visibility</p>
         </div>
 
         <div className="flex items-center gap-3">

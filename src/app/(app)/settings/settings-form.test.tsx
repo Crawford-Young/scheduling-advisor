@@ -1,12 +1,22 @@
 import { render, screen, act, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, beforeAll } from 'vitest'
 import { SettingsForm } from './settings-form'
 import * as calendarActions from '@/server/actions/calendar-prefs'
 
 vi.mock('@/server/actions/calendar-prefs', () => ({
   setCalendarWindow: vi.fn(),
 }))
+
+// Radix Select relies on pointer-capture + scrollIntoView DOM APIs happy-dom
+// does not implement; stub them so the Default visibility select can be driven
+// in tests (mirrors src/components/forms/event-form-dialog.test.tsx).
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = vi.fn(() => false)
+  Element.prototype.setPointerCapture = vi.fn()
+  Element.prototype.releasePointerCapture = vi.fn()
+  Element.prototype.scrollIntoView = vi.fn()
+})
 
 // 540 = 09:00, 1020 = 17:00 (minutes since midnight).
 const CALENDAR_DEFAULTS = {
@@ -15,11 +25,23 @@ const CALENDAR_DEFAULTS = {
   initialUse24h: false,
   initialDayOverrides: {},
   initialTtlDays: null,
+  initialDefaultVisibility: 'private',
 } as const
 
 function timeInputRoot(hourInput: HTMLElement): HTMLElement {
   // hour input → spinner div → TimeInput root div
   return hourInput.closest('div')?.parentElement as HTMLElement
+}
+
+/** Opens a Radix Select combobox and clicks the option with the given text. */
+async function selectComboboxOption(
+  user: ReturnType<typeof userEvent.setup>,
+  comboboxName: string,
+  optionText: string,
+): Promise<void> {
+  await user.click(screen.getByRole('combobox', { name: comboboxName }))
+  const listbox = await screen.findByRole('listbox')
+  await user.click(within(listbox).getByText(optionText))
 }
 
 describe('SettingsForm', () => {
@@ -60,6 +82,7 @@ describe('SettingsForm', () => {
           initialUse24h={true}
           initialDayOverrides={{}}
           initialTtlDays={null}
+          initialDefaultVisibility="private"
         />,
       )
       expect(screen.getByLabelText('Sleep hour')).toHaveValue('23')
@@ -76,6 +99,7 @@ describe('SettingsForm', () => {
           initialUse24h={true}
           initialDayOverrides={{ '1': { wake: 360, sleep: 1440 } }}
           initialTtlDays={null}
+          initialDefaultVisibility="private"
         />,
       )
       expect(screen.getByLabelText('Mon sleep hour')).toHaveValue('23')
@@ -111,6 +135,7 @@ describe('SettingsForm', () => {
         use24h: false,
         dayOverrides: {},
         ttlDays: null,
+        defaultVisibility: 'private',
       })
     })
 
@@ -148,6 +173,7 @@ describe('SettingsForm', () => {
         use24h: true,
         dayOverrides: {},
         ttlDays: null,
+        defaultVisibility: 'private',
       })
     })
 
@@ -184,6 +210,7 @@ describe('SettingsForm', () => {
         use24h: false,
         dayOverrides: { '1': { wake: 360, sleep: 1020 } },
         ttlDays: null,
+        defaultVisibility: 'private',
       })
     })
 
@@ -197,6 +224,7 @@ describe('SettingsForm', () => {
           initialUse24h={false}
           initialDayOverrides={{ '2': { wake: 420, sleep: 960 } }}
           initialTtlDays={null}
+          initialDefaultVisibility="private"
         />,
       )
       // 420 = 07:00 → 7 AM
@@ -212,6 +240,7 @@ describe('SettingsForm', () => {
         use24h: false,
         dayOverrides: {},
         ttlDays: null,
+        defaultVisibility: 'private',
       })
     })
   })
@@ -231,6 +260,7 @@ describe('SettingsForm', () => {
           initialUse24h={false}
           initialDayOverrides={{}}
           initialTtlDays={45}
+          initialDefaultVisibility="private"
         />,
       )
       expect(screen.getByLabelText('Auto-delete events')).toBeChecked()
@@ -252,6 +282,7 @@ describe('SettingsForm', () => {
         use24h: false,
         dayOverrides: {},
         ttlDays: 30,
+        defaultVisibility: 'private',
       })
     })
 
@@ -272,6 +303,7 @@ describe('SettingsForm', () => {
         use24h: false,
         dayOverrides: {},
         ttlDays: 31,
+        defaultVisibility: 'private',
       })
     })
 
@@ -285,6 +317,7 @@ describe('SettingsForm', () => {
           initialUse24h={false}
           initialDayOverrides={{}}
           initialTtlDays={45}
+          initialDefaultVisibility="private"
         />,
       )
       await user.click(screen.getByLabelText('Auto-delete events'))
@@ -298,7 +331,55 @@ describe('SettingsForm', () => {
         use24h: false,
         dayOverrides: {},
         ttlDays: null,
+        defaultVisibility: 'private',
       })
+    })
+  })
+
+  describe('Default visibility section', () => {
+    it('renders the select seeded from initialDefaultVisibility="private"', () => {
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
+      expect(screen.getByRole('combobox', { name: 'Default visibility' })).toHaveTextContent(
+        'Private',
+      )
+    })
+
+    it('renders the select seeded from initialDefaultVisibility="busy"', () => {
+      render(<SettingsForm {...CALENDAR_DEFAULTS} initialDefaultVisibility="busy" />)
+      expect(screen.getByRole('combobox', { name: 'Default visibility' })).toHaveTextContent(
+        'Busy (time only)',
+      )
+    })
+
+    it('renders the helper text', () => {
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
+      expect(screen.getByText('New events start with this visibility')).toBeInTheDocument()
+    })
+
+    it('changing the selection and saving sends the new defaultVisibility', async () => {
+      const user = userEvent.setup()
+      vi.mocked(calendarActions.setCalendarWindow).mockResolvedValueOnce({ data: null } as never)
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
+      await selectComboboxOption(user, 'Default visibility', 'Public')
+      await act(async () => {
+        await user.click(screen.getByRole('button', { name: 'Save calendar settings' }))
+      })
+      expect(calendarActions.setCalendarWindow).toHaveBeenCalledWith({
+        workingHoursStart: 540,
+        workingHoursEnd: 1020,
+        use24h: false,
+        dayOverrides: {},
+        ttlDays: null,
+        defaultVisibility: 'public',
+      })
+    })
+
+    it('save button is disabled when pristine and enabled after changing visibility', async () => {
+      const user = userEvent.setup()
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
+      expect(screen.getByRole('button', { name: 'Save calendar settings' })).toBeDisabled()
+      await selectComboboxOption(user, 'Default visibility', 'Busy (time only)')
+      expect(screen.getByRole('button', { name: 'Save calendar settings' })).toBeEnabled()
     })
   })
 })

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { visibilitySchema } from './visibility'
 
 // Wake/sleep windows are stored as minutes-since-midnight.
 // Start is inclusive (0 = 00:00), end is exclusive up to 1440 (= 24:00).
@@ -44,6 +45,7 @@ export const updateWakeSleepSchema = z
     dayOverrides: dayOverridesSchema.optional(),
     use24h: z.boolean().optional(),
     ttlDays: z.number().int().min(MIN_TTL_DAYS).max(MAX_TTL_DAYS).nullable().optional(),
+    defaultVisibility: visibilitySchema.optional(),
   })
   .refine((d) => d.workingHoursEnd > d.workingHoursStart, {
     message: 'workingHoursEnd must be after workingHoursStart',

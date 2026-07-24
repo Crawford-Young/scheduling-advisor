@@ -140,18 +140,55 @@ describe('setCalendarWindow', () => {
     expect(setArg.ttlDays).toBeNull()
   })
 
-  it('does not include dayOverrides, use24h or ttlDays when omitted (back-compat)', async () => {
+  it('does not include dayOverrides, use24h, ttlDays or defaultVisibility when omitted (back-compat)', async () => {
     await setCalendarWindow({ workingHoursStart: 420, workingHoursEnd: 1380 })
 
     const valuesArg = mockValuesInsert.mock.calls[0]![0] as Record<string, unknown>
     expect('dayOverrides' in valuesArg).toBe(false)
     expect('use24h' in valuesArg).toBe(false)
     expect('ttlDays' in valuesArg).toBe(false)
+    expect('defaultVisibility' in valuesArg).toBe(false)
 
     const setArg = mockOnConflictDoUpdate.mock.calls[0]![0].set as Record<string, unknown>
     expect('dayOverrides' in setArg).toBe(false)
     expect('use24h' in setArg).toBe(false)
     expect('ttlDays' in setArg).toBe(false)
+    expect('defaultVisibility' in setArg).toBe(false)
+  })
+
+  it('persists defaultVisibility on the insert arm when provided', async () => {
+    await setCalendarWindow({
+      workingHoursStart: 420,
+      workingHoursEnd: 1380,
+      defaultVisibility: 'busy',
+    })
+
+    expect(mockValuesInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ defaultVisibility: 'busy' }),
+    )
+  })
+
+  it('persists defaultVisibility on the update arm when provided', async () => {
+    await setCalendarWindow({
+      workingHoursStart: 420,
+      workingHoursEnd: 1380,
+      defaultVisibility: 'busy',
+    })
+
+    expect(mockOnConflictDoUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        set: expect.objectContaining({ defaultVisibility: 'busy' }),
+      }),
+    )
+  })
+
+  it('returns error when defaultVisibility is invalid', async () => {
+    const result = await setCalendarWindow({
+      workingHoursStart: 7,
+      workingHoursEnd: 23,
+      defaultVisibility: 'friends',
+    })
+    expect(result).toHaveProperty('error')
   })
 
   it('returns error when dayOverrides has sleep before wake', async () => {
