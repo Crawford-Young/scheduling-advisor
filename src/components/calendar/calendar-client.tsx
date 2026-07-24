@@ -21,15 +21,31 @@ import {
   type DayWindow,
   type EventCreateSubmitPayload,
 } from '@/lib/ui'
-import { EventFormDialog, type EventFormValues } from '@/components/forms/event-form-dialog'
+import {
+  EventFormDialog,
+  type EventFormValues,
+  type EventFormRecurrence,
+} from '@/components/forms/event-form-dialog'
 import {
   ActivityTemplateDialog,
   type ActivityTemplateValues,
 } from '@/components/forms/activity-template-dialog'
 import { createEvent, updateEvent, deleteEvent } from '@/server/actions/events'
 import { createActivity, updateActivity } from '@/server/actions/activities'
+import { createSeries } from '@/server/actions/series'
 
 const ONE_HOUR_MS = 60 * 60 * 1000
+const MINUTES_PER_HOUR = 60
+const MS_PER_MINUTE = 60 * 1000
+// A local `YYYY-MM-DD` `until` date's END OF DAY, inclusive — the series stops
+// generating occurrences after this local instant.
+const UNTIL_END_HOUR = 23
+const UNTIL_END_MINUTE = 59
+const UNTIL_END_SECOND = 59
+const UNTIL_END_MS = 999
+// `EventFormRecurrence.until` is `'YYYY-MM-DD'` (1-based month); `Date`'s
+// month constructor arg is 0-based.
+const UNTIL_MONTH_OFFSET = 1
 
 // The header "New event" button's default slot: today, the next full hour
 // (local wall-clock), 1h duration. Real UTC instants, per the local-wall-clock
@@ -123,6 +139,80 @@ function toEventFormValues(e: LibraryCalendarEvent): EventFormValues {
     color: e.color ?? null,
     location: e.location ?? null,
     description: e.description ?? null,
+  }
+}
+
+// ─── Series submit mapping (A7) ────────────────────────────────────────────
+// Maps a recurrence-bearing EventFormValues submit onto createSeries' input
+// shape. Rule fields are copied straight from the already fully-formed
+// EventFormRecurrence (never rebuilt) — startMinutes/durationMin/anchorStartAt
+// derive from the submitted startAt/endAt via LOCAL Date getters, per the
+// local-wall-clock invariant.
+
+interface SeriesSubmitInput {
+  readonly title: string
+  readonly description: string | null
+  readonly location: string | null
+  readonly color: string | null
+  readonly activityId: null
+  readonly freq: EventFormRecurrence['freq']
+  readonly weekdays?: readonly number[]
+  readonly dayOfMonth?: number
+  readonly nthOrdinal?: number
+  readonly nthWeekday?: number
+  readonly month?: number
+  readonly startMinutes: number
+  readonly durationMin: number
+  readonly timeZone: string
+  readonly anchorStartAt: string
+  readonly until: Date | null
+}
+
+// Local minutes-since-midnight reading of a real UTC instant.
+function localMinutesSinceMidnight(iso: string): number {
+  const d = new Date(iso)
+  return d.getHours() * MINUTES_PER_HOUR + d.getMinutes()
+}
+
+// Local end-of-day `Date` for a `'YYYY-MM-DD'` string (never `new
+// Date(dateStr)`, which parses UTC midnight — local-wall-clock invariant).
+function localEndOfDay(dateStr: string): Date {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  return new Date(
+    year!,
+    month! - UNTIL_MONTH_OFFSET,
+    day!,
+    UNTIL_END_HOUR,
+    UNTIL_END_MINUTE,
+    UNTIL_END_SECOND,
+    UNTIL_END_MS,
+  )
+}
+
+// `values.startAt`/`endAt` are always real ISO instants here — EventFormDialog
+// guards `if (!taskDate) return` before ever building a recurrence, so both
+// are populated whenever `values.recurrence` is present.
+function toSeriesSubmitInput(values: EventFormValues): SeriesSubmitInput {
+  const recurrence = values.recurrence!
+  const startAt = values.startAt!
+  const endAt = values.endAt!
+  return {
+    title: values.title,
+    description: values.description ?? null,
+    location: values.location ?? null,
+    color: values.color ?? null,
+    activityId: null,
+    freq: recurrence.freq,
+    weekdays: recurrence.weekdays,
+    dayOfMonth: recurrence.dayOfMonth,
+    nthOrdinal: recurrence.nthOrdinal,
+    nthWeekday: recurrence.nthWeekday,
+    month: recurrence.month,
+    startMinutes: localMinutesSinceMidnight(startAt),
+    durationMin: (new Date(endAt).getTime() - new Date(startAt).getTime()) / MS_PER_MINUTE,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    anchorStartAt: startAt,
+    until: recurrence.until ? localEndOfDay(recurrence.until) : null,
   }
 }
 
@@ -373,9 +463,21 @@ export function CalendarClient({
 
   // Header "New event" button submit: a standalone event (activityId null —
   // button-created events are never attached to an activity by design;
-  // attach-to-activity stays a drag-create/duplicate affordance).
+  // attach-to-activity stays a drag-create/duplicate affordance). Present
+  // `values.recurrence` routes to createSeries instead of createEvent —
+  // absent/null recurrence keeps the one-off path byte-unchanged.
   function handleNewEventSubmit(values: EventFormValues): void {
     setNewEventDefaults(null)
+    if (values.recurrence) {
+      startTransition(async () => {
+        const result = await createSeries(toSeriesSubmitInput(values))
+        if ('error' in result) {
+          toast.error('Could not create series — calendar restored')
+        }
+        refreshAndResync()
+      })
+      return
+    }
     startTransition(async () => {
       const result = await createEvent({
         title: values.title,

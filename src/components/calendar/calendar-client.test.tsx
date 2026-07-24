@@ -14,6 +14,7 @@ const updateEventMock = vi.fn()
 const deleteEventMock = vi.fn()
 const createActivityMock = vi.fn()
 const updateActivityMock = vi.fn()
+const createSeriesMock = vi.fn()
 const toastErrorMock = vi.fn()
 
 let capturedOnOpenChange: ((open: boolean) => void) | undefined
@@ -34,6 +35,10 @@ vi.mock('@/server/actions/events', () => ({
 vi.mock('@/server/actions/activities', () => ({
   createActivity: (input: unknown) => createActivityMock(input),
   updateActivity: (input: unknown) => updateActivityMock(input),
+}))
+
+vi.mock('@/server/actions/series', () => ({
+  createSeries: (input: unknown) => createSeriesMock(input),
 }))
 
 // ── @/lib/ui mock ──────────────────────────────────────────────────────────
@@ -113,6 +118,16 @@ interface WeekCalendarViewProps {
   readonly use24h?: boolean
 }
 
+interface MockEventFormRecurrence {
+  readonly freq: string
+  readonly weekdays?: readonly number[]
+  readonly dayOfMonth?: number
+  readonly nthOrdinal?: number
+  readonly nthWeekday?: number
+  readonly month?: number
+  readonly until?: string | null
+}
+
 interface MockEventFormValues {
   readonly title: string
   readonly startAt?: string | null
@@ -121,6 +136,7 @@ interface MockEventFormValues {
   readonly color?: string | null
   readonly location?: string | null
   readonly description?: string | null
+  readonly recurrence?: MockEventFormRecurrence | null
 }
 
 interface MockEventFormDialogProps {
@@ -175,6 +191,20 @@ const STUB_EDIT_VALUES: MockEventFormValues = {
 
 // A minimal edit (all optional fields omitted) → exercises the ?? fallbacks.
 const STUB_EDIT_VALUES_MIN: MockEventFormValues = { title: 'Minimal edit' }
+
+// A recurring "New event" submit. Times are UTC instants whose LOCAL (America/
+// New_York, EST in January) reading is 9:30-10:15 → startMinutes 570,
+// durationMin 45 — the dispatch's worked example.
+const STUB_RECURRING_VALUES: MockEventFormValues = {
+  title: 'Standup',
+  startAt: '2026-01-06T14:30:00.000Z',
+  endAt: '2026-01-06T15:15:00.000Z',
+  allDay: false,
+  color: 'blue',
+  location: 'Office',
+  description: 'daily sync',
+  recurrence: { freq: 'weekly', weekdays: [1, 3, 5], until: '2026-09-30' },
+}
 
 const STUB_TEMPLATE_VALUES: MockActivityTemplateValues = {
   title: 'Running',
@@ -440,6 +470,9 @@ vi.mock('@/components/forms/event-form-dialog', () => ({
         <button type="button" onClick={() => props.onSubmit(STUB_EDIT_VALUES_MIN)}>
           event-form-save-min
         </button>
+        <button type="button" onClick={() => props.onSubmit(STUB_RECURRING_VALUES)}>
+          event-form-save-recurring
+        </button>
         <button type="button" onClick={() => props.onOpenChange(false)}>
           event-form-close
         </button>
@@ -571,6 +604,8 @@ function resetMocks(): void {
   createActivityMock.mockResolvedValue({ data: { id: 'act-new' } })
   updateActivityMock.mockClear()
   updateActivityMock.mockResolvedValue({ data: { id: 'act-1' } })
+  createSeriesMock.mockClear()
+  createSeriesMock.mockResolvedValue({ data: { id: 'series-1' } })
   toastErrorMock.mockClear()
   onOpenChangeSpy.mockClear()
   capturedOnOpenChange = undefined
@@ -1061,6 +1096,9 @@ describe('CalendarClient — header New event button', () => {
     )
     expect(screen.queryByRole('dialog', { name: 'event-form' })).not.toBeInTheDocument()
     expect(refreshMock).toHaveBeenCalled()
+    // Absent recurrence → the createEvent path is byte-unchanged; createSeries
+    // is never called.
+    expect(createSeriesMock).not.toHaveBeenCalled()
   })
 
   it('maps omitted optional fields to null / allDay:false with activityId null on a minimal submit', async () => {
@@ -1110,6 +1148,59 @@ describe('CalendarClient — header New event button', () => {
     await user.click(screen.getByRole('button', { name: 'event-form-close' }))
     expect(screen.queryByRole('dialog', { name: 'event-form' })).not.toBeInTheDocument()
     expect(createEventMock).not.toHaveBeenCalled()
+  })
+})
+
+// ── header "New event" button — recurrence routing (A7) ────────────────────
+
+describe('CalendarClient — New event recurrence routing', () => {
+  beforeEach(resetMocks)
+
+  it('routes a recurring submit to createSeries with derived local minutes/duration and a local end-of-day until', async () => {
+    const user = userEvent.setup()
+    renderClient()
+    const view = screen.getByTestId('week-calendar-view')
+
+    await user.click(screen.getByRole('button', { name: 'New event' }))
+    await user.click(screen.getByRole('button', { name: 'event-form-save-recurring' }))
+
+    await waitFor(() => expect(createSeriesMock).toHaveBeenCalledTimes(1))
+    expect(createSeriesMock).toHaveBeenCalledWith({
+      title: 'Standup',
+      description: 'daily sync',
+      location: 'Office',
+      color: 'blue',
+      activityId: null,
+      freq: 'weekly',
+      weekdays: [1, 3, 5],
+      startMinutes: 570,
+      durationMin: 45,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      anchorStartAt: '2026-01-06T14:30:00.000Z',
+      until: new Date(2026, 8, 30, 23, 59, 59, 999),
+    })
+    // The one-off path is never touched on a recurring submit.
+    expect(createEventMock).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: 'event-form' })).not.toBeInTheDocument()
+    expect(refreshMock).toHaveBeenCalled()
+    // resyncToken bump (pending-promise ordering) — not the events prop.
+    await waitFor(() => expect(view.dataset.resyncToken).toBe('1'))
+  })
+
+  it('toasts and still resyncs (token bump) when the series creation fails', async () => {
+    createSeriesMock.mockResolvedValueOnce({ error: 'Too many requests' })
+    const user = userEvent.setup()
+    renderClient()
+    const view = screen.getByTestId('week-calendar-view')
+
+    await user.click(screen.getByRole('button', { name: 'New event' }))
+    await user.click(screen.getByRole('button', { name: 'event-form-save-recurring' }))
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith('Could not create series — calendar restored'),
+    )
+    expect(refreshMock).toHaveBeenCalled()
+    await waitFor(() => expect(view.dataset.resyncToken).toBe('1'))
   })
 })
 

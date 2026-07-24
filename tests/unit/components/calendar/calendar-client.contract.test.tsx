@@ -38,6 +38,13 @@ vi.mock('@/server/actions/activities', () => ({
   createActivity: createActivityMock,
   updateActivity: vi.fn().mockResolvedValue({ data: { id: 'act-1' } }),
 }))
+// A7: CalendarClient now imports createSeries — mock it so this real-library
+// tree never pulls in the real 'use server' module (and its auth() import
+// chain) merely by importing CalendarClient. No test here exercises series
+// routing; that is covered in the mocked-lib (co-located) and unit trees.
+vi.mock('@/server/actions/series', () => ({
+  createSeries: vi.fn().mockResolvedValue({ data: { id: 'series-1' } }),
+}))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: refreshMock, replace: replaceMock, push: pushMock }),
 }))
