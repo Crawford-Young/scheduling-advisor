@@ -5,9 +5,12 @@ it('activities has the template columns', () => {
   expect(activities.minDurationMin).toBeDefined()
   expect(activities.maxDurationMin).toBeDefined()
   expect(activities.weeklyTargetSessions).toBeDefined()
-  expect(activities.schedule).toBeDefined()
-  expect(activities.timeZone).toBeDefined()
-  expect(activities.generatedThrough).toBeDefined()
+})
+
+it('activities no longer has the dropped schedule columns (A9)', () => {
+  expect('schedule' in activities).toBe(false)
+  expect('timeZone' in activities).toBe(false)
+  expect('generatedThrough' in activities).toBe(false)
 })
 
 it('events has the independent-original columns', () => {

@@ -71,6 +71,8 @@ import { eq, gt } from 'drizzle-orm'
 
 const VALID_ID = '550e8400-e29b-41d4-a716-446655440000'
 
+// `schedule` simulates a legacy client payload carrying the pre-0022 field —
+// createActivitySchema strips unknown keys, so it never reaches the insert.
 const VALID_CREATE_INPUT = {
   title: 'Gym',
   minDurationMin: 30,
@@ -90,9 +92,6 @@ function currentRow(overrides: Record<string, unknown> = {}): Record<string, unk
     minDurationMin: 30,
     maxDurationMin: 60,
     weeklyTargetSessions: 3,
-    schedule: [],
-    timeZone: null,
-    generatedThrough: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     ...overrides,
@@ -178,7 +177,7 @@ describe('createActivity', () => {
     )
   })
 
-  it('never writes schedule or timeZone even when supplied (A5 optional-and-ignored)', async () => {
+  it('strips a legacy schedule/timeZone payload key and never writes it (columns dropped, migration 0022)', async () => {
     await createActivity({ ...VALID_CREATE_INPUT, timeZone: 'America/New_York' })
 
     const insertArg = mockInsertValues.mock.calls[0]![0] as Record<string, unknown>
@@ -231,7 +230,6 @@ describe('updateActivity', () => {
       minDurationMin: 20,
       maxDurationMin: 40,
       weeklyTargetSessions: 4,
-      schedule: [{ day: 3, startMinutes: 720, durationMin: 30 }],
     }
     mockUpdateReturning.mockResolvedValueOnce([currentRow(fullEdit)])
 
@@ -277,7 +275,7 @@ describe('updateActivity', () => {
     expect(setArg).not.toHaveProperty('schedule')
   })
 
-  it('never writes schedule or timeZone even when supplied (A5 optional-and-ignored)', async () => {
+  it('strips a legacy schedule/timeZone payload key and never writes it (columns dropped, migration 0022)', async () => {
     mockSelectLimit.mockResolvedValueOnce([currentRow()])
     mockUpdateReturning.mockResolvedValueOnce([currentRow()])
 
@@ -304,17 +302,11 @@ describe('updateActivity', () => {
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
-  it('a schedule edit no longer touches generatedThrough (generation is series-driven, A3)', async () => {
-    const existing = currentRow({
-      schedule: [{ day: 1, startMinutes: 600, durationMin: 45 }],
-      generatedThrough: new Date('2026-03-01T00:00:00.000Z'),
-    })
+  it('a legacy schedule payload key is stripped and never touches generatedThrough (columns dropped, migration 0022; generation is series-driven, A3)', async () => {
+    const existing = currentRow()
     mockSelectLimit.mockResolvedValueOnce([existing])
     const newSchedule = [{ day: 2, startMinutes: 600, durationMin: 45 }]
-    const updatedRow = currentRow({
-      schedule: newSchedule,
-      generatedThrough: new Date('2026-03-01T00:00:00.000Z'),
-    })
+    const updatedRow = currentRow()
     mockUpdateReturning.mockResolvedValueOnce([updatedRow])
 
     const result = await updateActivity({ id: VALID_ID, schedule: newSchedule })
@@ -325,10 +317,10 @@ describe('updateActivity', () => {
     expect(result).toEqual({ data: updatedRow })
   })
 
-  it('a timeZone-only edit also does not touch generatedThrough', async () => {
-    const existing = currentRow({ timeZone: null })
+  it('a legacy timeZone payload key is stripped and also does not touch generatedThrough (column dropped, migration 0022)', async () => {
+    const existing = currentRow()
     mockSelectLimit.mockResolvedValueOnce([existing])
-    mockUpdateReturning.mockResolvedValueOnce([currentRow({ timeZone: 'America/New_York' })])
+    mockUpdateReturning.mockResolvedValueOnce([currentRow()])
 
     await updateActivity({ id: VALID_ID, timeZone: 'America/New_York' })
 
