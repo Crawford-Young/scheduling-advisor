@@ -69,12 +69,19 @@ vi.mock('@/components/forms/event-form-dialog', () => ({
   EventFormDialog: ({
     open,
     initialValues,
+    showRecurrence,
   }: {
     open: boolean
     initialValues?: { title?: string }
+    showRecurrence?: boolean
   }) =>
     open ? (
-      <div role="dialog" aria-label="event-form" data-initial-title={initialValues?.title} />
+      <div
+        role="dialog"
+        aria-label="event-form"
+        data-initial-title={initialValues?.title}
+        data-show-recurrence={String(showRecurrence ?? 'default')}
+      />
     ) : null,
 }))
 
@@ -194,7 +201,10 @@ describe('ActivityTable', () => {
     const user = userEvent.setup()
     render(<ActivityTable items={[makeActivityRow()]} />)
     await user.click(screen.getByRole('button', { name: 'Edit series: Stretch' }))
-    expect(screen.getByRole('dialog', { name: 'event-form' })).toBeInTheDocument()
+    const dialog = screen.getByRole('dialog', { name: 'event-form' })
+    expect(dialog).toBeInTheDocument()
+    // Series edit site — showRecurrence is left at its default (Repeat stays on).
+    expect(dialog).toHaveAttribute('data-show-recurrence', 'default')
   })
 
   it('opens the two-mode series delete confirm from the inline delete control', async () => {
@@ -457,7 +467,10 @@ describe('SeriesTable', () => {
     const user = userEvent.setup()
     render(<SeriesTable items={[makeStandaloneSeriesRow()]} />)
     await user.click(screen.getByRole('button', { name: 'Edit series' }))
-    expect(screen.getByRole('dialog', { name: 'event-form' })).toBeInTheDocument()
+    const dialog = screen.getByRole('dialog', { name: 'event-form' })
+    expect(dialog).toBeInTheDocument()
+    // Series edit site — showRecurrence is left at its default (Repeat stays on).
+    expect(dialog).toHaveAttribute('data-show-recurrence', 'default')
   })
 
   it('opens the two-mode delete confirm and calls deleteSeries with the picked mode', async () => {

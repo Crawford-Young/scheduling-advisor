@@ -220,6 +220,7 @@ vi.mock('@/components/forms/event-form-dialog', () => ({
     initialValues,
     use24h,
     mode,
+    showRecurrence,
   }: {
     open: boolean
     onOpenChange: (open: boolean) => void
@@ -227,6 +228,7 @@ vi.mock('@/components/forms/event-form-dialog', () => ({
     initialValues?: Partial<MockEventValues>
     use24h?: boolean
     mode?: 'create' | 'edit'
+    showRecurrence?: boolean
   }) => {
     React.useEffect(() => {
       eventMountCount += 1
@@ -243,6 +245,7 @@ vi.mock('@/components/forms/event-form-dialog', () => ({
         <span data-testid="evt-description">{initialValues?.description ?? ''}</span>
         <span data-testid="evt-use24h">{String(use24h ?? '')}</span>
         <span data-testid="evt-mode">{mode ?? ''}</span>
+        <span data-testid="evt-show-recurrence">{String(showRecurrence ?? 'default')}</span>
         <span data-testid="evt-recur-freq">{recurrence?.freq ?? ''}</span>
         <span data-testid="evt-recur-weekdays">{(recurrence?.weekdays ?? []).join(',')}</span>
         <span data-testid="evt-recur-day-of-month">{String(recurrence?.dayOfMonth ?? '')}</span>
@@ -558,6 +561,8 @@ describe('useEventActions (one-off events)', () => {
     expect(screen.getByTestId('evt-location')).toHaveTextContent('Clinic')
     expect(screen.getByTestId('evt-use24h')).toHaveTextContent('true')
     expect(screen.getByTestId('evt-mode')).toHaveTextContent('edit')
+    // One-off event edit site: submit path (updateEvent) discards recurrence.
+    expect(screen.getByTestId('evt-show-recurrence')).toHaveTextContent('false')
   })
 
   it('remounts the event dialog fresh on each open (no stale draft on reopen)', async () => {
@@ -719,6 +724,9 @@ describe('useSeriesActions', () => {
     expect(screen.getByTestId('evt-use24h')).toHaveTextContent('true')
     expect(screen.getByTestId('evt-recur-freq')).toHaveTextContent('weekly')
     expect(screen.getByTestId('evt-recur-weekdays')).toHaveTextContent('1,3,5')
+    // Series edit site: submit path (updateSeries) reads recurrence, so the
+    // Repeat section stays on — showRecurrence is left at its default.
+    expect(screen.getByTestId('evt-show-recurrence')).toHaveTextContent('default')
 
     // Anchor time-of-day matches startMinutes (540 = 9:00 AM local).
     const start = new Date(screen.getByTestId('evt-start').textContent!)

@@ -75,6 +75,13 @@ export interface EventFormDialogProps {
    * `initialValues` (present → "Edit event"), preserved for back-compat.
    */
   readonly mode?: 'create' | 'edit'
+  /**
+   * Hides the Repeat section at consumers whose submit path cannot persist a
+   * rule — the plain-event edit sites (calendar popover edit, one-off event
+   * edit). Default `true`. When `false`, the submitted payload omits the
+   * `recurrence` key entirely rather than emitting it unused.
+   */
+  readonly showRecurrence?: boolean
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -160,6 +167,7 @@ export function EventFormDialog({
   isPending = false,
   use24h = false,
   mode,
+  showRecurrence = true,
 }: EventFormDialogProps): React.JSX.Element {
   const [title, setTitle] = React.useState(initialValues?.title ?? '')
 
@@ -289,7 +297,7 @@ export function EventFormDialog({
     // instants of the picked local day so the library can place them.
     if (!taskDate) return
 
-    const recurrence = buildRecurrence()
+    const recurrence = showRecurrence ? buildRecurrence() : undefined
 
     onSubmit({
       title,
@@ -353,101 +361,109 @@ export function EventFormDialog({
       )}
 
       {/* Repeat — composes with all-day (all-day series emit real day-boundary instants). */}
-      <div className="border-border flex flex-col gap-3 border-t pt-3">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor={repeatId}>Repeat</Label>
-          <Select value={freq} onValueChange={handleFreqChange}>
-            <SelectTrigger id={repeatId} aria-label="Repeat">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">Does not repeat</SelectItem>
-              <SelectItem value="daily">Daily</SelectItem>
-              <SelectItem value="weekly">Weekly</SelectItem>
-              <SelectItem value="monthly">Monthly</SelectItem>
-              <SelectItem value="yearly">Yearly</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {freq === 'weekly' && (
-          <div className="flex gap-1.5" role="group" aria-label="Repeat days">
-            {WEEKDAYS.map((day) => (
-              <button
-                key={day}
-                type="button"
-                aria-label={DAY_FULL[day]}
-                aria-pressed={weekdays.includes(day)}
-                onClick={() => toggleWeekday(day)}
-                className={
-                  weekdays.includes(day)
-                    ? 'focus-visible:ring-ring bg-primary text-primary-foreground h-8 w-8 rounded-full text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none'
-                    : 'focus-visible:ring-ring border-input bg-background text-muted-foreground hover:text-foreground h-8 w-8 rounded-full border text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none'
-                }
-              >
-                {DAY_ABBR[day]}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {freq === 'monthly' && (
+      {showRecurrence && (
+        <div className="border-border flex flex-col gap-3 border-t pt-3">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor={monthlyModeId}>Monthly mode</Label>
-            <Select value={monthlyMode} onValueChange={handleMonthlyModeChange}>
-              <SelectTrigger id={monthlyModeId} aria-label="Monthly mode">
+            <Label htmlFor={repeatId}>Repeat</Label>
+            <Select value={freq} onValueChange={handleFreqChange}>
+              <SelectTrigger id={repeatId} aria-label="Repeat">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="day">{`On day ${anchor.getDate()}`}</SelectItem>
-                <SelectItem value="nth">On the Nth weekday</SelectItem>
+                <SelectItem value="none">Does not repeat</SelectItem>
+                <SelectItem value="daily">Daily</SelectItem>
+                <SelectItem value="weekly">Weekly</SelectItem>
+                <SelectItem value="monthly">Monthly</SelectItem>
+                <SelectItem value="yearly">Yearly</SelectItem>
               </SelectContent>
             </Select>
-
-            {monthlyMode === 'nth' && (
-              <div className="flex gap-2">
-                <Select value={String(nthOrdinal)} onValueChange={(v) => setNthOrdinal(Number(v))}>
-                  <SelectTrigger aria-label="Ordinal" className="w-32">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ORDINAL_OPTIONS.map((o) => (
-                      <SelectItem key={o.value} value={String(o.value)}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={String(nthWeekday)} onValueChange={(v) => setNthWeekday(Number(v))}>
-                  <SelectTrigger aria-label="Weekday" className="w-32">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {WEEKDAYS.map((day) => (
-                      <SelectItem key={day} value={String(day)}>
-                        {DAY_FULL[day]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
           </div>
-        )}
 
-        {freq === 'yearly' && (
-          <p className="text-muted-foreground text-sm">
-            {`Repeats every year on ${MONTH_NAMES[anchor.getMonth()]} ${anchor.getDate()}`}
-          </p>
-        )}
+          {freq === 'weekly' && (
+            <div className="flex gap-1.5" role="group" aria-label="Repeat days">
+              {WEEKDAYS.map((day) => (
+                <button
+                  key={day}
+                  type="button"
+                  aria-label={DAY_FULL[day]}
+                  aria-pressed={weekdays.includes(day)}
+                  onClick={() => toggleWeekday(day)}
+                  className={
+                    weekdays.includes(day)
+                      ? 'focus-visible:ring-ring bg-primary text-primary-foreground h-8 w-8 rounded-full text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none'
+                      : 'focus-visible:ring-ring border-input bg-background text-muted-foreground hover:text-foreground h-8 w-8 rounded-full border text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none'
+                  }
+                >
+                  {DAY_ABBR[day]}
+                </button>
+              ))}
+            </div>
+          )}
 
-        {freq !== 'none' && (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={untilId}>Ends on</Label>
-            <DatePicker value={untilDate} onValueChange={setUntilDate} placeholder="Ends on" />
-          </div>
-        )}
-      </div>
+          {freq === 'monthly' && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor={monthlyModeId}>Monthly mode</Label>
+              <Select value={monthlyMode} onValueChange={handleMonthlyModeChange}>
+                <SelectTrigger id={monthlyModeId} aria-label="Monthly mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="day">{`On day ${anchor.getDate()}`}</SelectItem>
+                  <SelectItem value="nth">On the Nth weekday</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {monthlyMode === 'nth' && (
+                <div className="flex gap-2">
+                  <Select
+                    value={String(nthOrdinal)}
+                    onValueChange={(v) => setNthOrdinal(Number(v))}
+                  >
+                    <SelectTrigger aria-label="Ordinal" className="w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ORDINAL_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={String(o.value)}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={String(nthWeekday)}
+                    onValueChange={(v) => setNthWeekday(Number(v))}
+                  >
+                    <SelectTrigger aria-label="Weekday" className="w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {WEEKDAYS.map((day) => (
+                        <SelectItem key={day} value={String(day)}>
+                          {DAY_FULL[day]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+          )}
+
+          {freq === 'yearly' && (
+            <p className="text-muted-foreground text-sm">
+              {`Repeats every year on ${MONTH_NAMES[anchor.getMonth()]} ${anchor.getDate()}`}
+            </p>
+          )}
+
+          {freq !== 'none' && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor={untilId}>Ends on</Label>
+              <DatePicker value={untilDate} onValueChange={setUntilDate} placeholder="Ends on" />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Color */}
       <div className="flex flex-col gap-1.5">

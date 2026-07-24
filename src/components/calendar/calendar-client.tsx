@@ -617,6 +617,7 @@ export function CalendarClient({
           onSubmit={(values) => handleEditSubmit(editTarget, values)}
           isPending={isPending}
           use24h={use24h}
+          showRecurrence={false}
         />
       )}
 

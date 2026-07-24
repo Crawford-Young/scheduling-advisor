@@ -301,6 +301,18 @@ describe('CalendarClient (unit tree)', () => {
     )
   })
 
+  it('hides the Repeat control on the calendar popover edit dialog (plain-event edit site)', async () => {
+    renderClient()
+    ;(capturedProps.onEventEdit as (e: unknown) => void)({
+      id: 'e1',
+      title: 'Morning run',
+      start: '2026-05-29T07:00:00.000Z',
+      end: '2026-05-29T08:00:00.000Z',
+    })
+    await screen.findByLabelText('Title')
+    expect(screen.queryByRole('combobox', { name: 'Repeat' })).not.toBeInTheDocument()
+  })
+
   it('opens the in-calendar activity template dialog on edit-activity (no navigation)', async () => {
     renderClient()
     ;(capturedProps.onEventEditActivity as (e: unknown) => void)({ id: 'e1', activityId: 'act-1' })
