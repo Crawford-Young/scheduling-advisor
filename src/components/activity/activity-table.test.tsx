@@ -4,9 +4,12 @@ import { describe, expect, it, vi, beforeEach, beforeAll, afterAll } from 'vites
 import {
   ActivityTable,
   OneOffEventsTable,
+  SeriesTable,
   type ActivityRow,
   type OneOffEventRow,
+  type StandaloneSeriesRow,
 } from './activity-table'
+import type { SeriesActionsRow } from './use-activity-actions'
 
 const refreshMock = vi.fn()
 const toastErrorMock = vi.fn()
@@ -32,6 +35,14 @@ vi.mock('@/server/actions/activities', () => ({
 vi.mock('@/server/actions/events', () => ({
   updateEvent: vi.fn().mockResolvedValue({ data: {} }),
   deleteEvent: vi.fn().mockResolvedValue({ data: { success: true } }),
+}))
+
+const updateSeriesMock = vi.fn().mockResolvedValue({ data: {} })
+const deleteSeriesMock = vi.fn().mockResolvedValue({ data: { success: true } })
+
+vi.mock('@/server/actions/series', () => ({
+  updateSeries: (input: unknown) => updateSeriesMock(input),
+  deleteSeries: (input: unknown) => deleteSeriesMock(input),
 }))
 
 // Keep the real @/lib/ui (DataTable, Progress, Badge, Button, Table) but stub
@@ -67,6 +78,26 @@ vi.mock('@/components/forms/event-form-dialog', () => ({
     ) : null,
 }))
 
+function makeSeriesActionsRow(over: Partial<SeriesActionsRow> = {}): SeriesActionsRow {
+  return {
+    id: 'series-1',
+    title: 'Stretch',
+    description: 'daily notes',
+    location: 'Home',
+    color: '#22c55e',
+    freq: 'weekly',
+    weekdays: [1, 3, 5],
+    dayOfMonth: null,
+    nthOrdinal: null,
+    nthWeekday: null,
+    month: null,
+    startMinutes: 540,
+    durationMin: 30,
+    until: null,
+    ...over,
+  }
+}
+
 function makeActivityRow(over: Partial<ActivityRow> = {}): ActivityRow {
   return {
     id: 'act-1',
@@ -77,12 +108,7 @@ function makeActivityRow(over: Partial<ActivityRow> = {}): ActivityRow {
     minDurationMin: 30,
     maxDurationMin: 60,
     weeklyTargetSessions: 3,
-    schedule: [
-      { day: 1, startMinutes: 420, durationMin: 45 },
-      { day: 3, startMinutes: 420, durationMin: 45 },
-      { day: 5, startMinutes: 420, durationMin: 45 },
-    ],
-    timeZone: 'America/New_York',
+    series: [makeSeriesActionsRow()],
     completedThisWeek: 2,
     nextEventIso: '2026-07-02T20:00:00.000Z',
     ...over,
@@ -104,6 +130,14 @@ function makeEventRow(over: Partial<OneOffEventRow> = {}): OneOffEventRow {
   }
 }
 
+function makeStandaloneSeriesRow(over: Partial<StandaloneSeriesRow> = {}): StandaloneSeriesRow {
+  return {
+    ...makeSeriesActionsRow(),
+    nextOccurrenceIso: '2026-07-06T13:00:00.000Z',
+    ...over,
+  }
+}
+
 describe('ActivityTable', () => {
   beforeEach(() => {
     refreshMock.mockClear()
@@ -116,14 +150,60 @@ describe('ActivityTable', () => {
     expect(document.querySelector('[data-color="#3b82f6"]')).toBeInTheDocument()
   })
 
-  it('renders the pattern label for a scheduled activity', () => {
+  it('renders the series label(s) for an activity with series', () => {
     render(<ActivityTable items={[makeActivityRow()]} />)
-    expect(screen.getByText('Mon/Wed/Fri · 3×/wk')).toBeInTheDocument()
+    expect(screen.getByText('Mon/Wed/Fri · 9:00 AM · 30m')).toBeInTheDocument()
   })
 
-  it('renders "No schedule" for an activity with an empty schedule', () => {
-    render(<ActivityTable items={[makeActivityRow({ schedule: [] })]} />)
-    expect(screen.getByText('No schedule')).toBeInTheDocument()
+  it('renders one label line per series for an activity with multiple series', () => {
+    render(
+      <ActivityTable
+        items={[
+          makeActivityRow({
+            series: [
+              makeSeriesActionsRow({ id: 's1', title: 'Morning stretch', startMinutes: 480 }),
+              makeSeriesActionsRow({ id: 's2', title: 'Evening stretch', startMinutes: 1200 }),
+            ],
+          }),
+        ]}
+      />,
+    )
+    expect(screen.getByText('Mon/Wed/Fri · 8:00 AM · 30m')).toBeInTheDocument()
+    expect(screen.getByText('Mon/Wed/Fri · 8:00 PM · 30m')).toBeInTheDocument()
+  })
+
+  it('renders "No series" for an activity with no series', () => {
+    render(<ActivityTable items={[makeActivityRow({ series: [] })]} />)
+    expect(screen.getByText('No series')).toBeInTheDocument()
+  })
+
+  it('appends the "ends" suffix when a series has an until date', () => {
+    render(
+      <ActivityTable
+        items={[
+          makeActivityRow({
+            series: [makeSeriesActionsRow({ until: '2026-12-31T18:00:00.000Z' })],
+          }),
+        ]}
+      />,
+    )
+    expect(screen.getByText(/ends 12\/31\/2026/)).toBeInTheDocument()
+  })
+
+  it('renders edit/delete series controls inline per series, scoped to that series title', async () => {
+    const user = userEvent.setup()
+    render(<ActivityTable items={[makeActivityRow()]} />)
+    await user.click(screen.getByRole('button', { name: 'Edit series: Stretch' }))
+    expect(screen.getByRole('dialog', { name: 'event-form' })).toBeInTheDocument()
+  })
+
+  it('opens the two-mode series delete confirm from the inline delete control', async () => {
+    const user = userEvent.setup()
+    render(<ActivityTable items={[makeActivityRow()]} />)
+    await user.click(screen.getByRole('button', { name: 'Delete series: Stretch' }))
+    expect(screen.getByText('Delete this series?')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Keep events' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete future events too' })).toBeInTheDocument()
   })
 
   it('renders the weekly-fit count and a progress bar', () => {
@@ -216,7 +296,7 @@ describe('ActivityTable', () => {
             id: 'a',
             title: 'Running',
             completedThisWeek: 1,
-            schedule: [],
+            series: [],
             nextEventIso: null,
           }),
           makeActivityRow({
@@ -315,5 +395,92 @@ describe('OneOffEventsTable', () => {
     render(<OneOffEventsTable items={[makeEventRow({ color: null })]} />)
     expect(screen.getByText('Dentist')).toBeInTheDocument()
     expect(document.querySelector('[data-color]')).toBeNull()
+  })
+})
+
+describe('SeriesTable', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    toastErrorMock.mockClear()
+    updateSeriesMock.mockClear().mockResolvedValue({ data: {} })
+    deleteSeriesMock.mockClear().mockResolvedValue({ data: { success: true } })
+  })
+
+  it('renders the series title, pattern label, and next occurrence', () => {
+    render(<SeriesTable items={[makeStandaloneSeriesRow()]} />)
+    expect(screen.getByText('Stretch')).toBeInTheDocument()
+    expect(screen.getByText('Mon/Wed/Fri · 9:00 AM · 30m')).toBeInTheDocument()
+    // 2026-07-06T13:00Z → 9:00 AM in America/New_York (EDT, UTC-4 in July).
+    expect(screen.getByText(/Jul 6/)).toHaveTextContent('9:00 AM')
+  })
+
+  it('formats the next occurrence as 24-hour when use24h is set', () => {
+    render(<SeriesTable items={[makeStandaloneSeriesRow()]} use24h />)
+    expect(screen.getByText(/Jul 6/)).toHaveTextContent('9:00')
+  })
+
+  it('renders an em dash when the series has no next occurrence', () => {
+    render(<SeriesTable items={[makeStandaloneSeriesRow({ nextOccurrenceIso: null })]} />)
+    expect(screen.getByText('—')).toBeInTheDocument()
+  })
+
+  it('renders a color dot when the series carries a color', () => {
+    render(<SeriesTable items={[makeStandaloneSeriesRow({ color: '#22c55e' })]} />)
+    expect(document.querySelector('[data-color="#22c55e"]')).toBeInTheDocument()
+  })
+
+  it('omits the color dot when the series has no color', () => {
+    render(<SeriesTable items={[makeStandaloneSeriesRow({ color: null })]} />)
+    expect(document.querySelector('[data-color]')).toBeNull()
+  })
+
+  it('renders edit and delete controls per series row', () => {
+    render(<SeriesTable items={[makeStandaloneSeriesRow()]} />)
+    expect(screen.getByRole('button', { name: 'Edit series' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete series' })).toBeInTheDocument()
+  })
+
+  it('renders one row per series', () => {
+    render(
+      <SeriesTable
+        items={[
+          makeStandaloneSeriesRow({ id: 'a', title: 'Stretch' }),
+          makeStandaloneSeriesRow({ id: 'b', title: 'Journal' }),
+        ]}
+      />,
+    )
+    expect(screen.getByText('Stretch')).toBeInTheDocument()
+    expect(screen.getByText('Journal')).toBeInTheDocument()
+  })
+
+  it('opens the edit dialog for a series row', async () => {
+    const user = userEvent.setup()
+    render(<SeriesTable items={[makeStandaloneSeriesRow()]} />)
+    await user.click(screen.getByRole('button', { name: 'Edit series' }))
+    expect(screen.getByRole('dialog', { name: 'event-form' })).toBeInTheDocument()
+  })
+
+  it('opens the two-mode delete confirm and calls deleteSeries with the picked mode', async () => {
+    const user = userEvent.setup()
+    render(<SeriesTable items={[makeStandaloneSeriesRow()]} />)
+    await user.click(screen.getByRole('button', { name: 'Delete series' }))
+    await user.click(screen.getByRole('button', { name: 'Delete future events too' }))
+    expect(deleteSeriesMock).toHaveBeenCalledWith({ id: 'series-1', mode: 'deleteFuture' })
+  })
+
+  it('sorts by the derived pattern and next-occurrence columns (accessorFn)', async () => {
+    const user = userEvent.setup()
+    render(
+      <SeriesTable
+        items={[
+          makeStandaloneSeriesRow({ id: 'a', title: 'Stretch', nextOccurrenceIso: null }),
+          makeStandaloneSeriesRow({ id: 'b', title: 'Journal' }),
+        ]}
+      />,
+    )
+    await user.click(screen.getByRole('columnheader', { name: /Pattern/ }))
+    await user.click(screen.getByRole('columnheader', { name: /Next occurrence/ }))
+    expect(screen.getByText('Stretch')).toBeInTheDocument()
+    expect(screen.getByText('Journal')).toBeInTheDocument()
   })
 })

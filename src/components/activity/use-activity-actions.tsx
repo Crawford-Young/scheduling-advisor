@@ -13,14 +13,19 @@ import {
   AlertDialogTitle,
   toast,
 } from '@/lib/ui'
-import { EventFormDialog, type EventFormValues } from '@/components/forms/event-form-dialog'
+import {
+  EventFormDialog,
+  type EventFormRecurrence,
+  type EventFormValues,
+} from '@/components/forms/event-form-dialog'
 import {
   ActivityTemplateDialog,
   type ActivityTemplateValues,
 } from '@/components/forms/activity-template-dialog'
-import type { ActivityScheduleSlot } from '@/lib/schemas/activity'
+import type { SeriesFreq } from '@/lib/schemas/series'
 import { updateActivity, deleteActivity } from '@/server/actions/activities'
 import { updateEvent, deleteEvent } from '@/server/actions/events'
+import { updateSeries, deleteSeries } from '@/server/actions/series'
 
 /** Child-event semantics stated verbatim in the activity delete confirm dialog. */
 const DELETE_ACTIVITY_TITLE = 'Delete this activity?'
@@ -76,8 +81,6 @@ export interface ActivityActionsRow {
   readonly minDurationMin: number
   readonly maxDurationMin: number
   readonly weeklyTargetSessions: number
-  readonly schedule: readonly ActivityScheduleSlot[]
-  readonly timeZone: string | null
 }
 
 export interface UseActivityActionsArgs {
@@ -301,6 +304,266 @@ export function useEventActions({ event, use24h }: UseEventActionsArgs): UseEven
     isComplete,
     completeLabel,
     handleComplete,
+    openEdit: () => setEditOpen(true),
+    openDelete: () => setDeleteOpen(true),
+    dialogs,
+  }
+}
+
+// ── Series rows ───────────────────────────────────────────────────────────────
+
+const DELETE_SERIES_TITLE = 'Delete this series?'
+const DELETE_SERIES_DESCRIPTION = 'Past and completed events are always kept.'
+const SERIES_REQUIRES_RECURRENCE_MESSAGE = 'A series must repeat — choose a repeat option'
+
+const MINUTES_PER_HOUR = 60
+const MS_PER_MINUTE = 60_000
+/** Convert a 0-based `Date#getMonth()`-style index to a 1-based calendar month. */
+const MONTH_OFFSET = 1
+// A fixed LEAP year used as the anchor-date reference for monthly-day-of-month
+// and yearly rules — guarantees a Feb 29 rule (and any 1-31 dayOfMonth value,
+// combined with the January special-case below) never silently rolls into the
+// next month/year via JS `Date` auto-normalization.
+const ANCHOR_REFERENCE_YEAR = 2024
+// January always has 31 days — a safe reference month for monthly
+// day-of-month anchors, which range 1-31 with no associated month.
+const SAFE_DAY_ANCHOR_MONTH_INDEX = 0
+const END_OF_DAY_HOUR = 23
+const END_OF_DAY_MINUTE = 59
+const END_OF_DAY_SECOND = 59
+const END_OF_DAY_MS = 999
+
+/** Serialized series row consumed by the edit/delete controls. */
+export interface SeriesActionsRow {
+  readonly id: string
+  readonly title: string
+  readonly description: string | null
+  readonly location: string | null
+  readonly color: string | null
+  readonly freq: SeriesFreq
+  readonly weekdays: readonly number[] | null
+  readonly dayOfMonth: number | null
+  readonly nthOrdinal: number | null
+  readonly nthWeekday: number | null
+  readonly month: number | null
+  readonly startMinutes: number
+  readonly durationMin: number
+  /** ISO instant, or null for no end date. */
+  readonly until: string | null
+}
+
+export interface UseSeriesActionsArgs {
+  readonly series: SeriesActionsRow
+  /** Display series times as 24-hour in the edit dialog. */
+  readonly use24h?: boolean
+}
+
+export interface UseSeriesActionsResult {
+  readonly isPending: boolean
+  readonly openEdit: () => void
+  readonly openDelete: () => void
+  readonly dialogs: React.ReactNode
+}
+
+/** Local `YYYY-MM-DD` string from a `Date`'s local getters (never `toISOString`). */
+function toLocalDateString(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + MONTH_OFFSET).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+/** Parses a `YYYY-MM-DD` string into a local end-of-day `Date` (`until` is inclusive). */
+function untilStringToDate(until: string | null | undefined): Date | null {
+  if (!until) return null
+  const [year, month, day] = until.split('-').map(Number)
+  return new Date(
+    year!,
+    month! - MONTH_OFFSET,
+    day!,
+    END_OF_DAY_HOUR,
+    END_OF_DAY_MINUTE,
+    END_OF_DAY_SECOND,
+    END_OF_DAY_MS,
+  )
+}
+
+function daysInMonth(year: number, monthIndex: number): number {
+  return new Date(year, monthIndex + 1, 0).getDate()
+}
+
+/**
+ * Builds a representative `startAt`/`endAt` pair for seeding the (byte-shared)
+ * `EventFormDialog` from a series rule. The dialog derives monthly-day-mode
+ * `dayOfMonth` and yearly `month`/`dayOfMonth` from this anchor's LOCAL
+ * calendar day at submit time (it has no separate state for them) — so the
+ * anchor's day/month must reproduce the series' rule exactly, and on a fixed
+ * reference year/month that can never JS-`Date`-rollover a valid 1-31 day
+ * into the next month (weekly/daily/monthly-nth rules don't depend on the
+ * anchor's day, so "now" is used there for a natural-feeling default).
+ */
+function buildSeriesAnchor(series: SeriesActionsRow): {
+  readonly startAt: string
+  readonly endAt: string
+} {
+  const hours = Math.floor(series.startMinutes / MINUTES_PER_HOUR)
+  const minutes = series.startMinutes % MINUTES_PER_HOUR
+  const now = new Date()
+
+  let year = now.getFullYear()
+  let month = now.getMonth()
+  let day = now.getDate()
+
+  if (series.freq === 'yearly') {
+    year = ANCHOR_REFERENCE_YEAR
+    month = (series.month ?? MONTH_OFFSET) - MONTH_OFFSET
+    day = Math.min(series.dayOfMonth ?? 1, daysInMonth(year, month))
+  } else if (series.freq === 'monthly' && series.nthOrdinal === null) {
+    year = ANCHOR_REFERENCE_YEAR
+    month = SAFE_DAY_ANCHOR_MONTH_INDEX
+    day = Math.min(series.dayOfMonth ?? 1, daysInMonth(year, month))
+  }
+
+  const start = new Date(year, month, day, hours, minutes)
+  const end = new Date(start.getTime() + series.durationMin * MS_PER_MINUTE)
+  return { startAt: start.toISOString(), endAt: end.toISOString() }
+}
+
+/** Maps a series row to the dialog's `EventFormRecurrence` seed shape. */
+function buildSeriesRecurrence(series: SeriesActionsRow): EventFormRecurrence {
+  const isMonthlyDayMode = series.freq === 'monthly' && series.nthOrdinal === null
+  const isMonthlyNthMode = series.freq === 'monthly' && series.nthOrdinal !== null
+  return {
+    freq: series.freq,
+    weekdays: series.freq === 'weekly' ? (series.weekdays ?? undefined) : undefined,
+    dayOfMonth:
+      series.freq === 'yearly' || isMonthlyDayMode ? (series.dayOfMonth ?? undefined) : undefined,
+    nthOrdinal: isMonthlyNthMode ? (series.nthOrdinal ?? undefined) : undefined,
+    nthWeekday: isMonthlyNthMode ? (series.nthWeekday ?? undefined) : undefined,
+    month: series.freq === 'yearly' ? (series.month ?? undefined) : undefined,
+    until: series.until ? toLocalDateString(new Date(series.until)) : null,
+  }
+}
+
+interface ConfirmDeleteSeriesDialogProps {
+  readonly open: boolean
+  readonly onOpenChange: (open: boolean) => void
+  readonly onKeep: () => void
+  readonly onDeleteFuture: () => void
+}
+
+/** Series delete confirm — offers both `deleteSeries` modes side by side. */
+function ConfirmDeleteSeriesDialog({
+  open,
+  onOpenChange,
+  onKeep,
+  onDeleteFuture,
+}: ConfirmDeleteSeriesDialogProps): React.JSX.Element {
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{DELETE_SERIES_TITLE}</AlertDialogTitle>
+          <AlertDialogDescription>{DELETE_SERIES_DESCRIPTION}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={onKeep}>Keep events</AlertDialogAction>
+          <AlertDialogAction onClick={onDeleteFuture}>Delete future events too</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+/** Edit (EventFormDialog → updateSeries) + delete (deleteSeries, both modes) wiring for a series row. */
+export function useSeriesActions({ series, use24h }: UseSeriesActionsArgs): UseSeriesActionsResult {
+  const router = useRouter()
+  const [editOpen, setEditOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [isPending, startTransition] = useTransition()
+
+  function handleEditSubmit(values: EventFormValues): void {
+    const recurrence = values.recurrence
+    if (!recurrence) {
+      toast.error(SERIES_REQUIRES_RECURRENCE_MESSAGE)
+      return
+    }
+    // The dialog blocks submit without a date, so `startAt` is always set here.
+    const start = new Date(values.startAt!)
+    const end = values.endAt ? new Date(values.endAt) : start
+    const startMinutes = start.getHours() * MINUTES_PER_HOUR + start.getMinutes()
+    const durationMin = Math.round((end.getTime() - start.getTime()) / MS_PER_MINUTE)
+
+    startTransition(async () => {
+      const result = await updateSeries({
+        id: series.id,
+        title: values.title,
+        description: values.description ?? null,
+        location: values.location ?? null,
+        color: values.color ?? null,
+        freq: recurrence.freq,
+        weekdays: recurrence.weekdays,
+        dayOfMonth: recurrence.dayOfMonth,
+        nthOrdinal: recurrence.nthOrdinal,
+        nthWeekday: recurrence.nthWeekday,
+        month: recurrence.month,
+        startMinutes,
+        durationMin,
+        until: untilStringToDate(recurrence.until),
+      })
+      if ('error' in result) {
+        toast.error('Could not save series')
+        return
+      }
+      setEditOpen(false)
+      router.refresh()
+    })
+  }
+
+  function handleConfirmDelete(mode: 'keep' | 'deleteFuture'): void {
+    startTransition(async () => {
+      const result = await deleteSeries({ id: series.id, mode })
+      if ('error' in result) {
+        toast.error('Could not delete series')
+        return
+      }
+      router.refresh()
+    })
+  }
+
+  const dialogs = (
+    <>
+      {editOpen && (
+        <EventFormDialog
+          open
+          mode="edit"
+          onOpenChange={setEditOpen}
+          onSubmit={handleEditSubmit}
+          isPending={isPending}
+          use24h={use24h}
+          initialValues={{
+            title: series.title,
+            ...buildSeriesAnchor(series),
+            allDay: false,
+            color: series.color ?? undefined,
+            location: series.location ?? undefined,
+            description: series.description ?? undefined,
+            recurrence: buildSeriesRecurrence(series),
+          }}
+        />
+      )}
+      <ConfirmDeleteSeriesDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        onKeep={() => handleConfirmDelete('keep')}
+        onDeleteFuture={() => handleConfirmDelete('deleteFuture')}
+      />
+    </>
+  )
+
+  return {
+    isPending,
     openEdit: () => setEditOpen(true),
     openDelete: () => setDeleteOpen(true),
     dialogs,

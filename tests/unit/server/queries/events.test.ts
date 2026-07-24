@@ -14,6 +14,7 @@ vi.mock('@/db/schema', () => ({
     id: 'events.id',
     userId: 'events.userId',
     activityId: 'events.activityId',
+    seriesId: 'events.seriesId',
     startAt: 'events.startAt',
     endAt: 'events.endAt',
     createdAt: 'events.createdAt',
@@ -64,6 +65,12 @@ describe('getStandaloneEvents', () => {
     expect(mockFrom).toHaveBeenCalledWith(events)
     expect(vi.mocked(isNull).mock.calls).toContainEqual([events.activityId])
     expect(vi.mocked(asc).mock.calls[0]?.[0]).toBe(events.startAt)
+  })
+
+  it('also excludes standalone-series occurrences (seriesId IS NULL) — those render under Repeating events, not here', async () => {
+    await getStandaloneEvents()
+
+    expect(vi.mocked(isNull).mock.calls).toContainEqual([events.seriesId])
   })
 
   it('does not filter by endAt (past standalone events remain visible/editable)', async () => {
