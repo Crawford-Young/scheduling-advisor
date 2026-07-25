@@ -1,9 +1,11 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import ProfilePage from './page'
 
 const authMock = vi.fn()
 const getProfileByUsernameMock = vi.fn()
+const getProfileWeekEventsMock = vi.fn()
+const resolveWeekStartMock = vi.fn()
 const notFoundMock = vi.fn(() => {
   throw new Error('NOT_FOUND')
 })
@@ -60,11 +62,28 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/server/queries/profile', () => ({
   getProfileByUsername: (...args: unknown[]) => getProfileByUsernameMock(...args),
+  getProfileWeekEvents: (...args: unknown[]) => getProfileWeekEventsMock(...args),
+}))
+
+vi.mock('@/lib/calendar-week-param', () => ({
+  resolveWeekStart: (...args: unknown[]) => resolveWeekStartMock(...args),
 }))
 
 vi.mock('@/components/profile/profile-header', () => ({
   ProfileHeader: ({ identity }: { identity: { name: string | null; username: string } }) => (
     <div data-testid="profile-header">{identity.name ?? identity.username}</div>
+  ),
+}))
+
+vi.mock('@/components/profile/profile-week-view', () => ({
+  ProfileWeekView: ({ events, weekStart }: { events: readonly unknown[]; weekStart: string }) => (
+    <div
+      data-testid="profile-week-view"
+      data-week-start={weekStart}
+      data-event-count={events.length}
+    >
+      week view
+    </div>
   ),
 }))
 
@@ -81,16 +100,23 @@ function makeIdentity(overrides: Record<string, unknown> = {}) {
   }
 }
 
-/** Builds the params Promise ProfilePage expects. */
-function pageArgs(username: string) {
-  return { params: Promise.resolve({ username }) }
+/** Builds the params/searchParams promises ProfilePage expects. */
+function pageArgs(username: string, week?: string) {
+  return {
+    params: Promise.resolve({ username }),
+    searchParams: Promise.resolve({ week }),
+  }
 }
 
 describe('ProfilePage', () => {
   beforeEach(() => {
     authMock.mockReset()
     getProfileByUsernameMock.mockReset()
+    getProfileWeekEventsMock.mockReset()
+    resolveWeekStartMock.mockReset()
     notFoundMock.mockClear()
+    resolveWeekStartMock.mockReturnValue('2026-07-19')
+    getProfileWeekEventsMock.mockResolvedValue([])
   })
 
   it('redirects to /login when unauthenticated', async () => {
@@ -125,16 +151,52 @@ describe('ProfilePage', () => {
     expect(screen.getByTestId('profile-header')).toHaveTextContent('Ada Lovelace')
   })
 
-  it('wraps the page in a reveal ViewTransition with a StaggerReveal container', async () => {
+  it('wraps the page in a reveal ViewTransition with a two-section space-y-10 container', async () => {
     authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
     getProfileByUsernameMock.mockResolvedValue(makeIdentity())
 
-    render(await ProfilePage(pageArgs('ada')))
+    const { container } = render(await ProfilePage(pageArgs('ada')))
 
     const viewTransition = screen.getByTestId('view-transition')
     expect(viewTransition).toHaveAttribute('data-enter', 'reveal-enter')
     expect(viewTransition).toHaveAttribute('data-default', 'none')
+    const outer = container.querySelector('.mx-auto.max-w-5xl.space-y-10')
+    expect(outer).not.toBeNull()
+  })
+
+  it('resolves weekStart via resolveWeekStart from the ?week= search param', async () => {
+    authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
+    getProfileByUsernameMock.mockResolvedValue(makeIdentity({ id: 'owner-1' }))
+
+    await ProfilePage(pageArgs('ada', '2026-07-12'))
+
+    expect(resolveWeekStartMock).toHaveBeenCalledWith('2026-07-12')
+  })
+
+  it('fetches the viewer-scoped week of events for the profile owner', async () => {
+    authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
+    getProfileByUsernameMock.mockResolvedValue(makeIdentity({ id: 'owner-1' }))
+    resolveWeekStartMock.mockReturnValue('2026-07-19')
+
+    await ProfilePage(pageArgs('ada'))
+
+    expect(getProfileWeekEventsMock).toHaveBeenCalledWith('viewer-1', 'owner-1', '2026-07-19')
+  })
+
+  it('renders ProfileWeekView with the fetched events and weekStart, outside StaggerReveal', async () => {
+    authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
+    getProfileByUsernameMock.mockResolvedValue(makeIdentity({ id: 'owner-1' }))
+    resolveWeekStartMock.mockReturnValue('2026-07-19')
+    getProfileWeekEventsMock.mockResolvedValue([{ kind: 'busy', id: 'evt-1' }])
+
+    render(await ProfilePage(pageArgs('ada')))
+
+    const weekView = screen.getByTestId('profile-week-view')
+    expect(weekView).toHaveAttribute('data-week-start', '2026-07-19')
+    expect(weekView).toHaveAttribute('data-event-count', '1')
+
     const staggerReveal = screen.getByTestId('stagger-reveal')
-    expect(staggerReveal).toHaveClass('mx-auto', 'max-w-5xl', 'space-y-6')
+    expect(within(staggerReveal).queryByTestId('profile-week-view')).toBeNull()
+    expect(within(staggerReveal).getByTestId('profile-header')).toBeInTheDocument()
   })
 })

@@ -1,8 +1,9 @@
 import { db } from '@/db'
-import { users } from '@/db/schema'
-import { and, eq, ilike, isNotNull, or } from 'drizzle-orm'
+import { events, users } from '@/db/schema'
+import { and, eq, gte, ilike, isNotNull, lt, ne, or } from 'drizzle-orm'
 
 const SINGLE_ROW_LIMIT = 1
+const WEEK_DAYS = 7
 
 export interface ProfileIdentity {
   readonly id: string
@@ -18,10 +19,11 @@ export interface ProfileIdentity {
  * Single visibility/privacy enforcement point for profile reads. Every read
  * takes `viewerId` so rows a viewer may not see never leave the server.
  *
- * Trimmed to identity + search only (A8, activity-model wave): the
- * tasks-backed streaks/stats/activities/week-view surfaces were removed
- * along with the `tasks` table. Profile v2 (activities/events + a visibility
- * model) is a queued follow-up wave.
+ * Identity + search were the only surfaces here since A8 (activity-model
+ * wave), which trimmed the old tasks-backed streaks/stats/activities/
+ * week-view sections. The visibility-w1 wave reintroduces a week view
+ * (`getProfileWeekEvents` below), backed by the new events/event_series
+ * `visibility` column rather than the retired `tasks` model.
  */
 export async function getProfileByUsername(
   viewerId: string,
@@ -104,4 +106,96 @@ export async function searchUsers(
     name: row.name,
     image: row.image,
   }))
+}
+
+type EventRowDb = typeof events.$inferSelect
+
+export type ProfileWeekEvent =
+  | {
+      readonly kind: 'public'
+      readonly id: string
+      readonly title: string
+      readonly startAt: Date
+      readonly endAt: Date
+      readonly allDay: boolean
+      readonly color: string | null
+      readonly location: string | null
+      readonly description: string | null
+      readonly completed: boolean
+    }
+  | { readonly kind: 'busy'; readonly id: string; readonly startAt: Date; readonly endAt: Date }
+
+/**
+ * Builds the full public shape FIELD-BY-FIELD — never spread from the db
+ * row — per the V6 threat model: this module is the single enforcement
+ * point for data about another user's events leaving the server.
+ */
+function toPublicWeekEvent(row: EventRowDb): ProfileWeekEvent {
+  return {
+    kind: 'public',
+    id: row.id,
+    title: row.title,
+    // Guaranteed non-null by the query's isNotNull(startAt/endAt) predicates.
+    startAt: row.startAt as Date,
+    endAt: row.endAt as Date,
+    allDay: row.allDay,
+    color: row.color,
+    location: row.location,
+    description: row.description,
+    completed: row.status === 'completed',
+  }
+}
+
+/**
+ * Sanitizes a `busy`-visibility row down to the three timing fields a
+ * non-owner viewer may see — constructed field-by-field, NEVER spread from
+ * the row, so title/location/description/color/activityId never leave the
+ * server for a row the viewer isn't fully allowed to see.
+ */
+function toBusyWeekEvent(row: EventRowDb): ProfileWeekEvent {
+  return {
+    kind: 'busy',
+    id: row.id,
+    startAt: row.startAt as Date,
+    endAt: row.endAt as Date,
+  }
+}
+
+/**
+ * Viewer-scoped, server-sanitized week of a profile's events — the ONLY
+ * query in the app that returns another user's events. Non-owner viewers
+ * never receive `private` rows (excluded in the WHERE clause, not filtered
+ * in JS after the fact) and only ever see `busy` rows in their sanitized
+ * shape. The owner sees every row, including their own `private` ones, all
+ * mapped to the full public shape.
+ */
+export async function getProfileWeekEvents(
+  viewerId: string,
+  profileUserId: string,
+  weekStart: string,
+): Promise<readonly ProfileWeekEvent[]> {
+  // Local Date constructor per the local-wall-clock invariant — never a UTC
+  // ISO slice. `weekStart` is a validated 'YYYY-MM-DD' from resolveWeekStart.
+  const [year, month, day] = weekStart.split('-').map(Number)
+  const from = new Date(year!, month! - 1, day!)
+  const to = new Date(year!, month! - 1, day! + WEEK_DAYS)
+  const isOwner = viewerId === profileUserId
+
+  const conditions = [
+    eq(events.userId, profileUserId),
+    gte(events.startAt, from),
+    lt(events.startAt, to),
+    isNotNull(events.startAt),
+    isNotNull(events.endAt),
+  ]
+  if (!isOwner) conditions.push(ne(events.visibility, 'private'))
+
+  const rows = await db
+    .select()
+    .from(events)
+    .where(and(...conditions))
+
+  return rows.map((row) =>
+    isOwner || row.visibility === 'public' ? toPublicWeekEvent(row) : toBusyWeekEvent(row),
+  )
 }
