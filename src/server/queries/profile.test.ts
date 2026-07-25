@@ -26,6 +26,13 @@ vi.mock('@/db/schema', () => ({
     createdAt: Symbol('users.createdAt'),
     timezone: Symbol('users.timezone'),
   },
+  events: {
+    id: Symbol('events.id'),
+    userId: Symbol('events.userId'),
+    startAt: Symbol('events.startAt'),
+    endAt: Symbol('events.endAt'),
+    visibility: Symbol('events.visibility'),
+  },
 }))
 
 vi.mock('drizzle-orm', () => ({
@@ -34,6 +41,9 @@ vi.mock('drizzle-orm', () => ({
   or: vi.fn((...args: unknown[]) => ({ op: 'or', args })),
   ilike: vi.fn((col: unknown, val: unknown) => ({ op: 'ilike', col, val })),
   isNotNull: vi.fn((col: unknown) => ({ op: 'isNotNull', col })),
+  gte: vi.fn((col: unknown, val: unknown) => ({ op: 'gte', col, val })),
+  lt: vi.fn((col: unknown, val: unknown) => ({ op: 'lt', col, val })),
+  ne: vi.fn((col: unknown, val: unknown) => ({ op: 'ne', col, val })),
 }))
 
 beforeEach(() => {
@@ -200,6 +210,158 @@ describe('searchUsers', () => {
       { username: 'carol', name: 'Carol', image: 'https://example.com/carol.png' },
       { username: 'carly', name: null, image: null },
     ])
+  })
+})
+
+describe('getProfileWeekEvents', () => {
+  const OWNER_ID = 'user-1'
+  const VIEWER_ID = 'viewer-9'
+  const WEEK_START = '2026-07-19'
+
+  function makeRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'evt-1',
+      title: 'Team standup',
+      description: 'daily sync',
+      location: 'Room 4',
+      startAt: new Date(2026, 6, 20, 9, 0, 0),
+      endAt: new Date(2026, 6, 20, 9, 30, 0),
+      allDay: false,
+      status: 'pending',
+      color: 'blue',
+      visibility: 'public',
+      activityId: 'act-1',
+      ...overrides,
+    }
+  }
+
+  it('maps every row to kind public for the owner, including a private row', async () => {
+    const row = makeRow({ id: 'evt-private', visibility: 'private', status: 'completed' })
+    mockWhereResolve.mockResolvedValueOnce([row])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    const result = await getProfileWeekEvents(OWNER_ID, OWNER_ID, WEEK_START)
+
+    expect(result).toEqual([
+      {
+        kind: 'public',
+        id: 'evt-private',
+        title: 'Team standup',
+        startAt: row.startAt,
+        endAt: row.endAt,
+        allDay: false,
+        color: 'blue',
+        location: 'Room 4',
+        description: 'daily sync',
+        completed: true,
+      },
+    ])
+  })
+
+  it('maps a public row to the full public shape for a non-owner', async () => {
+    const row = makeRow({ visibility: 'public' })
+    mockWhereResolve.mockResolvedValueOnce([row])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    const result = await getProfileWeekEvents(VIEWER_ID, OWNER_ID, WEEK_START)
+
+    expect(result).toEqual([
+      {
+        kind: 'public',
+        id: 'evt-1',
+        title: 'Team standup',
+        startAt: row.startAt,
+        endAt: row.endAt,
+        allDay: false,
+        color: 'blue',
+        location: 'Room 4',
+        description: 'daily sync',
+        completed: false,
+      },
+    ])
+  })
+
+  it('sanitizes a busy row to id/startAt/endAt only for a non-owner', async () => {
+    const row = makeRow({ visibility: 'busy' })
+    mockWhereResolve.mockResolvedValueOnce([row])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    const result = await getProfileWeekEvents(VIEWER_ID, OWNER_ID, WEEK_START)
+
+    expect(result).toEqual([{ kind: 'busy', id: 'evt-1', startAt: row.startAt, endAt: row.endAt }])
+    const busyRow = result[0] as Record<string, unknown>
+    expect('title' in busyRow).toBe(false)
+    expect('location' in busyRow).toBe(false)
+    expect('description' in busyRow).toBe(false)
+    expect('color' in busyRow).toBe(false)
+    expect('activityId' in busyRow).toBe(false)
+    expect('allDay' in busyRow).toBe(false)
+    expect('completed' in busyRow).toBe(false)
+  })
+
+  it('adds a visibility != private predicate only when the viewer is not the owner', async () => {
+    const { ne } = await import('drizzle-orm')
+    const { events } = await import('@/db/schema')
+    mockWhereResolve.mockResolvedValueOnce([])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    await getProfileWeekEvents(VIEWER_ID, OWNER_ID, WEEK_START)
+
+    expect(vi.mocked(ne)).toHaveBeenCalledWith(events.visibility, 'private')
+  })
+
+  it('omits the visibility predicate entirely for the owner', async () => {
+    const { ne } = await import('drizzle-orm')
+    mockWhereResolve.mockResolvedValueOnce([])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    await getProfileWeekEvents(OWNER_ID, OWNER_ID, WEEK_START)
+
+    expect(vi.mocked(ne)).not.toHaveBeenCalled()
+  })
+
+  it('scopes the query to the profile owner, not the viewer', async () => {
+    const { eq } = await import('drizzle-orm')
+    const { events } = await import('@/db/schema')
+    mockWhereResolve.mockResolvedValueOnce([])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    await getProfileWeekEvents(VIEWER_ID, OWNER_ID, WEEK_START)
+
+    expect(vi.mocked(eq)).toHaveBeenCalledWith(events.userId, OWNER_ID)
+  })
+
+  it('builds the week window via the local Date constructor from weekStart', async () => {
+    const { gte, lt } = await import('drizzle-orm')
+    const { events } = await import('@/db/schema')
+    mockWhereResolve.mockResolvedValueOnce([])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    await getProfileWeekEvents(OWNER_ID, OWNER_ID, WEEK_START)
+
+    expect(vi.mocked(gte)).toHaveBeenCalledWith(events.startAt, new Date(2026, 6, 19))
+    expect(vi.mocked(lt)).toHaveBeenCalledWith(events.startAt, new Date(2026, 6, 26))
+  })
+
+  it('requires startAt and endAt to be non-null', async () => {
+    const { isNotNull } = await import('drizzle-orm')
+    const { events } = await import('@/db/schema')
+    mockWhereResolve.mockResolvedValueOnce([])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    await getProfileWeekEvents(OWNER_ID, OWNER_ID, WEEK_START)
+
+    expect(vi.mocked(isNotNull)).toHaveBeenCalledWith(events.startAt)
+    expect(vi.mocked(isNotNull)).toHaveBeenCalledWith(events.endAt)
+  })
+
+  it('returns an empty array when no rows match', async () => {
+    mockWhereResolve.mockResolvedValueOnce([])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    const result = await getProfileWeekEvents(OWNER_ID, OWNER_ID, WEEK_START)
+
+    expect(result).toEqual([])
   })
 })
 
