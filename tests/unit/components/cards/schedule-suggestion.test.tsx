@@ -83,6 +83,26 @@ describe('ScheduleSuggestion', () => {
     expect(screen.queryByText('Connect Google Calendar to add events.')).not.toBeInTheDocument()
   })
 
+  it('does NOT show connect prompt on 403 with a non-JSON body', async () => {
+    server.use(
+      http.post('/api/calendar/events', () => new HttpResponse('forbidden', { status: 403 })),
+    )
+    render(<ScheduleSuggestion {...baseProps} />)
+    await userEvent.click(screen.getAllByRole('button', { name: 'Accept' })[0]!)
+    expect(screen.queryByText('Connect Google Calendar to add events.')).not.toBeInTheDocument()
+  })
+
+  it('does NOT show connect prompt on 403 with a different error marker', async () => {
+    server.use(
+      http.post('/api/calendar/events', () =>
+        HttpResponse.json({ error: 'rate_limited' }, { status: 403 }),
+      ),
+    )
+    render(<ScheduleSuggestion {...baseProps} />)
+    await userEvent.click(screen.getAllByRole('button', { name: 'Accept' })[0]!)
+    expect(screen.queryByText('Connect Google Calendar to add events.')).not.toBeInTheDocument()
+  })
+
   it('shows all-slots-skipped message when all slots rejected', async () => {
     render(<ScheduleSuggestion {...baseProps} />)
     const skipButtons = screen.getAllByText('Skip')
@@ -93,6 +113,18 @@ describe('ScheduleSuggestion', () => {
 
   it('passes axe accessibility check', async () => {
     const { container } = render(<ScheduleSuggestion {...baseProps} />)
+    expect(await axe(container)).toHaveNoViolations()
+  })
+
+  it('passes axe accessibility check in the connect-prompt state', async () => {
+    server.use(
+      http.post('/api/calendar/events', () =>
+        HttpResponse.json({ error: 'calendar_not_connected' }, { status: 403 }),
+      ),
+    )
+    const { container } = render(<ScheduleSuggestion {...baseProps} />)
+    await userEvent.click(screen.getAllByRole('button', { name: 'Accept' })[0]!)
+    expect(await screen.findByText('Connect Google Calendar to add events.')).toBeInTheDocument()
     expect(await axe(container)).toHaveNoViolations()
   })
 })
