@@ -351,6 +351,14 @@ describe('SettingsForm', () => {
       )
     })
 
+    it('renders the Friends option in the visibility list', async () => {
+      const user = userEvent.setup()
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
+      await user.click(screen.getByRole('combobox', { name: 'Default visibility' }))
+      const listbox = await screen.findByRole('listbox')
+      expect(within(listbox).getByText('Friends')).toBeInTheDocument()
+    })
+
     it('renders the helper text', () => {
       render(<SettingsForm {...CALENDAR_DEFAULTS} />)
       expect(screen.getByText('New events start with this visibility')).toBeInTheDocument()
@@ -371,6 +379,24 @@ describe('SettingsForm', () => {
         dayOverrides: {},
         ttlDays: null,
         defaultVisibility: 'public',
+      })
+    })
+
+    it('changing the selection to Friends and saving sends defaultVisibility: "friends"', async () => {
+      const user = userEvent.setup()
+      vi.mocked(calendarActions.setCalendarWindow).mockResolvedValueOnce({ data: null } as never)
+      render(<SettingsForm {...CALENDAR_DEFAULTS} />)
+      await selectComboboxOption(user, 'Default visibility', 'Friends')
+      await act(async () => {
+        await user.click(screen.getByRole('button', { name: 'Save calendar settings' }))
+      })
+      expect(calendarActions.setCalendarWindow).toHaveBeenCalledWith({
+        workingHoursStart: 540,
+        workingHoursEnd: 1020,
+        use24h: false,
+        dayOverrides: {},
+        ttlDays: null,
+        defaultVisibility: 'friends',
       })
     })
 

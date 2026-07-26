@@ -35,6 +35,7 @@ const DEFAULT_TTL_DAYS = 30
 
 const VISIBILITY_OPTIONS: readonly { readonly value: Visibility; readonly label: string }[] = [
   { value: 'public', label: 'Public' },
+  { value: 'friends', label: 'Friends' },
   { value: 'busy', label: 'Busy (time only)' },
   { value: 'private', label: 'Private' },
 ]

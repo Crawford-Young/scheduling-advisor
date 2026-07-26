@@ -51,10 +51,13 @@ describe('createEventSchema', () => {
 })
 
 describe('createEventSchema — visibility', () => {
-  it.each(['public', 'busy', 'private'] as const)('accepts visibility "%s"', (visibility) => {
-    const r = createEventSchema.safeParse({ title: 'x', visibility })
-    expect(r.success).toBe(true)
-  })
+  it.each(['public', 'friends', 'busy', 'private'] as const)(
+    'accepts visibility "%s"',
+    (visibility) => {
+      const r = createEventSchema.safeParse({ title: 'x', visibility })
+      expect(r.success).toBe(true)
+    },
+  )
 
   it('accepts an omitted visibility (server resolves the default)', () => {
     const r = createEventSchema.safeParse({ title: 'x' })
