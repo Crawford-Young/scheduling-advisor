@@ -499,6 +499,7 @@ export function EventFormDialog({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="public">Public</SelectItem>
+            <SelectItem value="friends">Friends</SelectItem>
             <SelectItem value="busy">Busy (time only)</SelectItem>
             <SelectItem value="private">Private</SelectItem>
           </SelectContent>

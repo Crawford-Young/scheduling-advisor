@@ -873,12 +873,13 @@ describe('visibility', () => {
     expect(screen.getByRole('combobox', { name: 'Visibility' })).toBeInTheDocument()
   })
 
-  it('renders all three visibility options', async () => {
+  it('renders all four visibility options', async () => {
     const user = userEvent.setup()
     render(<EventFormDialog {...makeProps()} />)
     await user.click(screen.getByRole('combobox', { name: 'Visibility' }))
     const listbox = await screen.findByRole('listbox')
     expect(within(listbox).getByText('Public')).toBeInTheDocument()
+    expect(within(listbox).getByText('Friends')).toBeInTheDocument()
     expect(within(listbox).getByText('Busy (time only)')).toBeInTheDocument()
     expect(within(listbox).getByText('Private')).toBeInTheDocument()
   })
@@ -924,6 +925,28 @@ describe('visibility', () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
     const payload = onSubmit.mock.calls[0]![0] as EventFormValues
     expect(payload.visibility).toBe('public')
+  })
+
+  it('carries a user-selected Friends visibility into the submit payload', async () => {
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <EventFormDialog
+        {...makeProps({
+          onSubmit,
+          initialValues: {
+            title: 'X',
+            startAt: '2025-06-15T09:00:00.000Z',
+            endAt: '2025-06-15T10:00:00.000Z',
+          },
+        })}
+      />,
+    )
+    await selectComboboxOption(user, 'Visibility', 'Friends')
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    const payload = onSubmit.mock.calls[0]![0] as EventFormValues
+    expect(payload.visibility).toBe('friends')
   })
 
   it('reseeds the default visibility on a fresh mount after a prior edit dialog carried a different value (create-after-edit reseed)', () => {

@@ -96,10 +96,13 @@ describe('createSeriesSchema — valid payloads per freq', () => {
 })
 
 describe('createSeriesSchema — visibility', () => {
-  it.each(['public', 'busy', 'private'] as const)('accepts visibility "%s"', (visibility) => {
-    const r = createSeriesSchema.safeParse({ ...base, freq: 'daily', visibility })
-    expect(r.success).toBe(true)
-  })
+  it.each(['public', 'friends', 'busy', 'private'] as const)(
+    'accepts visibility "%s"',
+    (visibility) => {
+      const r = createSeriesSchema.safeParse({ ...base, freq: 'daily', visibility })
+      expect(r.success).toBe(true)
+    },
+  )
 
   it('accepts an omitted visibility (server resolves the default)', () => {
     const r = createSeriesSchema.safeParse({ ...base, freq: 'daily' })
