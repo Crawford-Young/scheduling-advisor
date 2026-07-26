@@ -6,7 +6,9 @@ import { users } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { SettingsForm } from './settings-form'
 import { ProfileSection } from './profile-section'
+import { IntegrationsSection } from './integrations-section'
 import { getCalendarPrefs } from '@/server/queries/calendar-prefs'
+import { getCalendarConnection } from '@/server/queries/google-calendar-connection'
 import {
   DEFAULT_WAKE_MINUTES,
   DEFAULT_SLEEP_MINUTES,
@@ -19,6 +21,7 @@ export default async function SettingsPage() {
   if (!session?.user?.id) redirect('/login')
   const user = await db.query.users.findFirst({ where: eq(users.id, session.user.id) })
   const prefs = await getCalendarPrefs()
+  const calendarStatus = await getCalendarConnection(session.user.id)
 
   return (
     <ViewTransition enter="reveal-enter" default="none">
@@ -40,6 +43,7 @@ export default async function SettingsPage() {
           initialTtlDays={prefs?.ttlDays ?? null}
           initialDefaultVisibility={prefs?.defaultVisibility ?? 'private'}
         />
+        <IntegrationsSection status={calendarStatus} />
       </StaggerReveal>
     </ViewTransition>
   )
