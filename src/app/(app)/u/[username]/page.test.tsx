@@ -5,6 +5,7 @@ import ProfilePage from './page'
 const authMock = vi.fn()
 const getProfileByUsernameMock = vi.fn()
 const getProfileWeekEventsMock = vi.fn()
+const getFriendshipBetweenMock = vi.fn()
 const resolveWeekStartMock = vi.fn()
 const notFoundMock = vi.fn(() => {
   throw new Error('NOT_FOUND')
@@ -65,13 +66,47 @@ vi.mock('@/server/queries/profile', () => ({
   getProfileWeekEvents: (...args: unknown[]) => getProfileWeekEventsMock(...args),
 }))
 
+vi.mock('@/server/queries/friends', () => ({
+  getFriendshipBetween: (...args: unknown[]) => getFriendshipBetweenMock(...args),
+}))
+
 vi.mock('@/lib/calendar-week-param', () => ({
   resolveWeekStart: (...args: unknown[]) => resolveWeekStartMock(...args),
 }))
 
 vi.mock('@/components/profile/profile-header', () => ({
-  ProfileHeader: ({ identity }: { identity: { name: string | null; username: string } }) => (
-    <div data-testid="profile-header">{identity.name ?? identity.username}</div>
+  ProfileHeader: ({
+    identity,
+    action,
+  }: {
+    identity: { name: string | null; username: string }
+    action?: React.ReactNode
+  }) => (
+    <div data-testid="profile-header">
+      {identity.name ?? identity.username}
+      {action}
+    </div>
+  ),
+}))
+
+vi.mock('@/components/profile/friend-button', () => ({
+  FriendButton: ({
+    profileUserId,
+    view,
+    friendshipId,
+  }: {
+    profileUserId: string
+    view: string
+    friendshipId: string | null
+  }) => (
+    <div
+      data-testid="friend-button"
+      data-profile-user-id={profileUserId}
+      data-view={view}
+      data-friendship-id={friendshipId ?? ''}
+    >
+      friend button
+    </div>
   ),
 }))
 
@@ -113,10 +148,12 @@ describe('ProfilePage', () => {
     authMock.mockReset()
     getProfileByUsernameMock.mockReset()
     getProfileWeekEventsMock.mockReset()
+    getFriendshipBetweenMock.mockReset()
     resolveWeekStartMock.mockReset()
     notFoundMock.mockClear()
     resolveWeekStartMock.mockReturnValue('2026-07-19')
     getProfileWeekEventsMock.mockResolvedValue([])
+    getFriendshipBetweenMock.mockResolvedValue(null)
   })
 
   it('redirects to /login when unauthenticated', async () => {
@@ -198,5 +235,80 @@ describe('ProfilePage', () => {
     const staggerReveal = screen.getByTestId('stagger-reveal')
     expect(within(staggerReveal).queryByTestId('profile-week-view')).toBeNull()
     expect(within(staggerReveal).getByTestId('profile-header')).toBeInTheDocument()
+  })
+
+  it('does not fetch a friendship or render a FriendButton for the profile owner', async () => {
+    authMock.mockResolvedValue({ user: { id: 'owner-1' } })
+    getProfileByUsernameMock.mockResolvedValue(makeIdentity({ id: 'owner-1', isOwner: true }))
+
+    render(await ProfilePage(pageArgs('ada')))
+
+    expect(getFriendshipBetweenMock).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('friend-button')).not.toBeInTheDocument()
+  })
+
+  it('renders FriendButton with view "none" when no friendship row exists for a non-owner profile', async () => {
+    authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
+    getProfileByUsernameMock.mockResolvedValue(makeIdentity({ id: 'owner-1', isOwner: false }))
+    getFriendshipBetweenMock.mockResolvedValue(null)
+
+    render(await ProfilePage(pageArgs('ada')))
+
+    expect(getFriendshipBetweenMock).toHaveBeenCalledWith('viewer-1', 'owner-1')
+    const friendButton = screen.getByTestId('friend-button')
+    expect(friendButton).toHaveAttribute('data-profile-user-id', 'owner-1')
+    expect(friendButton).toHaveAttribute('data-view', 'none')
+    expect(friendButton).toHaveAttribute('data-friendship-id', '')
+  })
+
+  it('renders FriendButton with view "outgoing" when the viewer sent a pending request', async () => {
+    authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
+    getProfileByUsernameMock.mockResolvedValue(makeIdentity({ id: 'owner-1', isOwner: false }))
+    getFriendshipBetweenMock.mockResolvedValue({
+      id: 'friendship-1',
+      requesterId: 'viewer-1',
+      addresseeId: 'owner-1',
+      status: 'pending',
+    })
+
+    render(await ProfilePage(pageArgs('ada')))
+
+    const friendButton = screen.getByTestId('friend-button')
+    expect(friendButton).toHaveAttribute('data-view', 'outgoing')
+    expect(friendButton).toHaveAttribute('data-friendship-id', 'friendship-1')
+  })
+
+  it('renders FriendButton with view "incoming" when the viewer received a pending request', async () => {
+    authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
+    getProfileByUsernameMock.mockResolvedValue(makeIdentity({ id: 'owner-1', isOwner: false }))
+    getFriendshipBetweenMock.mockResolvedValue({
+      id: 'friendship-1',
+      requesterId: 'owner-1',
+      addresseeId: 'viewer-1',
+      status: 'pending',
+    })
+
+    render(await ProfilePage(pageArgs('ada')))
+
+    const friendButton = screen.getByTestId('friend-button')
+    expect(friendButton).toHaveAttribute('data-view', 'incoming')
+    expect(friendButton).toHaveAttribute('data-friendship-id', 'friendship-1')
+  })
+
+  it('renders FriendButton with view "friends" when the friendship is accepted', async () => {
+    authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
+    getProfileByUsernameMock.mockResolvedValue(makeIdentity({ id: 'owner-1', isOwner: false }))
+    getFriendshipBetweenMock.mockResolvedValue({
+      id: 'friendship-1',
+      requesterId: 'viewer-1',
+      addresseeId: 'owner-1',
+      status: 'accepted',
+    })
+
+    render(await ProfilePage(pageArgs('ada')))
+
+    const friendButton = screen.getByTestId('friend-button')
+    expect(friendButton).toHaveAttribute('data-view', 'friends')
+    expect(friendButton).toHaveAttribute('data-friendship-id', 'friendship-1')
   })
 })
