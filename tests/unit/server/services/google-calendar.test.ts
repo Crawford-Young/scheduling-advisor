@@ -1,13 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+vi.mock('@/env', () => ({ env: { TOKEN_ENC_KEY: Buffer.alloc(32, 7).toString('base64') } }))
+vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), error: vi.fn() } }))
+
 const mockEventsList = vi.hoisted(() => vi.fn())
 const mockFreeBusy = vi.hoisted(() => vi.fn())
 const mockEventsInsert = vi.hoisted(() => vi.fn())
 const mockEventsDelete = vi.hoisted(() => vi.fn())
 
+interface RefreshedTokens {
+  access_token?: string | null
+  expiry_date?: number | null
+}
+type TokensListener = (tokens: RefreshedTokens) => void
+
+let capturedCredentials: unknown
+let capturedTokensListener: TokensListener | undefined
+
 vi.mock('googleapis', () => {
   function MockOAuth2() {}
-  MockOAuth2.prototype.setCredentials = function () {}
+  MockOAuth2.prototype.setCredentials = function (credentials: unknown) {
+    capturedCredentials = credentials
+  }
+  MockOAuth2.prototype.on = function (event: string, listener: TokensListener) {
+    if (event === 'tokens') capturedTokensListener = listener
+  }
 
   return {
     google: {
@@ -24,44 +41,175 @@ vi.mock('googleapis', () => {
   }
 })
 
+const mockFindFirst = vi.hoisted(() => vi.fn())
+const mockUpdate = vi.hoisted(() => vi.fn())
+const mockSet = vi.hoisted(() => vi.fn())
+const mockWhere = vi.hoisted(() => vi.fn())
 vi.mock('@/db', () => ({
   db: {
-    query: {
-      accounts: {
-        findFirst: vi.fn().mockResolvedValue({
-          access_token: 'test-access-token',
-          refresh_token: 'test-refresh-token',
-        }),
-      },
-    },
+    query: { accounts: { findFirst: mockFindFirst } },
+    update: mockUpdate.mockReturnValue({ set: mockSet.mockReturnValue({ where: mockWhere }) }),
   },
 }))
 
 import { googleCalendarService } from '@/server/services/impl/google-calendar'
-import { db } from '@/db'
+import { CalendarNotConnectedError } from '@/server/services/errors'
+import { encryptToken, decryptToken } from '@/lib/token-crypto'
+import { logger } from '@/lib/logger'
 
-const mockFindFirst = vi.mocked(db.query.accounts.findFirst)
+const FULL_SCOPE =
+  'openid email profile https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.freebusy'
 
 describe('googleCalendarService', () => {
   const userId = 'user-123'
   const start = new Date('2026-05-01T09:00:00Z')
   const end = new Date('2026-05-01T17:00:00Z')
 
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedCredentials = undefined
+    capturedTokensListener = undefined
+    mockFindFirst.mockResolvedValue({
+      access_token: 'test-access-token',
+      refresh_token: 'test-refresh-token',
+      expires_at: 1753500000,
+      scope: FULL_SCOPE,
+    })
+    mockUpdate.mockReturnValue({ set: mockSet.mockReturnValue({ where: mockWhere }) })
+  })
 
   describe('getClient', () => {
-    it('throws when no access token', async () => {
-      mockFindFirst.mockResolvedValueOnce(null as never)
-      await expect(googleCalendarService.getEvents(userId, start, end)).rejects.toThrow(
-        'No Google account linked for user',
+    it('throws CalendarNotConnectedError when no account row', async () => {
+      mockFindFirst.mockResolvedValueOnce(null)
+      await expect(googleCalendarService.getEvents(userId, start, end)).rejects.toBeInstanceOf(
+        CalendarNotConnectedError,
       )
     })
 
-    it('uses undefined for null refresh_token', async () => {
-      mockFindFirst.mockResolvedValueOnce({ access_token: 'tok', refresh_token: null } as never)
+    it('throws CalendarNotConnectedError when calendar scopes missing', async () => {
+      mockFindFirst.mockResolvedValueOnce({
+        access_token: 'at',
+        refresh_token: 'rt',
+        scope: 'openid email profile',
+      })
+      await expect(googleCalendarService.getEvents(userId, start, end)).rejects.toBeInstanceOf(
+        CalendarNotConnectedError,
+      )
+    })
+
+    it('uses undefined for null refresh_token and absent expires_at', async () => {
+      mockFindFirst.mockResolvedValueOnce({
+        access_token: 'tok',
+        refresh_token: null,
+        scope: FULL_SCOPE,
+      })
       mockEventsList.mockResolvedValue({ data: { items: [] } })
       const events = await googleCalendarService.getEvents(userId, start, end)
       expect(events).toEqual([])
+      expect(capturedCredentials).toEqual({
+        access_token: 'tok',
+        refresh_token: undefined,
+        expiry_date: undefined,
+      })
+    })
+
+    it('decrypts stored tokens and sets expiry_date in ms', async () => {
+      mockFindFirst.mockResolvedValueOnce({
+        access_token: encryptToken('plain-at'),
+        refresh_token: encryptToken('plain-rt'),
+        expires_at: 1753500000,
+        scope: FULL_SCOPE,
+      })
+      mockEventsList.mockResolvedValueOnce({ data: { items: [] } })
+      await googleCalendarService.getEvents(userId, start, end)
+      expect(capturedCredentials).toEqual({
+        access_token: 'plain-at',
+        refresh_token: 'plain-rt',
+        expiry_date: 1753500000 * 1000,
+      })
+    })
+  })
+
+  describe('token refresh persistence', () => {
+    it('persists refreshed tokens from the tokens event, encrypted', async () => {
+      mockEventsList.mockResolvedValueOnce({ data: { items: [] } })
+      await googleCalendarService.getEvents(userId, start, end)
+      await capturedTokensListener!({ access_token: 'refreshed-at', expiry_date: 1753600000000 })
+      const setArg = mockSet.mock.calls[0]![0]
+      expect(decryptToken(setArg.access_token)).toBe('refreshed-at')
+      expect(setArg.expires_at).toBe(1753600000)
+    })
+
+    it('ignores a tokens event carrying nothing to persist', async () => {
+      mockEventsList.mockResolvedValueOnce({ data: { items: [] } })
+      await googleCalendarService.getEvents(userId, start, end)
+      await capturedTokensListener!({})
+      expect(mockSet).not.toHaveBeenCalled()
+    })
+
+    it('logs instead of throwing when the refresh persist fails', async () => {
+      mockEventsList.mockResolvedValueOnce({ data: { items: [] } })
+      await googleCalendarService.getEvents(userId, start, end)
+      mockWhere.mockRejectedValueOnce(new Error('db down'))
+      capturedTokensListener!({ access_token: 'refreshed-at' })
+      await vi.waitFor(() =>
+        expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
+          expect.objectContaining({ userId }),
+          'Failed to persist refreshed Google tokens',
+        ),
+      )
+    })
+  })
+
+  describe('revocation handling', () => {
+    it('invalid_grant clears tokens, strips calendar scopes, throws CalendarNotConnectedError', async () => {
+      mockEventsList.mockRejectedValueOnce({ response: { data: { error: 'invalid_grant' } } })
+      await expect(googleCalendarService.getEvents(userId, start, end)).rejects.toBeInstanceOf(
+        CalendarNotConnectedError,
+      )
+      const setArg = mockSet.mock.calls[0]![0]
+      expect(setArg.access_token).toBeNull()
+      expect(setArg.refresh_token).toBeNull()
+      expect(setArg.expires_at).toBeNull()
+      expect(setArg.scope).toBe('openid email profile')
+    })
+
+    it('treats an invalid_grant error message as revocation', async () => {
+      mockEventsList.mockRejectedValueOnce(new Error('invalid_grant: token has been revoked'))
+      await expect(googleCalendarService.getEvents(userId, start, end)).rejects.toBeInstanceOf(
+        CalendarNotConnectedError,
+      )
+      expect(mockSet).toHaveBeenCalled()
+    })
+
+    it('clears to an empty scope when the account row is gone', async () => {
+      mockFindFirst
+        .mockResolvedValueOnce({
+          access_token: 'at',
+          refresh_token: 'rt',
+          expires_at: 1753500000,
+          scope: FULL_SCOPE,
+        })
+        .mockResolvedValueOnce(undefined)
+      mockEventsList.mockRejectedValueOnce({ response: { data: { error: 'invalid_grant' } } })
+      await expect(googleCalendarService.getEvents(userId, start, end)).rejects.toBeInstanceOf(
+        CalendarNotConnectedError,
+      )
+      const setArg = mockSet.mock.calls[0]![0]
+      expect(setArg.scope).toBe('')
+    })
+
+    it('rethrows non-revocation errors untouched', async () => {
+      mockEventsList.mockRejectedValueOnce(new Error('boom'))
+      await expect(googleCalendarService.getEvents(userId, start, end)).rejects.toThrow('boom')
+      expect(mockSet).not.toHaveBeenCalled()
+    })
+
+    it('rethrows a messageless non-Error rejection untouched', async () => {
+      const rejection = { status: 503 }
+      mockEventsList.mockRejectedValueOnce(rejection)
+      await expect(googleCalendarService.getEvents(userId, start, end)).rejects.toBe(rejection)
+      expect(mockSet).not.toHaveBeenCalled()
     })
   })
 
