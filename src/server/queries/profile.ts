@@ -1,5 +1,6 @@
 import { db } from '@/db'
 import { events, users } from '@/db/schema'
+import { getFriendshipBetween } from '@/server/queries/friends'
 import { and, eq, gte, ilike, isNotNull, lt, ne, or } from 'drizzle-orm'
 
 const SINGLE_ROW_LIMIT = 1
@@ -24,6 +25,21 @@ export interface ProfileIdentity {
  * week-view sections. The visibility-w1 wave reintroduces a week view
  * (`getProfileWeekEvents` below), backed by the new events/event_series
  * `visibility` column rather than the retired `tasks` model.
+ *
+ * The friends wave (T4) extends `getProfileWeekEvents`'s visibility
+ * resolution to depend on the viewer/profile-owner relationship. Per-event
+ * visibility matrix, by viewer relationship:
+ *
+ * | viewer      | public | friends | busy | private  |
+ * |-------------|--------|---------|------|----------|
+ * | owner       | full   | full    | full | full     |
+ * | friend      | full   | full    | busy | excluded |
+ * | non-friend  | full   | busy    | busy | excluded |
+ *
+ * `private` stays excluded in the SQL WHERE (unchanged) regardless of
+ * friendship status. A `friends`-visibility row is only shown in full to a
+ * viewer with an ACCEPTED friendship with the profile owner — `pending`
+ * counts as non-friend.
  */
 export async function getProfileByUsername(
   viewerId: string,
@@ -166,8 +182,11 @@ function toBusyWeekEvent(row: EventRowDb): ProfileWeekEvent {
  * query in the app that returns another user's events. Non-owner viewers
  * never receive `private` rows (excluded in the WHERE clause, not filtered
  * in JS after the fact) and only ever see `busy` rows in their sanitized
- * shape. The owner sees every row, including their own `private` ones, all
- * mapped to the full public shape.
+ * shape, unless they hold an ACCEPTED friendship with the profile owner —
+ * see the module doc comment above for the full visibility matrix. The
+ * owner sees every row, including their own `private` ones, all mapped to
+ * the full public shape (the owner path short-circuits before querying
+ * friendship — a viewer can never need a friendship with themself).
  */
 export async function getProfileWeekEvents(
   viewerId: string,
@@ -180,6 +199,8 @@ export async function getProfileWeekEvents(
   const from = new Date(year!, month! - 1, day!)
   const to = new Date(year!, month! - 1, day! + WEEK_DAYS)
   const isOwner = viewerId === profileUserId
+  const friendship = isOwner ? null : await getFriendshipBetween(viewerId, profileUserId)
+  const isFriend = friendship?.status === 'accepted'
 
   const conditions = [
     eq(events.userId, profileUserId),
@@ -196,6 +217,8 @@ export async function getProfileWeekEvents(
     .where(and(...conditions))
 
   return rows.map((row) =>
-    isOwner || row.visibility === 'public' ? toPublicWeekEvent(row) : toBusyWeekEvent(row),
+    isOwner || row.visibility === 'public' || (isFriend && row.visibility === 'friends')
+      ? toPublicWeekEvent(row)
+      : toBusyWeekEvent(row),
   )
 }
