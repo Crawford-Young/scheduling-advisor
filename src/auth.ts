@@ -5,27 +5,32 @@ import { eq, sql } from 'drizzle-orm'
 import { db } from '@/db'
 import { accounts, sessions, users, verificationTokens, tokenLedger } from '@/db/schema'
 import { env } from '@/env'
+import { BASE_SIGNIN_SCOPE } from '@/lib/google-calendar-scopes'
+import { encryptAccountTokenFields, syncGoogleAccount } from '@/lib/google-account-sync'
 
 const compedEmails = new Set(
   env.COMPED_EMAILS ? env.COMPED_EMAILS.split(',').map((e) => e.trim().toLowerCase()) : [],
 )
 
+const baseAdapter = DrizzleAdapter(db, {
+  usersTable: users,
+  accountsTable: accounts,
+  sessionsTable: sessions,
+  verificationTokensTable: verificationTokens,
+})
+
 export const { auth, handlers, signIn, signOut } = NextAuth({
-  adapter: DrizzleAdapter(db, {
-    usersTable: users,
-    accountsTable: accounts,
-    sessionsTable: sessions,
-    verificationTokensTable: verificationTokens,
-  }),
+  adapter: {
+    ...baseAdapter,
+    linkAccount: (account) => baseAdapter.linkAccount!(encryptAccountTokenFields(account)),
+  },
   providers: [
     Google({
       clientId: env.AUTH_GOOGLE_ID,
       clientSecret: env.AUTH_GOOGLE_SECRET,
       authorization: {
         params: {
-          scope: 'openid email profile https://www.googleapis.com/auth/calendar',
-          access_type: 'offline',
-          prompt: 'consent',
+          scope: BASE_SIGNIN_SCOPE,
         },
       },
     }),
@@ -66,6 +71,11 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         }
       }
       return true
+    },
+  },
+  events: {
+    async signIn({ account }) {
+      if (account?.provider === 'google') await syncGoogleAccount(account)
     },
   },
   pages: {
