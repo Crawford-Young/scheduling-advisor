@@ -46,7 +46,9 @@ vi.mock('drizzle-orm', () => ({
   ne: vi.fn((col: unknown, val: unknown) => ({ op: 'ne', col, val })),
 }))
 
-beforeEach(() => {
+vi.mock('@/server/queries/friends', () => ({ getFriendshipBetween: vi.fn() }))
+
+beforeEach(async () => {
   vi.clearAllMocks()
   mockLimit.mockResolvedValue([])
   mockWhereResolve.mockResolvedValue([])
@@ -57,6 +59,9 @@ beforeEach(() => {
   })
   mockFrom.mockReturnValue({ where: mockWhere })
   mockSelect.mockReturnValue({ from: mockFrom })
+
+  const { getFriendshipBetween } = await import('@/server/queries/friends')
+  vi.mocked(getFriendshipBetween).mockResolvedValue(null)
 })
 
 describe('getProfileByUsername', () => {
@@ -362,6 +367,82 @@ describe('getProfileWeekEvents', () => {
     const result = await getProfileWeekEvents(OWNER_ID, OWNER_ID, WEEK_START)
 
     expect(result).toEqual([])
+  })
+
+  it('maps a friends-visibility row to the full public shape for an accepted friend', async () => {
+    const { getFriendshipBetween } = await import('@/server/queries/friends')
+    vi.mocked(getFriendshipBetween).mockResolvedValueOnce({
+      status: 'accepted',
+    } as Awaited<ReturnType<typeof getFriendshipBetween>>)
+    const row = makeRow({ visibility: 'friends' })
+    mockWhereResolve.mockResolvedValueOnce([row])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    const result = await getProfileWeekEvents(VIEWER_ID, OWNER_ID, WEEK_START)
+
+    expect(result).toEqual([
+      {
+        kind: 'public',
+        id: 'evt-1',
+        title: 'Team standup',
+        startAt: row.startAt,
+        endAt: row.endAt,
+        allDay: false,
+        color: 'blue',
+        location: 'Room 4',
+        description: 'daily sync',
+        completed: false,
+      },
+    ])
+  })
+
+  it('sanitizes a friends-visibility row to a busy row for a non-friend viewer', async () => {
+    const { getFriendshipBetween } = await import('@/server/queries/friends')
+    vi.mocked(getFriendshipBetween).mockResolvedValueOnce(null)
+    const row = makeRow({ visibility: 'friends' })
+    mockWhereResolve.mockResolvedValueOnce([row])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    const result = await getProfileWeekEvents(VIEWER_ID, OWNER_ID, WEEK_START)
+
+    expect(result).toEqual([{ kind: 'busy', id: 'evt-1', startAt: row.startAt, endAt: row.endAt }])
+    const busyRow = result[0] as Record<string, unknown>
+    expect('title' in busyRow).toBe(false)
+  })
+
+  it('treats a pending friendship as a non-friend for a friends-visibility row', async () => {
+    const { getFriendshipBetween } = await import('@/server/queries/friends')
+    vi.mocked(getFriendshipBetween).mockResolvedValueOnce({
+      status: 'pending',
+    } as Awaited<ReturnType<typeof getFriendshipBetween>>)
+    const row = makeRow({ visibility: 'friends' })
+    mockWhereResolve.mockResolvedValueOnce([row])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    const result = await getProfileWeekEvents(VIEWER_ID, OWNER_ID, WEEK_START)
+
+    expect(result).toEqual([{ kind: 'busy', id: 'evt-1', startAt: row.startAt, endAt: row.endAt }])
+  })
+
+  it('does not call getFriendshipBetween when the viewer is the owner', async () => {
+    const { getFriendshipBetween } = await import('@/server/queries/friends')
+    const row = makeRow({ visibility: 'friends' })
+    mockWhereResolve.mockResolvedValueOnce([row])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    await getProfileWeekEvents(OWNER_ID, OWNER_ID, WEEK_START)
+
+    expect(vi.mocked(getFriendshipBetween)).not.toHaveBeenCalled()
+  })
+
+  it('calls getFriendshipBetween with the viewer and profile owner ids for a non-owner', async () => {
+    const { getFriendshipBetween } = await import('@/server/queries/friends')
+    mockWhereResolve.mockResolvedValueOnce([])
+    const { getProfileWeekEvents } = await import('./profile')
+
+    await getProfileWeekEvents(VIEWER_ID, OWNER_ID, WEEK_START)
+
+    expect(vi.mocked(getFriendshipBetween)).toHaveBeenCalledWith(VIEWER_ID, OWNER_ID)
   })
 })
 
