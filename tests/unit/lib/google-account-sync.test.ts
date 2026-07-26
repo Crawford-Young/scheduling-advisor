@@ -36,6 +36,13 @@ describe('encryptAccountTokenFields', () => {
     expect(decryptToken(out.access_token as string)).toBe('at')
     expect(out.refresh_token).toBeNull()
   })
+
+  it('encrypts refresh_token and leaves absent access_token untouched', () => {
+    const out = encryptAccountTokenFields({ refresh_token: 'rt' })
+    expect(isEncrypted(out.refresh_token as string)).toBe(true)
+    expect(decryptToken(out.refresh_token as string)).toBe('rt')
+    expect(out.access_token).toBeUndefined()
+  })
 })
 
 describe('syncGoogleAccount', () => {
@@ -76,6 +83,13 @@ describe('syncGoogleAccount', () => {
     const setArg = mockSet.mock.calls[0]![0]
     expect(decryptToken(setArg.refresh_token)).toBe('rt2')
     expect(setArg.scope).toContain(EVENTS)
+  })
+
+  it('writes a scope-only update when the payload carries no tokens', async () => {
+    mockFindFirst.mockResolvedValue({ scope: 'openid', refresh_token: null })
+    await syncGoogleAccount(makeAccount({ scope: 'openid email' }))
+    const setArg = mockSet.mock.calls[0]![0]
+    expect(setArg).toEqual({ scope: 'openid email' })
   })
 
   it('no-ops when no existing row', async () => {
