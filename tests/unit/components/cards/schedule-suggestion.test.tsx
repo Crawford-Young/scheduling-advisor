@@ -9,6 +9,10 @@ import {
   scheduleSuggestionPropsSchema,
 } from '@/components/cards/schedule-suggestion'
 
+const mockConnect = vi.hoisted(() => vi.fn())
+vi.mock('@/server/actions/google-calendar', () => ({ connectGoogleCalendar: mockConnect }))
+vi.mock('next/navigation', () => ({ usePathname: () => '/chat/abc' }))
+
 const baseProps = {
   taskId: '550e8400-e29b-41d4-a716-446655440000',
   taskTitle: 'Run 5k',
@@ -53,6 +57,30 @@ describe('ScheduleSuggestion', () => {
     render(<ScheduleSuggestion {...baseProps} />)
     await userEvent.click(screen.getAllByText('Accept')[0]!)
     expect(screen.queryByText(/Scheduled/)).not.toBeInTheDocument()
+  })
+
+  it('shows connect prompt when accept returns 403 calendar_not_connected', async () => {
+    server.use(
+      http.post('/api/calendar/events', () =>
+        HttpResponse.json({ error: 'calendar_not_connected' }, { status: 403 }),
+      ),
+    )
+    render(<ScheduleSuggestion {...baseProps} />)
+    await userEvent.click(screen.getAllByRole('button', { name: 'Accept' })[0]!)
+    expect(await screen.findByText('Connect Google Calendar to add events.')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Connect Google Calendar' }))
+    expect(mockConnect).toHaveBeenCalledWith('/chat/abc')
+  })
+
+  it('does NOT show connect prompt on generic 500', async () => {
+    server.use(
+      http.post('/api/calendar/events', () =>
+        HttpResponse.json({ error: 'Failed to create event' }, { status: 500 }),
+      ),
+    )
+    render(<ScheduleSuggestion {...baseProps} />)
+    await userEvent.click(screen.getAllByRole('button', { name: 'Accept' })[0]!)
+    expect(screen.queryByText('Connect Google Calendar to add events.')).not.toBeInTheDocument()
   })
 
   it('shows all-slots-skipped message when all slots rejected', async () => {
