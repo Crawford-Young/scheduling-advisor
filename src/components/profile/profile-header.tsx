@@ -31,13 +31,14 @@ function formatMemberSince(createdAt: Date): string {
 
 interface ProfileHeaderProps {
   readonly identity: ProfileIdentity
+  readonly action?: React.ReactNode
 }
 
-export function ProfileHeader({ identity }: ProfileHeaderProps): React.JSX.Element {
+export function ProfileHeader({ identity, action }: ProfileHeaderProps): React.JSX.Element {
   const initials = computeInitials(identity.name, identity.username)
   const displayName = identity.name ?? `@${identity.username}`
 
-  return (
+  const content = (
     <div className="flex items-start gap-4">
       <Avatar size="lg">
         {identity.image !== null && <AvatarImage src={identity.image} alt={displayName} />}
@@ -53,6 +54,15 @@ export function ProfileHeader({ identity }: ProfileHeaderProps): React.JSX.Eleme
         )}
         <p className="text-muted-foreground text-sm">{formatMemberSince(identity.createdAt)}</p>
       </div>
+    </div>
+  )
+
+  if (action === undefined) return content
+
+  return (
+    <div className="flex items-start justify-between gap-4">
+      {content}
+      {action}
     </div>
   )
 }

@@ -88,4 +88,28 @@ describe('ProfileHeader', () => {
 
     expect(screen.getByTestId('avatar-image')).toHaveAttribute('src', 'https://example.com/ada.png')
   })
+
+  it('renders unchanged markup when no action is provided', () => {
+    const { container } = render(<ProfileHeader identity={makeIdentity()} />)
+
+    expect(container.querySelector('.justify-between')).toBeNull()
+    expect(container.firstElementChild).toHaveClass('flex', 'items-start', 'gap-4')
+  })
+
+  it('renders the action node right-aligned when provided', () => {
+    const { container } = render(
+      <ProfileHeader
+        identity={makeIdentity()}
+        action={<div data-testid="header-action">Add friend</div>}
+      />,
+    )
+
+    expect(screen.getByTestId('header-action')).toBeInTheDocument()
+    expect(container.firstElementChild).toHaveClass(
+      'flex',
+      'items-start',
+      'justify-between',
+      'gap-4',
+    )
+  })
 })
