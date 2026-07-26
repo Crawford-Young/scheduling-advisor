@@ -1,4 +1,12 @@
-import { activities, events, conversations, eventSeries, calendarPrefs, users } from '@/db/schema'
+import {
+  activities,
+  events,
+  conversations,
+  eventSeries,
+  calendarPrefs,
+  friendships,
+  users,
+} from '@/db/schema'
 
 it('activities has the template columns', () => {
   expect(activities.title).toBeDefined()
@@ -54,21 +62,35 @@ it('events carries a visibility column with the enum values and a private defaul
   expect(events.visibility).toBeDefined()
   expect(events.visibility.notNull).toBe(true)
   expect(events.visibility.default).toBe('private')
-  expect(events.visibility.enumValues).toEqual(['public', 'busy', 'private'])
+  expect(events.visibility.enumValues).toEqual(['public', 'friends', 'busy', 'private'])
 })
 
 it('eventSeries carries a visibility column with the enum values and a private default', () => {
   expect(eventSeries.visibility).toBeDefined()
   expect(eventSeries.visibility.notNull).toBe(true)
   expect(eventSeries.visibility.default).toBe('private')
-  expect(eventSeries.visibility.enumValues).toEqual(['public', 'busy', 'private'])
+  expect(eventSeries.visibility.enumValues).toEqual(['public', 'friends', 'busy', 'private'])
 })
 
 it('calendarPrefs carries a defaultVisibility column with the enum values and a private default', () => {
   expect(calendarPrefs.defaultVisibility).toBeDefined()
   expect(calendarPrefs.defaultVisibility.notNull).toBe(true)
   expect(calendarPrefs.defaultVisibility.default).toBe('private')
-  expect(calendarPrefs.defaultVisibility.enumValues).toEqual(['public', 'busy', 'private'])
+  expect(calendarPrefs.defaultVisibility.enumValues).toEqual([
+    'public',
+    'friends',
+    'busy',
+    'private',
+  ])
+})
+
+it('friendships carries the pair, status, and timestamps', () => {
+  expect(friendships.requesterId.notNull).toBe(true)
+  expect(friendships.addresseeId.notNull).toBe(true)
+  expect(friendships.status.notNull).toBe(true)
+  expect(friendships.status.default).toBe('pending')
+  expect(friendships.status.enumValues).toEqual(['pending', 'accepted'])
+  expect(friendships.respondedAt.notNull).toBe(false)
 })
 
 it('users carries the nullable rename-limit stamp column', () => {

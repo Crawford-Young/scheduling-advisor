@@ -128,7 +128,7 @@ describe('updateWakeSleepSchema (minutes-since-midnight)', () => {
     const result = updateWakeSleepSchema.safeParse({
       workingHoursStart: 540,
       workingHoursEnd: 1020,
-      defaultVisibility: 'friends',
+      defaultVisibility: 'secret',
     })
     expect(result.success).toBe(false)
   })
