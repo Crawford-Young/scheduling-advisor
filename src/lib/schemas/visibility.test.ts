@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { visibilitySchema } from '@/lib/schemas/visibility'
 
 describe('visibilitySchema', () => {
-  it.each(['public', 'busy', 'private'] as const)('accepts "%s"', (value) => {
+  it.each(['public', 'friends', 'busy', 'private'] as const)('accepts "%s"', (value) => {
     const r = visibilitySchema.safeParse(value)
     expect(r.success).toBe(true)
   })

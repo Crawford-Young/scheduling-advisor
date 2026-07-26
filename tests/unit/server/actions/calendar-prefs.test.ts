@@ -186,7 +186,7 @@ describe('setCalendarWindow', () => {
     const result = await setCalendarWindow({
       workingHoursStart: 7,
       workingHoursEnd: 23,
-      defaultVisibility: 'friends',
+      defaultVisibility: 'secret',
     })
     expect(result).toHaveProperty('error')
   })

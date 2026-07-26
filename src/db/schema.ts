@@ -9,6 +9,7 @@ import {
   json,
   jsonb,
   index,
+  uniqueIndex,
   boolean,
 } from 'drizzle-orm/pg-core'
 import type { CalendarDayOverrides } from '@/lib/schemas/calendar-prefs'
@@ -103,7 +104,9 @@ export const calendarPrefs = pgTable('calendar_prefs', {
   use24h: boolean('use_24h').notNull().default(false),
   // TTL auto-delete window in days; null = disabled.
   ttlDays: integer('ttl_days'),
-  defaultVisibility: text('default_visibility', { enum: ['public', 'busy', 'private'] })
+  defaultVisibility: text('default_visibility', {
+    enum: ['public', 'friends', 'busy', 'private'],
+  })
     .notNull()
     .default('private'),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -203,7 +206,7 @@ export const eventSeries = pgTable('event_series', {
   description: text('description'),
   location: text('location'),
   color: text('color'),
-  visibility: text('visibility', { enum: ['public', 'busy', 'private'] })
+  visibility: text('visibility', { enum: ['public', 'friends', 'busy', 'private'] })
     .notNull()
     .default('private'),
   freq: text('freq', { enum: ['daily', 'weekly', 'monthly', 'yearly'] }).notNull(),
@@ -247,9 +250,43 @@ export const events = pgTable('events', {
     .default('pending'),
   locked: boolean('locked').notNull().default(false),
   color: text('color'),
-  visibility: text('visibility', { enum: ['public', 'busy', 'private'] })
+  visibility: text('visibility', { enum: ['public', 'friends', 'busy', 'private'] })
     .notNull()
     .default('private'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
+
+// ── Friends (friends-w1) ─────────────────────────────────────────────────────
+// One row per pair: doubles as request queue (pending) and friend edge
+// (accepted). Decline/cancel/unfriend DELETE the row — no tombstones, a pair
+// can re-request later. The expression unique index makes the pair unique in
+// either direction.
+export const friendships = pgTable(
+  'friendships',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // users.id is `text` (Auth.js convention, see the users table above) —
+    // requesterId/addresseeId must match that column type or the FK
+    // constraint cannot be created (uuid and text are not comparable types).
+    requesterId: text('requester_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    addresseeId: text('addressee_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: text('status', { enum: ['pending', 'accepted'] })
+      .notNull()
+      .default('pending'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    respondedAt: timestamp('responded_at', { mode: 'date' }),
+  },
+  (t) => [
+    uniqueIndex('friendships_pair_unique_idx').on(
+      sql`least(${t.requesterId}, ${t.addresseeId})`,
+      sql`greatest(${t.requesterId}, ${t.addresseeId})`,
+    ),
+    index('friendships_requester_id_idx').on(t.requesterId),
+    index('friendships_addressee_id_idx').on(t.addresseeId),
+  ],
+)

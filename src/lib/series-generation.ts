@@ -5,6 +5,8 @@
 // generate a series' upcoming events. Replaces `event-generation.ts` (the
 // activity-schedule core, retired at A3) with day-iteration over any of the
 // four recurrence frequencies instead of week-anchor iteration over slots.
+import type { Visibility } from '@/lib/schemas/visibility'
+
 const DAYS_PER_WEEK = 7
 const HOURS_PER_DAY = 24
 const MINUTES_PER_HOUR = 60
@@ -43,7 +45,7 @@ export interface GeneratedEventSeed {
   readonly description: string | null
   readonly location: string | null
   readonly color: string | null
-  readonly visibility: 'public' | 'busy' | 'private'
+  readonly visibility: Visibility
   readonly startAt: Date
   readonly endAt: Date
 }
@@ -54,7 +56,7 @@ export interface GenerationSeries {
   readonly description: string | null
   readonly location: string | null
   readonly color: string | null
-  readonly visibility: 'public' | 'busy' | 'private'
+  readonly visibility: Visibility
   readonly freq: 'daily' | 'weekly' | 'monthly' | 'yearly'
   readonly weekdays: readonly number[] | null
   readonly dayOfMonth: number | null
