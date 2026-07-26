@@ -34,4 +34,5 @@ for (const row of rows) {
   `
   updated += 1
 }
+// eslint-disable-next-line no-console -- CLI script; stdout is its interface
 console.log(`encrypted token fields on ${updated} of ${rows.length} account rows`)
