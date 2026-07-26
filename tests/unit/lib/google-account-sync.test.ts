@@ -41,7 +41,7 @@ describe('encryptAccountTokenFields', () => {
     const out = encryptAccountTokenFields({ refresh_token: 'rt' })
     expect(isEncrypted(out.refresh_token as string)).toBe(true)
     expect(decryptToken(out.refresh_token as string)).toBe('rt')
-    expect(out.access_token).toBeUndefined()
+    expect('access_token' in out).toBe(false)
   })
 })
 
