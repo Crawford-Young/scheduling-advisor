@@ -20,6 +20,7 @@ import {
   Rss,
   Settings,
   User,
+  Users,
 } from 'lucide-react'
 import Image from 'next/image'
 import React from 'react'
@@ -29,6 +30,7 @@ const NAV_ITEMS_BEFORE_PROFILE = [
   { label: 'Activities', href: '/activities', icon: <ListChecks className="h-4 w-4" /> },
   { label: 'Reflections', href: '/reflections', icon: <MessageSquare className="h-4 w-4" /> },
   { label: 'Feed', href: '/feed', icon: <Rss className="h-4 w-4" /> },
+  { label: 'Friends', href: '/friends', icon: <Users className="h-4 w-4" /> },
 ] as const
 
 const NAV_ITEMS_AFTER_PROFILE = [
