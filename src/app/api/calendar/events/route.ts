@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { getCalendarService } from '@/server/services'
+import { CalendarNotConnectedError } from '@/server/services/errors'
 import { ratelimit } from '@/lib/redis'
 import { logger } from '@/lib/logger'
 import { z } from 'zod'
@@ -30,6 +31,9 @@ export async function GET(req: NextRequest) {
     const events = await service.getEvents(session.user.id, new Date(start), new Date(end))
     return NextResponse.json({ events })
   } catch (err) {
+    if (err instanceof CalendarNotConnectedError) {
+      return NextResponse.json({ error: 'calendar_not_connected' }, { status: 403 })
+    }
     logger.error({ err, userId: session.user.id }, 'Failed to fetch calendar events')
     return NextResponse.json({ error: 'Failed to fetch events' }, { status: 500 })
   }
@@ -57,6 +61,9 @@ export async function POST(req: NextRequest) {
     })
     return NextResponse.json({ event })
   } catch (err) {
+    if (err instanceof CalendarNotConnectedError) {
+      return NextResponse.json({ error: 'calendar_not_connected' }, { status: 403 })
+    }
     logger.error({ err, userId: session.user.id }, 'Failed to create calendar event')
     return NextResponse.json({ error: 'Failed to create event' }, { status: 500 })
   }
