@@ -27,6 +27,8 @@ export default defineConfig({
       VAPID_EMAIL: process.env.VAPID_EMAIL ?? 'playwright@example.com',
       TRIGGER_API_KEY: process.env.TRIGGER_API_KEY ?? 'playwright-trigger-key',
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? 'sk-ant-playwright-test-key',
+      // base64 of 32 zero bytes — valid key shape for the unauthenticated suite
+      TOKEN_ENC_KEY: process.env.TOKEN_ENC_KEY ?? 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
       ENCRYPTION_KEY:
         process.env.ENCRYPTION_KEY ??
         'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
