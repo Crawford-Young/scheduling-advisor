@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { RequestsSection } from './requests-section'
+import { IncomingRequestsList, OutgoingRequestsList } from './request-lists'
 import {
   acceptFriendRequest,
   declineFriendRequest,
@@ -21,6 +21,7 @@ vi.mock('@/server/actions/friends', () => ({
 }))
 
 const ERROR_MESSAGE = 'Something went wrong. Try again.'
+const NO_MATCHES = 'No matches.'
 
 function makeRequest(overrides: Record<string, unknown> = {}) {
   return {
@@ -34,38 +35,39 @@ function makeRequest(overrides: Record<string, unknown> = {}) {
   }
 }
 
-describe('RequestsSection', () => {
+describe('IncomingRequestsList', () => {
   beforeEach(() => {
     refreshMock.mockClear()
     vi.mocked(acceptFriendRequest).mockReset()
     vi.mocked(declineFriendRequest).mockReset()
-    vi.mocked(cancelFriendRequest).mockReset()
   })
 
-  it('renders the "No incoming requests." empty state when incoming is empty', () => {
-    render(<RequestsSection incoming={[]} outgoing={[]} />)
+  it('renders the "No incoming requests." empty state when requests is empty and not filtered', () => {
+    render(<IncomingRequestsList requests={[]} isFiltered={false} />)
     expect(screen.getByText('No incoming requests.')).toBeInTheDocument()
   })
 
-  it('renders the "No sent requests." empty state when outgoing is empty', () => {
-    render(<RequestsSection incoming={[]} outgoing={[]} />)
-    expect(screen.getByText('No sent requests.')).toBeInTheDocument()
+  it('renders the "No matches." empty state when requests is empty and filtered', () => {
+    render(<IncomingRequestsList requests={[]} isFiltered={true} />)
+    expect(screen.getByText(NO_MATCHES)).toBeInTheDocument()
   })
 
   it('renders an incoming request row with the requester name', () => {
-    render(<RequestsSection incoming={[makeRequest()]} outgoing={[]} />)
+    render(<IncomingRequestsList requests={[makeRequest()]} isFiltered={false} />)
     expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
   })
 
-  it('renders an outgoing request row with the addressee name', () => {
-    render(<RequestsSection incoming={[]} outgoing={[makeRequest({ name: 'Bob Marley' })]} />)
-    expect(screen.getByText('Bob Marley')).toBeInTheDocument()
+  it('renders rows inside a divide-y container', () => {
+    const { container } = render(
+      <IncomingRequestsList requests={[makeRequest()]} isFiltered={false} />,
+    )
+    expect(container.querySelector('.divide-y')).not.toBeNull()
   })
 
   it('accepts an incoming request and refreshes on success', async () => {
     const user = userEvent.setup()
     vi.mocked(acceptFriendRequest).mockResolvedValue({ data: {} as never })
-    render(<RequestsSection incoming={[makeRequest()]} outgoing={[]} />)
+    render(<IncomingRequestsList requests={[makeRequest()]} isFiltered={false} />)
 
     await user.click(screen.getByRole('button', { name: 'Accept' }))
 
@@ -78,7 +80,7 @@ describe('RequestsSection', () => {
   it('declines an incoming request and refreshes on success', async () => {
     const user = userEvent.setup()
     vi.mocked(declineFriendRequest).mockResolvedValue({ data: { success: true } })
-    render(<RequestsSection incoming={[makeRequest()]} outgoing={[]} />)
+    render(<IncomingRequestsList requests={[makeRequest()]} isFiltered={false} />)
 
     await user.click(screen.getByRole('button', { name: 'Decline' }))
 
@@ -91,7 +93,7 @@ describe('RequestsSection', () => {
   it('shows an inline error when accepting fails, without refreshing', async () => {
     const user = userEvent.setup()
     vi.mocked(acceptFriendRequest).mockResolvedValue({ error: 'boom' })
-    render(<RequestsSection incoming={[makeRequest()]} outgoing={[]} />)
+    render(<IncomingRequestsList requests={[makeRequest()]} isFiltered={false} />)
 
     await user.click(screen.getByRole('button', { name: 'Accept' }))
 
@@ -108,7 +110,7 @@ describe('RequestsSection', () => {
           resolveAction = resolve
         }),
     )
-    render(<RequestsSection incoming={[makeRequest()]} outgoing={[]} />)
+    render(<IncomingRequestsList requests={[makeRequest()]} isFiltered={false} />)
     const acceptButton = screen.getByRole('button', { name: 'Accept' })
 
     await user.click(acceptButton)
@@ -119,11 +121,42 @@ describe('RequestsSection', () => {
 
     await vi.waitFor(() => expect(acceptButton).not.toBeDisabled())
   })
+})
+
+describe('OutgoingRequestsList', () => {
+  beforeEach(() => {
+    refreshMock.mockClear()
+    vi.mocked(cancelFriendRequest).mockReset()
+  })
+
+  it('renders the "No sent requests." empty state when requests is empty and not filtered', () => {
+    render(<OutgoingRequestsList requests={[]} isFiltered={false} />)
+    expect(screen.getByText('No sent requests.')).toBeInTheDocument()
+  })
+
+  it('renders the "No matches." empty state when requests is empty and filtered', () => {
+    render(<OutgoingRequestsList requests={[]} isFiltered={true} />)
+    expect(screen.getByText(NO_MATCHES)).toBeInTheDocument()
+  })
+
+  it('renders an outgoing request row with the addressee name', () => {
+    render(
+      <OutgoingRequestsList requests={[makeRequest({ name: 'Bob Marley' })]} isFiltered={false} />,
+    )
+    expect(screen.getByText('Bob Marley')).toBeInTheDocument()
+  })
+
+  it('renders rows inside a divide-y container', () => {
+    const { container } = render(
+      <OutgoingRequestsList requests={[makeRequest()]} isFiltered={false} />,
+    )
+    expect(container.querySelector('.divide-y')).not.toBeNull()
+  })
 
   it('cancels an outgoing request and refreshes on success', async () => {
     const user = userEvent.setup()
     vi.mocked(cancelFriendRequest).mockResolvedValue({ data: { success: true } })
-    render(<RequestsSection incoming={[]} outgoing={[makeRequest()]} />)
+    render(<OutgoingRequestsList requests={[makeRequest()]} isFiltered={false} />)
 
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
@@ -136,7 +169,7 @@ describe('RequestsSection', () => {
   it('shows an inline error when cancelling fails, without refreshing', async () => {
     const user = userEvent.setup()
     vi.mocked(cancelFriendRequest).mockResolvedValue({ error: 'boom' })
-    render(<RequestsSection incoming={[]} outgoing={[makeRequest()]} />)
+    render(<OutgoingRequestsList requests={[makeRequest()]} isFiltered={false} />)
 
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
@@ -153,7 +186,7 @@ describe('RequestsSection', () => {
           resolveAction = resolve
         }),
     )
-    render(<RequestsSection incoming={[]} outgoing={[makeRequest()]} />)
+    render(<OutgoingRequestsList requests={[makeRequest()]} isFiltered={false} />)
     const cancelButton = screen.getByRole('button', { name: 'Cancel' })
 
     await user.click(cancelButton)

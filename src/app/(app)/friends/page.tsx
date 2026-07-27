@@ -4,8 +4,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { PageHeader, StaggerReveal } from '@/lib/ui'
 import { getFriends, getIncomingRequests, getOutgoingRequests } from '@/server/queries/friends'
-import { RequestsSection } from '@/components/friends/requests-section'
-import { FriendsSection } from '@/components/friends/friends-section'
+import { FriendsTabs } from '@/components/friends/friends-tabs'
 
 export default async function FriendsPage(): Promise<React.JSX.Element> {
   const session = await auth()
@@ -19,10 +18,9 @@ export default async function FriendsPage(): Promise<React.JSX.Element> {
 
   return (
     <ViewTransition enter="reveal-enter" default="none">
-      <StaggerReveal className="mx-auto max-w-5xl space-y-10">
+      <StaggerReveal className="mx-auto max-w-5xl space-y-6">
         <PageHeader title="Friends" />
-        <RequestsSection incoming={incoming} outgoing={outgoing} />
-        <FriendsSection friends={friends} />
+        <FriendsTabs friends={friends} incoming={incoming} outgoing={outgoing} />
       </StaggerReveal>
     </ViewTransition>
   )

@@ -37,12 +37,19 @@ describe('FriendsLoading', () => {
     expect(viewTransition).toHaveAttribute('data-exit', 'reveal-exit')
   })
 
-  it('renders a busy, width-matched skeleton container with four blocks', () => {
+  it('renders a busy, width-matched skeleton container (heading, tab bar, search, row group)', () => {
     const { container } = render(<FriendsLoading />)
 
     const busyContainer = container.querySelector('[aria-busy="true"]')
     expect(busyContainer).not.toBeNull()
-    expect(busyContainer).toHaveClass('mx-auto', 'max-w-5xl', 'space-y-10')
+    expect(busyContainer).toHaveClass('mx-auto', 'max-w-5xl', 'space-y-6')
     expect(busyContainer?.children).toHaveLength(4)
+  })
+
+  it('renders four row skeletons inside the row group', () => {
+    const { container } = render(<FriendsLoading />)
+
+    const rowGroup = container.querySelector('.space-y-2')
+    expect(rowGroup?.children).toHaveLength(4)
   })
 })

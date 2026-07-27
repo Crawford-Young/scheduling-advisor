@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { FriendRow } from './friend-row'
+import { FriendRow, friendDisplayName } from './friend-row'
 
 vi.mock('@/lib/ui', () => ({
   Avatar: ({ children }: { children: React.ReactNode }) => (
@@ -25,19 +25,41 @@ function makeUser(overrides: Partial<Parameters<typeof FriendRow>[0]['user']> = 
   }
 }
 
+describe('friendDisplayName', () => {
+  it('returns the name when present', () => {
+    expect(friendDisplayName(makeUser({ name: 'Ada Lovelace', username: 'ada' }))).toBe(
+      'Ada Lovelace',
+    )
+  })
+
+  it('falls back to the username when name is null', () => {
+    expect(friendDisplayName(makeUser({ name: null, username: 'carol' }))).toBe('carol')
+  })
+
+  it('falls back to "Unknown user" when both name and username are null', () => {
+    expect(friendDisplayName(makeUser({ name: null, username: null }))).toBe('Unknown user')
+  })
+})
+
 describe('FriendRow', () => {
   it('renders the display name', () => {
     render(<FriendRow user={makeUser()} />)
     expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
   })
 
-  it('renders @username as a link to /u/[username] when username is present', () => {
+  it('renders @username as plain text, not a link', () => {
     render(<FriendRow user={makeUser({ username: 'ada' })} />)
-    const link = screen.getByRole('link', { name: '@ada' })
+    expect(screen.getByText('@ada')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '@ada' })).not.toBeInTheDocument()
+  })
+
+  it('renders a whole-row overlay link to /u/[username] with an accessible name', () => {
+    render(<FriendRow user={makeUser({ username: 'ada', name: 'Ada Lovelace' })} />)
+    const link = screen.getByRole('link', { name: "View Ada Lovelace's profile" })
     expect(link).toHaveAttribute('href', '/u/ada')
   })
 
-  it('does not render a username link when username is null', () => {
+  it('does not render any link when username is null', () => {
     render(<FriendRow user={makeUser({ username: null })} />)
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
   })
