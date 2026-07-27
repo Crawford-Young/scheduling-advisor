@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { sanitizeUsernameInput, usernameSchema } from './username'
+import {
+  isReservedUsername,
+  RESERVED_USERNAMES,
+  sanitizeUsernameInput,
+  USERNAME_MIN,
+  USERNAME_RENAME_WINDOW_DAYS,
+  USERNAME_RENAME_WINDOW_MS,
+  usernameSchema,
+} from './username'
 
 describe('usernameSchema', () => {
   it('accepts 3-20 char lowercase alphanumeric with underscores', () => {
@@ -32,5 +40,36 @@ describe('sanitizeUsernameInput', () => {
   })
   it('returns an empty string for empty input', () => {
     expect(sanitizeUsernameInput('')).toBe('')
+  })
+})
+
+describe('isReservedUsername', () => {
+  it('matches a reserved name exactly', () => {
+    expect(isReservedUsername('admin')).toBe(true)
+    expect(isReservedUsername('cybond')).toBe(true)
+    expect(isReservedUsername('settings')).toBe(true)
+  })
+
+  it('does not match a name that merely contains a reserved word', () => {
+    expect(isReservedUsername('adminlover')).toBe(false)
+    expect(isReservedUsername('the_admin')).toBe(false)
+    expect(isReservedUsername('notarobot')).toBe(false)
+  })
+
+  it('carries every entry of the approved list', () => {
+    expect(RESERVED_USERNAMES.size).toBe(39)
+  })
+})
+
+describe('rename window constants', () => {
+  it('is 14 days, also expressed in milliseconds', () => {
+    expect(USERNAME_RENAME_WINDOW_DAYS).toBe(14)
+    expect(USERNAME_RENAME_WINDOW_MS).toBe(14 * 24 * 60 * 60 * 1000)
+  })
+})
+
+describe('USERNAME_MIN', () => {
+  it('is exported so the client can disable Save below the floor', () => {
+    expect(USERNAME_MIN).toBe(3)
   })
 })
