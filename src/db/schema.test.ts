@@ -1,4 +1,4 @@
-import { activities, events, conversations, eventSeries, calendarPrefs } from '@/db/schema'
+import { activities, events, conversations, eventSeries, calendarPrefs, users } from '@/db/schema'
 
 it('activities has the template columns', () => {
   expect(activities.title).toBeDefined()
@@ -69,4 +69,9 @@ it('calendarPrefs carries a defaultVisibility column with the enum values and a 
   expect(calendarPrefs.defaultVisibility.notNull).toBe(true)
   expect(calendarPrefs.defaultVisibility.default).toBe('private')
   expect(calendarPrefs.defaultVisibility.enumValues).toEqual(['public', 'busy', 'private'])
+})
+
+it('users carries the nullable rename-limit stamp column', () => {
+  expect(users.lastUsernameChangeAt).toBeDefined()
+  expect(users.lastUsernameChangeAt.notNull).toBe(false)
 })

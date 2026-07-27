@@ -169,6 +169,13 @@
       "when": 1784916392065,
       "tag": "0023_dear_exiles",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1785183227906,
+      "tag": "0024_huge_talkback",
+      "breakpoints": true
     }
   ]
 }
