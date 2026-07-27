@@ -29,6 +29,11 @@ export const users = pgTable('users', {
   plan: text('plan', { enum: ['starter', 'growth', 'pro', 'comped'] }),
   stripeCustomerId: text('stripe_customer_id').unique(),
   tokenResetAt: timestamp('token_reset_at'),
+  // Stamped on EVERY successful setUsername write, including the first-ever
+  // set (STRICT rule, approved 2026-07-27). NULL on rows that predate the
+  // username-boundaries wave — those users get exactly one un-gated rename,
+  // which stamps the column and puts them on the normal clock from then on.
+  lastUsernameChangeAt: timestamp('last_username_change_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
