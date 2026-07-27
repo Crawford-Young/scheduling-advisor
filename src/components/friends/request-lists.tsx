@@ -13,6 +13,7 @@ import type { FriendRequestEntry } from '@/server/queries/friends'
 type FriendActionResult = { data: unknown } | { error: unknown }
 
 const ERROR_MESSAGE = 'Something went wrong. Try again.'
+const NO_MATCHES = 'No matches.'
 
 /**
  * Runs a friend action inside a transition, refreshing the route on success
@@ -99,39 +100,39 @@ function OutgoingRequestRow({ request }: OutgoingRequestRowProps): React.JSX.Ele
   )
 }
 
-interface RequestsSectionProps {
-  readonly incoming: readonly FriendRequestEntry[]
-  readonly outgoing: readonly FriendRequestEntry[]
+interface RequestListProps {
+  readonly requests: readonly FriendRequestEntry[]
+  readonly isFiltered: boolean
 }
 
-/** Renders the incoming and sent friend-request sections of the /friends page. */
-export function RequestsSection({ incoming, outgoing }: RequestsSectionProps): React.JSX.Element {
+export function IncomingRequestsList({
+  requests,
+  isFiltered,
+}: RequestListProps): React.JSX.Element {
+  if (requests.length === 0) {
+    return <EmptyState message={isFiltered ? NO_MATCHES : 'No incoming requests.'} />
+  }
   return (
-    <>
-      <section className="space-y-4">
-        <h2 className="text-lg font-semibold">Incoming requests</h2>
-        {incoming.length === 0 ? (
-          <EmptyState message="No incoming requests." />
-        ) : (
-          <div className="space-y-2">
-            {incoming.map((request) => (
-              <IncomingRequestRow key={request.friendshipId} request={request} />
-            ))}
-          </div>
-        )}
-      </section>
-      <section className="space-y-4">
-        <h2 className="text-lg font-semibold">Sent requests</h2>
-        {outgoing.length === 0 ? (
-          <EmptyState message="No sent requests." />
-        ) : (
-          <div className="space-y-2">
-            {outgoing.map((request) => (
-              <OutgoingRequestRow key={request.friendshipId} request={request} />
-            ))}
-          </div>
-        )}
-      </section>
-    </>
+    <div className="divide-border divide-y">
+      {requests.map((request) => (
+        <IncomingRequestRow key={request.friendshipId} request={request} />
+      ))}
+    </div>
+  )
+}
+
+export function OutgoingRequestsList({
+  requests,
+  isFiltered,
+}: RequestListProps): React.JSX.Element {
+  if (requests.length === 0) {
+    return <EmptyState message={isFiltered ? NO_MATCHES : 'No sent requests.'} />
+  }
+  return (
+    <div className="divide-border divide-y">
+      {requests.map((request) => (
+        <OutgoingRequestRow key={request.friendshipId} request={request} />
+      ))}
+    </div>
   )
 }

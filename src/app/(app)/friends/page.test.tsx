@@ -48,25 +48,22 @@ vi.mock('@/server/queries/friends', () => ({
   getOutgoingRequests: (...args: unknown[]) => getOutgoingRequestsMock(...args),
 }))
 
-vi.mock('@/components/friends/requests-section', () => ({
-  RequestsSection: ({
+vi.mock('@/components/friends/friends-tabs', () => ({
+  FriendsTabs: ({
+    friends,
     incoming,
     outgoing,
   }: {
+    friends: readonly { friendshipId: string }[]
     incoming: readonly { friendshipId: string }[]
     outgoing: readonly { friendshipId: string }[]
   }) => (
     <div
-      data-testid="requests-section"
+      data-testid="friends-tabs"
+      data-friends-count={friends.length}
       data-incoming-count={incoming.length}
       data-outgoing-count={outgoing.length}
     />
-  ),
-}))
-
-vi.mock('@/components/friends/friends-section', () => ({
-  FriendsSection: ({ friends }: { friends: readonly { friendshipId: string }[] }) => (
-    <div data-testid="friends-section" data-friends-count={friends.length} />
   ),
 }))
 
@@ -119,28 +116,21 @@ describe('FriendsPage', () => {
     expect(screen.getByTestId('page-header')).toHaveTextContent('Friends')
   })
 
-  it('passes incoming and outgoing requests to RequestsSection', async () => {
+  it('passes friends, incoming, and outgoing requests to FriendsTabs', async () => {
     authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
+    getFriendsMock.mockResolvedValue([{ friendshipId: 'f-1' }])
     getIncomingRequestsMock.mockResolvedValue([{ friendshipId: 'r-1' }])
     getOutgoingRequestsMock.mockResolvedValue([{ friendshipId: 'r-2' }, { friendshipId: 'r-3' }])
 
     render(await FriendsPage())
 
-    const section = screen.getByTestId('requests-section')
-    expect(section).toHaveAttribute('data-incoming-count', '1')
-    expect(section).toHaveAttribute('data-outgoing-count', '2')
+    const tabs = screen.getByTestId('friends-tabs')
+    expect(tabs).toHaveAttribute('data-friends-count', '1')
+    expect(tabs).toHaveAttribute('data-incoming-count', '1')
+    expect(tabs).toHaveAttribute('data-outgoing-count', '2')
   })
 
-  it('passes friends to FriendsSection', async () => {
-    authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
-    getFriendsMock.mockResolvedValue([{ friendshipId: 'f-1' }])
-
-    render(await FriendsPage())
-
-    expect(screen.getByTestId('friends-section')).toHaveAttribute('data-friends-count', '1')
-  })
-
-  it('wraps the page in a reveal ViewTransition with a two-section space-y-10 container', async () => {
+  it('wraps the page in a reveal ViewTransition with a single-section space-y-6 container', async () => {
     authMock.mockResolvedValue({ user: { id: 'viewer-1' } })
 
     render(await FriendsPage())
@@ -149,6 +139,6 @@ describe('FriendsPage', () => {
     expect(viewTransition).toHaveAttribute('data-enter', 'reveal-enter')
     expect(viewTransition).toHaveAttribute('data-default', 'none')
     const staggerReveal = screen.getByTestId('stagger-reveal')
-    expect(staggerReveal).toHaveClass('mx-auto', 'max-w-5xl', 'space-y-10')
+    expect(staggerReveal).toHaveClass('mx-auto', 'max-w-5xl', 'space-y-6')
   })
 })
