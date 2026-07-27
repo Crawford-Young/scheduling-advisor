@@ -16,7 +16,8 @@ import {
 } from '@/lib/ui'
 import { setUsername, updateProfile } from '@/server/actions/profile'
 import { PROFILE_NAME_MAX, PROFILE_BIO_MAX } from '@/lib/schemas/profile'
-import { sanitizeUsernameInput, USERNAME_MAX } from '@/lib/schemas/username'
+import { sanitizeUsernameInput, USERNAME_MAX, USERNAME_MIN } from '@/lib/schemas/username'
+import { mapUsernameError, USERNAME_ERROR_FALLBACK } from '@/lib/username-errors'
 
 type SaveStatus = 'idle' | 'saved' | 'error'
 
@@ -38,6 +39,7 @@ export function ProfileSection({
 
   const [username, setUsernameValue] = useState(initialUsername)
   const [usernameStatus, setUsernameStatus] = useState<SaveStatus>('idle')
+  const [usernameError, setUsernameError] = useState<string | null>(null)
   const [isUsernamePending, startUsernameTransition] = useTransition()
 
   const profileDirty = name !== initialName || bio !== initialBio
@@ -56,9 +58,16 @@ export function ProfileSection({
   function handleUsernameSave(): void {
     startUsernameTransition(async () => {
       try {
-        await setUsername(username)
+        const result = await setUsername(username)
+        if ('error' in result) {
+          setUsernameError(mapUsernameError(result.error))
+          setUsernameStatus('error')
+          return
+        }
+        setUsernameError(null)
         setUsernameStatus('saved')
       } catch {
+        setUsernameError(USERNAME_ERROR_FALLBACK)
         setUsernameStatus('error')
       }
     })
@@ -123,6 +132,7 @@ export function ProfileSection({
               onChange={(e) => {
                 setUsernameValue(sanitizeUsernameInput(e.target.value))
                 setUsernameStatus('idle')
+                setUsernameError(null)
               }}
               placeholder="your_username"
               className="max-w-xs"
@@ -130,7 +140,9 @@ export function ProfileSection({
             <Button
               aria-label="Save username"
               onClick={handleUsernameSave}
-              disabled={isUsernamePending || username === initialUsername}
+              disabled={
+                isUsernamePending || username === initialUsername || username.length < USERNAME_MIN
+              }
             >
               {isUsernamePending ? 'Saving…' : 'Save'}
             </Button>
@@ -141,9 +153,7 @@ export function ProfileSection({
           {usernameStatus === 'saved' && (
             <p className="text-xs text-emerald-400">Username saved.</p>
           )}
-          {usernameStatus === 'error' && (
-            <p className="text-xs text-red-400">Invalid or taken username — try another.</p>
-          )}
+          {usernameStatus === 'error' && <p className="text-xs text-red-400">{usernameError}</p>}
         </div>
 
         {initialUsername !== '' ? (
