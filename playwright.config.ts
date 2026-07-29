@@ -1,5 +1,12 @@
 import { defineConfig, devices } from '@playwright/test'
 
+// Port is configurable so concurrent sessions can run e2e on a fresh port without
+// reusing another session's dev server. `next dev` reads PORT from the env itself.
+// E2E_BASE_URL overrides both, so the compliance spec can run against the live
+// deployment (W6 production sweep) instead of a local server.
+const PORT = process.env.PORT ?? '3000'
+const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
@@ -7,13 +14,13 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: 'html',
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: BASE_URL,
     trace: 'on-first-retry',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
     command: 'pnpm dev',
-    url: 'http://localhost:3000/api/health',
+    url: `${BASE_URL}/api/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
     env: {
@@ -34,7 +41,7 @@ export default defineConfig({
         'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       NEXT_PUBLIC_VAPID_PUBLIC_KEY:
         process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? 'playwright-vapid-public',
-      NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000',
+      NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL ?? BASE_URL,
       STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ?? 'sk_test_playwright',
       STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET ?? 'whsec_playwright',
       STRIPE_PRICE_ID_STARTER: process.env.STRIPE_PRICE_ID_STARTER ?? 'price_playwright_starter',

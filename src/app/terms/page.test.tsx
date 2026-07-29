@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import { axe } from 'jest-axe'
 import { describe, expect, it } from 'vitest'
 
 import TermsPage from './page'
@@ -30,5 +31,10 @@ describe('TermsPage', () => {
     const contacts = screen.getAllByRole('link', { name: 'hello@crawfordyoung.dev' })
     expect(contacts.length).toBeGreaterThan(0)
     expect(contacts[0]).toHaveAttribute('href', 'mailto:hello@crawfordyoung.dev')
+  })
+
+  it('passes axe accessibility check', async () => {
+    const { container } = render(<TermsPage />)
+    expect(await axe(container)).toHaveNoViolations()
   })
 })
