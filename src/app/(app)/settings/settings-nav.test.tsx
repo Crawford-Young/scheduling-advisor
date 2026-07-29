@@ -152,6 +152,43 @@ describe('SettingsNav', () => {
     expect(activeTabName()).toBe('Integrations')
   })
 
+  // The spacer under the last section is deliberately small (user QA: a
+  // viewport-tall one read as dead space), so that section never rises into
+  // the spy band. At max scroll it is the current section by definition.
+  it('activates the last section once the container is scrolled to the bottom', () => {
+    useMockObserver()
+    renderNav()
+    latestObserver().trigger([['calendar', true]])
+    expect(activeTabName()).toBe('Calendar')
+
+    const main = document.querySelector('main')
+    if (!main) throw new Error('no <main> in the test DOM')
+    // happy-dom does no layout, so these are all 0 — define them to describe a
+    // container scrolled to its end.
+    Object.defineProperty(main, 'scrollHeight', { value: 2000, configurable: true })
+    Object.defineProperty(main, 'clientHeight', { value: 800, configurable: true })
+    Object.defineProperty(main, 'scrollTop', { value: 1200, configurable: true })
+    act(() => {
+      main.dispatchEvent(new Event('scroll'))
+    })
+    expect(activeTabName()).toBe('Integrations')
+  })
+
+  it('leaves the spy alone while the container is mid-scroll', () => {
+    useMockObserver()
+    renderNav()
+    latestObserver().trigger([['calendar', true]])
+    const main = document.querySelector('main')
+    if (!main) throw new Error('no <main> in the test DOM')
+    Object.defineProperty(main, 'scrollHeight', { value: 2000, configurable: true })
+    Object.defineProperty(main, 'clientHeight', { value: 800, configurable: true })
+    Object.defineProperty(main, 'scrollTop', { value: 400, configurable: true })
+    act(() => {
+      main.dispatchEvent(new Event('scroll'))
+    })
+    expect(activeTabName()).toBe('Calendar')
+  })
+
   it('seeds the active tab from the URL hash', () => {
     useMockObserver()
     window.location.hash = '#integrations'

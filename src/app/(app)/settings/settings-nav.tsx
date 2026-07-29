@@ -16,6 +16,8 @@ export const SETTINGS_SECTIONS = [
 ] as const satisfies readonly SettingsSection[]
 
 const SPY_ROOT_MARGIN = '0px 0px -60% 0px'
+const BOTTOM_EPSILON_PX = 2
+const LAST_SECTION_ID = SETTINGS_SECTIONS.at(-1)?.id ?? SETTINGS_SECTIONS[0].id
 
 function subscribeToHash(onStoreChange: () => void): () => void {
   window.addEventListener('hashchange', onStoreChange)
@@ -52,21 +54,43 @@ export function SettingsNav(): React.JSX.Element {
     )
     if (elements.length === 0) return
     const visible = visibleRef.current
+    const root = navRef.current?.closest('main') ?? null
+
+    function resolveActive(): void {
+      // The last section sits above the spy band once the container bottoms
+      // out, so it could never win on intersection alone. At max scroll it is
+      // the current section by definition — this is what lets the spacer below
+      // it stay small instead of a full viewport tall.
+      // The scrollable guard is load-bearing: an unlaid-out container reports
+      // every metric as 0, and 0 + 0 >= 0 would read as "at the bottom".
+      const scrollable = root !== null && root.scrollHeight > root.clientHeight
+      if (
+        scrollable &&
+        root.scrollTop + root.clientHeight >= root.scrollHeight - BOTTOM_EPSILON_PX
+      ) {
+        setSpyId(LAST_SECTION_ID)
+        return
+      }
+      // Deepest visible section wins, not the first: a tall section still
+      // spans the spy band while the next one's top has already entered it,
+      // so first-in-document-order would stick to the section above.
+      const current = SETTINGS_SECTIONS.filter((section) => visible.get(section.id) === true).at(-1)
+      if (current) setSpyId(current.id)
+    }
+
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) visible.set(entry.target.id, entry.isIntersecting)
-        // Deepest visible section wins, not the first: a tall section still
-        // spans the spy band while the next one's top has already entered it,
-        // so first-in-document-order would stick to the section above.
-        const current = SETTINGS_SECTIONS.filter((section) => visible.get(section.id) === true).at(
-          -1,
-        )
-        if (current) setSpyId(current.id)
+        resolveActive()
       },
-      { root: navRef.current?.closest('main') ?? null, rootMargin: SPY_ROOT_MARGIN },
+      { root, rootMargin: SPY_ROOT_MARGIN },
     )
     for (const element of elements) observer.observe(element)
-    return () => observer.disconnect()
+    root?.addEventListener('scroll', resolveActive, { passive: true })
+    return () => {
+      observer.disconnect()
+      root?.removeEventListener('scroll', resolveActive)
+    }
   }, [])
 
   return (
