@@ -6,6 +6,7 @@ import { Analytics } from '@vercel/analytics/next'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import { SplashAnimationClient } from '@/components/splash/splash-animation-client'
 import { SplashProvider } from '@/components/splash/splash-provider'
+import { SITE_URL } from '@/lib/site-routes'
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -18,6 +19,11 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
+  // Pinned to the constant, not env.NEXT_PUBLIC_APP_URL: a canonical origin is
+  // a published fact about the host, not a per-env knob. The carsickyak host
+  // shipped og:url = http://localhost:3000 to production from exactly that
+  // wiring, invisible to every gate because the value is correct locally.
+  metadataBase: new URL(SITE_URL),
   title: 'Cybond',
   description: 'Bond to what matters.',
 }

@@ -1,5 +1,6 @@
 import { signIn } from '@/auth'
 import { CalendarDays } from 'lucide-react'
+import Link from 'next/link'
 import { SplitText, StaggerReveal, MagneticButton } from '@/lib/ui'
 import { LoginAmbient } from '@/components/login/login-ambient'
 
@@ -52,6 +53,20 @@ export default function LoginPage() {
             Continue with Google
           </MagneticButton>
         </form>
+
+        {/*
+          `/login` is the only page a signed-out visitor or a crawler can reach,
+          so it is the sole link path to the policy pages. The sitemap lists
+          them too, but AdSense review follows links from the live site.
+        */}
+        <p className="text-muted-foreground flex items-center gap-4 text-sm">
+          <Link href="/privacy" className="underline-offset-4 hover:underline">
+            Privacy
+          </Link>
+          <Link href="/terms" className="underline-offset-4 hover:underline">
+            Terms
+          </Link>
+        </p>
       </StaggerReveal>
     </main>
   )
