@@ -128,14 +128,28 @@ describe('SettingsNav', () => {
     expect(activeTabName()).toBe('Calendar')
   })
 
-  it('prefers the topmost section when several are visible at once', () => {
+  // Browser QA (settings-tabs-w1, issue #3) refuted the original "first in
+  // document order" rule: a tall section still spans the spy band while the
+  // next section's top has already entered it, so clicking the last tab left
+  // the previous one lit. The deepest visible section is the correct choice.
+  it('prefers the deepest section when several are visible at once', () => {
+    useMockObserver()
+    renderNav()
+    latestObserver().trigger([
+      ['calendar', true],
+      ['integrations', true],
+    ])
+    expect(activeTabName()).toBe('Integrations')
+  })
+
+  it('ignores document order in the entry list when choosing the deepest', () => {
     useMockObserver()
     renderNav()
     latestObserver().trigger([
       ['integrations', true],
       ['calendar', true],
     ])
-    expect(activeTabName()).toBe('Calendar')
+    expect(activeTabName()).toBe('Integrations')
   })
 
   it('seeds the active tab from the URL hash', () => {

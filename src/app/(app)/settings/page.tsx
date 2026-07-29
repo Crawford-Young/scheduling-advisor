@@ -18,8 +18,9 @@ import { StaggerReveal } from '@/lib/ui'
 import { SettingsNav } from './settings-nav'
 
 // Drives both the scroll offset and the last section's spacer, so they cannot
-// drift apart: pt-6 (1.5rem) + the size="sm" button's h-8 (2rem) + pb-3 (0.75rem).
-const SETTINGS_NAV_STYLE = { '--settings-nav-h': '4.25rem' } as CSSProperties
+// drift apart: pt-6 (1.5rem) + the size="sm" button's h-8 (2rem) + pb-3 (0.75rem)
+// + the 1px border-b = 69px. Measured against the rendered strip at QA.
+const SETTINGS_NAV_STYLE = { '--settings-nav-h': '4.3125rem' } as CSSProperties
 
 export default async function SettingsPage() {
   const session = await auth()
@@ -56,7 +57,7 @@ export default async function SettingsPage() {
           </section>
           <section
             id="integrations"
-            className="min-h-[calc(100dvh-3rem-1.5rem-var(--settings-nav-h))] scroll-mt-[var(--settings-nav-h)]"
+            className="min-h-[calc(100dvh-3rem-var(--settings-nav-h))] scroll-mt-[var(--settings-nav-h)]"
           >
             <IntegrationsSection status={calendarStatus} />
           </section>

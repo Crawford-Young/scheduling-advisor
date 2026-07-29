@@ -55,7 +55,12 @@ export function SettingsNav(): React.JSX.Element {
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) visible.set(entry.target.id, entry.isIntersecting)
-        const current = SETTINGS_SECTIONS.find((section) => visible.get(section.id) === true)
+        // Deepest visible section wins, not the first: a tall section still
+        // spans the spy band while the next one's top has already entered it,
+        // so first-in-document-order would stick to the section above.
+        const current = SETTINGS_SECTIONS.filter((section) => visible.get(section.id) === true).at(
+          -1,
+        )
         if (current) setSpyId(current.id)
       },
       { root: navRef.current?.closest('main') ?? null, rootMargin: SPY_ROOT_MARGIN },
