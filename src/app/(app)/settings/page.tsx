@@ -17,9 +17,10 @@ import {
 import { StaggerReveal } from '@/lib/ui'
 import { SettingsNav } from './settings-nav'
 
-// Drives both the scroll offset and the last section's spacer, so they cannot
-// drift apart: pt-6 (1.5rem) + the size="sm" button's h-8 (2rem) + pb-3 (0.75rem)
-// + the 1px border-b = 69px. Measured against the rendered strip at QA.
+// Scroll offset for anchored sections, so one lands below the sticky strip
+// rather than under it: pt-6 (1.5rem) + the size="sm" button's h-8 (2rem)
+// + pb-3 (0.75rem) + the 1px border-b = 69px. Measured against the rendered
+// strip at QA, not trusted from this arithmetic.
 const SETTINGS_NAV_STYLE = { '--settings-nav-h': '4.3125rem' } as CSSProperties
 
 export default async function SettingsPage() {
@@ -55,10 +56,7 @@ export default async function SettingsPage() {
               initialDefaultVisibility={prefs?.defaultVisibility ?? 'private'}
             />
           </section>
-          <section
-            id="integrations"
-            className="min-h-[calc(100dvh-3rem-var(--settings-nav-h))] scroll-mt-[var(--settings-nav-h)]"
-          >
+          <section id="integrations" className="scroll-mt-[var(--settings-nav-h)] pb-32">
             <IntegrationsSection status={calendarStatus} />
           </section>
         </StaggerReveal>
