@@ -1,0 +1,1 @@
+ALTER TABLE "users" ALTER COLUMN "last_username_change_at" SET DATA TYPE timestamp with time zone USING "last_username_change_at" AT TIME ZONE 'UTC';

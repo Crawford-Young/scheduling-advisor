@@ -33,7 +33,7 @@ export const users = pgTable('users', {
   // set (STRICT rule, approved 2026-07-27). NULL on rows that predate the
   // username-boundaries wave — those users get exactly one un-gated rename,
   // which stamps the column and puts them on the normal clock from then on.
-  lastUsernameChangeAt: timestamp('last_username_change_at'),
+  lastUsernameChangeAt: timestamp('last_username_change_at', { withTimezone: true, mode: 'date' }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
