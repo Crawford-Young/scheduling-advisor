@@ -57,3 +57,12 @@
     animation: none !important;
   }
 }
+
+/* In-page anchor navs (Settings section tabs) scroll AppShell's <main>, not the
+   document — the shell root is h-screen overflow-hidden. <main> is rendered by
+   the library and takes no className from the app, so the rule lives here. */
+@media (prefers-reduced-motion: no-preference) {
+  main {
+    scroll-behavior: smooth;
+  }
+}
