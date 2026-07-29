@@ -9,20 +9,16 @@ export interface RenameGateInput {
 }
 
 /**
- * STRICT rule (approved 2026-07-27): the first-ever set is free, and every
- * later write waits out the full window measured from the previous stamp — a
- * typo fixed moments after the first set is not exempt.
+ * ONE-CHANGE-GRACE rule (user decision 2026-07-28, replacing the STRICT rule
+ * approved 2026-07-27): the first-ever set does not stamp
+ * `users.lastUsernameChangeAt`, so the caller gets exactly one free correction
+ * of the name they just picked. That second write stamps, and every write after
+ * it waits out the full window measured from the previous stamp.
  *
- * A null `lastChangeAt` on a user who ALREADY has a username is the
- * pre-migration backfill case. It reads as "no recorded prior change", so that
- * user gets exactly ONE un-gated rename; that write stamps the column and puts
- * them on the normal clock from then on. Neither "blocked forever" nor "always
- * free" — this is a deliberate plan decision, not an accident of null handling.
- *
- * PENDING USER DECISION: the onboarding wave argues for a one-change grace
- * (don't stamp until the SECOND successful write). If approved, the change is
- * confined to this file, its test file, and the labelled stamp expression in
- * `setUsername` — nothing else.
+ * This predicate is unchanged between the two rules — a null `lastChangeAt`
+ * reads as "no recorded prior change" and does not block, which is what makes
+ * both the grace case and the pre-migration backfill case work. The rule lives
+ * in the stamp expression in `setUsername`, not here.
  */
 export function isRenameBlocked(input: RenameGateInput): boolean {
   const { currentUsername, lastChangeAt, now } = input

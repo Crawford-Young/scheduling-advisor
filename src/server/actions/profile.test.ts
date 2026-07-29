@@ -118,18 +118,29 @@ describe('setUsername', () => {
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
-  it('sets the first-ever username and stamps the column', async () => {
+  it('sets the first-ever username without stamping the column (one-change grace)', async () => {
     mockSelectLimit
       .mockResolvedValueOnce([{ username: null, lastUsernameChangeAt: null }])
       .mockResolvedValueOnce([])
     expect(await setUsername('new_name')).toEqual({ data: { username: 'new_name' } })
     expect(mockUpdateSet).toHaveBeenCalledWith({
       username: 'new_name',
-      lastUsernameChangeAt: expect.any(Date),
+      lastUsernameChangeAt: null,
     })
     expect(revalidatePath).toHaveBeenCalledTimes(2)
     expect(revalidatePath).toHaveBeenCalledWith('/settings')
     expect(revalidatePath).toHaveBeenCalledWith('/u/new_name')
+  })
+
+  it('stamps a Date on a rename by a caller who already has a username', async () => {
+    mockSelectLimit
+      .mockResolvedValueOnce([{ username: 'old_name', lastUsernameChangeAt: OUTSIDE_WINDOW }])
+      .mockResolvedValueOnce([])
+    expect(await setUsername('new_name')).toEqual({ data: { username: 'new_name' } })
+    expect(mockUpdateSet).toHaveBeenCalledWith({
+      username: 'new_name',
+      lastUsernameChangeAt: expect.any(Date),
+    })
   })
 
   it('logs the successful set', async () => {
