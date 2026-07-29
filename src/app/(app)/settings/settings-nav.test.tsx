@@ -192,6 +192,15 @@ describe('SettingsNav', () => {
     expect(observer.disconnected).toBe(true)
   })
 
+  it('exports section ids the page must use verbatim', async () => {
+    const { SETTINGS_SECTIONS } = await import('@/app/(app)/settings/settings-nav')
+    expect(SETTINGS_SECTIONS.map((section) => section.id)).toEqual([
+      'profile',
+      'calendar',
+      'integrations',
+    ])
+  })
+
   it('has no axe violations in dark and light themes', async () => {
     useMockObserver()
     renderNav()
