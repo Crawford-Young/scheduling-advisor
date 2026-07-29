@@ -16,16 +16,16 @@ test.describe('Home page', () => {
     await expect(page).toHaveURL(/\/login/)
   })
 
-  // Goals/Habits/Tasks were unified into /activities (Wave 2). The auth proxy
-  // redirects every unauthenticated path to /login before routing resolves, so a
-  // removed route is indistinguishable from a protected one here (both 200 the
-  // login page) — a 404 is unobservable in the deliberately-unauthenticated suite
-  // (see AGENTS.md). Removal itself is verified at build/grep level; here we assert
-  // the old paths no longer serve their own page and behave like any gated route.
+  // Goals/Habits/Tasks were unified into /activities (Wave 2). These used to
+  // assert a redirect to /login, because the auth proxy's catch-all matcher
+  // swallowed every unrouted path and a 404 was genuinely unobservable — the
+  // assertion was encoding that soft-404 bug as the expected behavior. The
+  // AdSense compliance wave narrowed the matcher to an allow-list, so a removed
+  // route now reaches Next's own 404 handler and this can assert removal
+  // directly instead of standing in for it.
   for (const route of ['/goals', '/habits', '/tasks']) {
-    test(`removed route ${route} redirects to login`, async ({ page }) => {
-      await page.goto(route)
-      await expect(page).toHaveURL(/\/login/)
+    test(`removed route ${route} returns a real 404`, async ({ request }) => {
+      expect((await request.get(route)).status()).toBe(404)
     })
   }
 

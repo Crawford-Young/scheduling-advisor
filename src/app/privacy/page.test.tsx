@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import { axe } from 'jest-axe'
 import { describe, expect, it } from 'vitest'
 
 import PrivacyPage from './page'
@@ -51,5 +52,10 @@ describe('PrivacyPage', () => {
       'href',
       '/terms',
     )
+  })
+
+  it('passes axe accessibility check', async () => {
+    const { container } = render(<PrivacyPage />)
+    expect(await axe(container)).toHaveNoViolations()
   })
 })
