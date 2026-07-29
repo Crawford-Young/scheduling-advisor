@@ -67,11 +67,16 @@ export async function setUsername(raw: string): Promise<SetUsernameResult> {
   if (taken) return { error: 'Username unavailable' }
 
   try {
-    // STAMP SEAM (pending user decision, username-w1 T4): the STRICT rule
-    // stamps on EVERY successful write, first-ever set included. The
-    // one-change-grace variant writes `current.username === null ? null : now`
-    // here instead — that is the whole change on this side.
-    await db.update(users).set({ username, lastUsernameChangeAt: now }).where(eq(users.id, userId))
+    // One-change grace (user decision, 2026-07-28, QA-R1 issue #7): the
+    // first-ever set leaves the stamp NULL, so the user gets exactly ONE free
+    // correction of the name they just picked; that second write stamps and
+    // starts the 14-day clock. A pre-wave user holding a username with a NULL
+    // stamp already behaved this way — the two paths now agree. The STRICT
+    // variant this replaces stamped here unconditionally.
+    await db
+      .update(users)
+      .set({ username, lastUsernameChangeAt: current.username === null ? null : now })
+      .where(eq(users.id, userId))
   } catch (error) {
     // Race backstop: two concurrent callers can both clear the pre-check; the
     // unique index rejects the loser. Map that to the same generic copy — a raw
