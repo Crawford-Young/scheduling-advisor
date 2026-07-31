@@ -1,6 +1,7 @@
 'use client'
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
+import { ChevronDown } from 'lucide-react'
 import {
   Button,
   DropdownMenu,
@@ -100,9 +101,14 @@ export function FriendButton({
             <DropdownMenuTrigger asChild>
               <Button type="button" variant="outline" disabled={isPending}>
                 Friends
+                {/* The label alone states the relationship and reads as an inert
+                    status pill — the caret is what says actions live behind it. */}
+                <ChevronDown className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent>
+            {/* min-w-0 drops the library's min-w-[8rem]: with one short item the
+                slack all lands on the right and reads as uncentered text. */}
+            <DropdownMenuContent align="end" className="min-w-0">
               <DropdownMenuItem onSelect={handleRemove} disabled={isPending}>
                 Remove friend
               </DropdownMenuItem>
