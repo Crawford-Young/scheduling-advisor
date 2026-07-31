@@ -222,6 +222,21 @@ describe('FriendButton', () => {
       expect(screen.getByRole('button', { name: 'Friends' })).toBeInTheDocument()
     })
 
+    it('marks the trigger as a menu and shows a caret, so removal is discoverable', () => {
+      render(
+        <FriendButton
+          profileUserId={PROFILE_USER_ID}
+          view="friends"
+          friendshipId={FRIENDSHIP_ID}
+        />,
+      )
+      const trigger = screen.getByRole('button', { name: 'Friends' })
+      expect(trigger).toHaveAttribute('aria-haspopup', 'menu')
+      // The label alone states the relationship and reads as an inert status
+      // pill; the caret is what tells a user actions live behind it.
+      expect(trigger.querySelector('svg')).not.toBeNull()
+    })
+
     it('removes the friendship when "Remove friend" is selected', async () => {
       const user = userEvent.setup()
       vi.mocked(removeFriend).mockResolvedValue({ data: { success: true } })

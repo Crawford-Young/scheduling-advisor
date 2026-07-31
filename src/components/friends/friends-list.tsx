@@ -59,7 +59,9 @@ function FriendRowItem({ friend }: FriendRowItemProps): React.JSX.Element {
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          {/* min-w-0 drops the library's min-w-[8rem]: with one short item the
+              slack all lands on the right and reads as uncentered text. */}
+          <DropdownMenuContent align="end" className="min-w-0">
             <DropdownMenuItem onSelect={handleRemove} disabled={isPending}>
               Remove friend
             </DropdownMenuItem>
