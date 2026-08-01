@@ -3,6 +3,7 @@ import { render, screen, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { axe } from 'jest-axe'
+import { AddFriendDialog } from './add-friend-dialog'
 import { FriendsTabs } from './friends-tabs'
 import { FriendButton } from '@/components/profile/friend-button'
 import type { FriendRequestEntry, FriendUser } from '@/server/queries/friends'
@@ -17,6 +18,16 @@ vi.mock('@/server/actions/friends', () => ({
   declineFriendRequest: vi.fn(),
   cancelFriendRequest: vi.fn(),
   removeFriend: vi.fn(),
+}))
+vi.mock('@/server/actions/search', () => ({
+  searchUsersGlobal: vi.fn().mockResolvedValue({
+    data: [
+      { id: 'u-add', username: 'dana', name: 'Dana Reyes', image: null },
+      { id: 'u-friend', username: 'ada', name: 'Ada Lovelace', image: null },
+      { id: 'u-out', username: 'sam', name: 'Sam Ortiz', image: null },
+      { id: 'u-in', username: 'zoe', name: 'Zoe Park', image: null },
+    ],
+  }),
 }))
 
 const THEMES = ['dark', 'light'] as const
@@ -104,4 +115,37 @@ describe('friends surfaces accessibility', () => {
       await expectNoViolationsInBothThemes()
     })
   }
+
+  it('the add-friend dialog with every row state has no violations in either theme', async () => {
+    const user = userEvent.setup()
+    // The dialog portals to document.body, so it needs no <main> wrapper —
+    // role="dialog" is its own top-level container for axe's region rule.
+    render(
+      <AddFriendDialog
+        open
+        onOpenChange={vi.fn()}
+        relations={
+          new Map([
+            ['u-friend', 'friends'],
+            ['u-in', 'incoming'],
+            ['u-out', 'outgoing'],
+          ] as const)
+        }
+      />,
+    )
+    await user.type(screen.getByRole('searchbox', { name: 'Search people' }), 'ad')
+    // One result row per relation state: Add button, Friends, Requested, Sent
+    // you a request — waiting on the debounced search (real timers here).
+    expect(await screen.findByRole('button', { name: 'Add' })).toBeInTheDocument()
+    // `aria-hidden-focus` is disabled for Radix Dialog focus guards only — the
+    // sentinel spans are aria-hidden + tabindex=0 BY DESIGN (focus trap), and
+    // the same disable existed in the old global-search dialog test for the
+    // same reason (see global-search.test.tsx's history note).
+    for (const theme of THEMES) {
+      document.documentElement.className = theme
+      expect(
+        await axe(document.body, { rules: { 'aria-hidden-focus': { enabled: false } } }),
+      ).toHaveNoViolations()
+    }
+  })
 })

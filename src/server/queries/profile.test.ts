@@ -191,20 +191,35 @@ describe('searchUsers', () => {
     expect(mockLimit).toHaveBeenCalledWith(SEARCH_RESULT_LIMIT)
   })
 
-  it('does not exclude the viewer from their own results', async () => {
-    const row = { username: 'viewer', name: 'Viewer Name', image: null }
+  it('does not exclude the viewer from their own results by default', async () => {
+    const { ne } = await import('drizzle-orm')
+    const row = { id: 'viewer-1', username: 'viewer', name: 'Viewer Name', image: null }
     mockLimit.mockResolvedValueOnce([row])
     const { searchUsers } = await import('./profile')
 
     const result = await searchUsers('viewer-1', 'view')
 
-    expect(result).toEqual([{ username: 'viewer', name: 'Viewer Name', image: null }])
+    expect(result).toEqual([
+      { id: 'viewer-1', username: 'viewer', name: 'Viewer Name', image: null },
+    ])
+    expect(vi.mocked(ne)).not.toHaveBeenCalled()
   })
 
-  it('maps rows to username/name/image shape', async () => {
+  it('excludes the viewer in SQL when excludeSelf is set', async () => {
+    const { users } = await import('@/db/schema')
+    const { ne } = await import('drizzle-orm')
+    mockLimit.mockResolvedValueOnce([])
+    const { searchUsers } = await import('./profile')
+
+    await searchUsers('viewer-1', 'view', { excludeSelf: true })
+
+    expect(vi.mocked(ne)).toHaveBeenCalledWith(users.id, 'viewer-1')
+  })
+
+  it('maps rows to id/username/name/image shape', async () => {
     const rows = [
-      { username: 'carol', name: 'Carol', image: 'https://example.com/carol.png' },
-      { username: 'carly', name: null, image: null },
+      { id: 'user-2', username: 'carol', name: 'Carol', image: 'https://example.com/carol.png' },
+      { id: 'user-3', username: 'carly', name: null, image: null },
     ]
     mockLimit.mockResolvedValueOnce(rows)
     const { searchUsers } = await import('./profile')
@@ -212,8 +227,8 @@ describe('searchUsers', () => {
     const result = await searchUsers('viewer-1', 'car')
 
     expect(result).toEqual([
-      { username: 'carol', name: 'Carol', image: 'https://example.com/carol.png' },
-      { username: 'carly', name: null, image: null },
+      { id: 'user-2', username: 'carol', name: 'Carol', image: 'https://example.com/carol.png' },
+      { id: 'user-3', username: 'carly', name: null, image: null },
     ])
   })
 })

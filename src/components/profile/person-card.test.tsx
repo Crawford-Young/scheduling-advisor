@@ -22,6 +22,7 @@ vi.mock('@/lib/ui', () => ({
 
 function makeResult(overrides: Partial<UserSearchResult> = {}): UserSearchResult {
   return {
+    id: 'user-ada',
     username: 'ada',
     name: 'Ada Lovelace',
     image: null,

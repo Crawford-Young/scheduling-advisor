@@ -95,5 +95,9 @@ export async function searchUsersGlobal(input: unknown): Promise<UserSearchActio
   if (!success) return { error: 'Too many requests' }
   const parsed = globalSearchSchema.safeParse(input)
   if (!parsed.success) return { error: parsed.error.flatten() }
-  return { data: await searchUsers(session.user.id, parsed.data.query) }
+  return {
+    data: await searchUsers(session.user.id, parsed.data.query, {
+      excludeSelf: parsed.data.excludeSelf === true,
+    }),
+  }
 }

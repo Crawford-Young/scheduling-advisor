@@ -1,6 +1,5 @@
 'use client'
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
 import { ChevronDown } from 'lucide-react'
 import {
   Button,
@@ -16,8 +15,13 @@ import {
   cancelFriendRequest,
   removeFriend,
 } from '@/server/actions/friends'
+import {
+  FRIEND_ACTION_ERROR_MESSAGE,
+  useFriendRequestAction,
+} from '@/components/friends/use-friend-action'
+import type { FriendshipView } from '@/lib/friendship-view'
 
-export type FriendshipView = 'none' | 'outgoing' | 'incoming' | 'friends'
+export type { FriendshipView }
 
 interface FriendButtonProps {
   readonly profileUserId: string
@@ -25,52 +29,31 @@ interface FriendButtonProps {
   readonly friendshipId: string | null
 }
 
-type FriendActionResult = { data: unknown } | { error: unknown }
-
-const ERROR_MESSAGE = 'Something went wrong. Try again.'
-
 export function FriendButton({
   profileUserId,
   view,
   friendshipId,
 }: FriendButtonProps): React.JSX.Element {
-  const router = useRouter()
-  const [isPending, startTransition] = React.useTransition()
-  const [hasError, setHasError] = React.useState(false)
-
-  function runAction(action: () => Promise<FriendActionResult>): void {
-    setHasError(false)
-    startTransition(async () => {
-      const result = await action()
-      if ('error' in result) {
-        setHasError(true)
-        return
-      }
-      // router.refresh() under experimental.viewTransition must run inside a
-      // React transition or the browser aborts it (InvalidStateError) — see
-      // the repo's programmatic-nav-under-viewTransition trap.
-      React.startTransition(() => router.refresh())
-    })
-  }
+  const { isPending, hasError, run } = useFriendRequestAction()
 
   function handleAdd(): void {
-    runAction(() => sendFriendRequest({ addresseeId: profileUserId }))
+    run(() => sendFriendRequest({ addresseeId: profileUserId }))
   }
 
   function handleCancel(): void {
-    if (friendshipId !== null) runAction(() => cancelFriendRequest({ friendshipId }))
+    if (friendshipId !== null) run(() => cancelFriendRequest({ friendshipId }))
   }
 
   function handleAccept(): void {
-    if (friendshipId !== null) runAction(() => acceptFriendRequest({ friendshipId }))
+    if (friendshipId !== null) run(() => acceptFriendRequest({ friendshipId }))
   }
 
   function handleDecline(): void {
-    if (friendshipId !== null) runAction(() => declineFriendRequest({ friendshipId }))
+    if (friendshipId !== null) run(() => declineFriendRequest({ friendshipId }))
   }
 
   function handleRemove(): void {
-    if (friendshipId !== null) runAction(() => removeFriend({ friendshipId }))
+    if (friendshipId !== null) run(() => removeFriend({ friendshipId }))
   }
 
   return (
@@ -116,7 +99,7 @@ export function FriendButton({
           </DropdownMenu>
         )}
       </div>
-      {hasError && <p className="text-destructive text-sm">{ERROR_MESSAGE}</p>}
+      {hasError && <p className="text-destructive text-sm">{FRIEND_ACTION_ERROR_MESSAGE}</p>}
     </div>
   )
 }
