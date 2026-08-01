@@ -67,6 +67,7 @@ export async function getProfileByUsername(
 }
 
 export interface UserSearchResult {
+  readonly id: string
   readonly username: string
   readonly name: string | null
   readonly image: string | null
@@ -93,14 +94,13 @@ export function escapeLikePattern(input: string): string {
 export async function searchUsers(
   viewerId: string,
   q: string,
+  options?: { readonly excludeSelf?: boolean },
 ): Promise<readonly UserSearchResult[]> {
-  // No viewer-specific filtering applies to search results yet (viewer may
-  // appear in their own results, no self-exclusion) — the parameter is kept
-  // on the signature per this module's single-visibility-enforcement-point
-  // contract so later tasks/reviewers can add viewer-scoped filtering here
-  // without an API change.
-  void viewerId
-
+  // Self-exclusion is caller intent, not a global truth — the feed and the
+  // topbar search deliberately show the viewer their own row, while the
+  // add-friend dialog opts out here (in SQL, per this module's
+  // single-visibility-enforcement-point contract) so the viewer's row never
+  // leaves the server nor consumes one of the result slots.
   const trimmed = q.trim()
   if (trimmed === '') return []
 
@@ -113,11 +113,13 @@ export async function searchUsers(
       and(
         isNotNull(users.username),
         or(ilike(users.username, pattern), ilike(users.name, pattern)),
+        ...(options?.excludeSelf === true ? [ne(users.id, viewerId)] : []),
       ),
     )
     .limit(SEARCH_RESULT_LIMIT)
 
   return rows.map((row) => ({
+    id: row.id,
     username: row.username as string,
     name: row.name,
     image: row.image,

@@ -14,6 +14,26 @@ vi.mock('./friends-list', () => ({
   }) => <div data-testid="friends-list" data-count={friends.length} data-filtered={isFiltered} />,
 }))
 
+vi.mock('./add-friend-dialog', () => ({
+  SEARCH_PLACEHOLDER: 'Search by name or @username',
+  AddFriendDialog: ({
+    relations,
+    onOpenChange,
+  }: {
+    relations: ReadonlyMap<string, string>
+    onOpenChange: (open: boolean) => void
+  }) => (
+    <div
+      data-testid="add-friend-dialog"
+      data-relations={[...relations.entries()].map(([id, view]) => `${id}:${view}`).join(',')}
+    >
+      <button type="button" onClick={() => onOpenChange(false)}>
+        Close dialog
+      </button>
+    </div>
+  ),
+}))
+
 vi.mock('./request-lists', () => ({
   IncomingRequestsList: ({
     requests,
@@ -168,6 +188,44 @@ describe('FriendsTabs', () => {
 
     await user.click(screen.getByRole('tab', { name: 'Sent 1' }))
     expect(await screen.findByTestId('outgoing-list')).toHaveAttribute('data-count', '1')
+  })
+
+  it('renders an Add friend button and mounts the dialog only after it is clicked', async () => {
+    const user = userEvent.setup()
+    render(<FriendsTabs friends={[]} incoming={[]} outgoing={[]} />)
+
+    expect(screen.queryByTestId('add-friend-dialog')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Add friend' }))
+    expect(screen.getByTestId('add-friend-dialog')).toBeInTheDocument()
+  })
+
+  it('unmounts the dialog on close so a reopen starts fresh', async () => {
+    const user = userEvent.setup()
+    render(<FriendsTabs friends={[]} incoming={[]} outgoing={[]} />)
+
+    await user.click(screen.getByRole('button', { name: 'Add friend' }))
+    await user.click(screen.getByRole('button', { name: 'Close dialog' }))
+
+    expect(screen.queryByTestId('add-friend-dialog')).not.toBeInTheDocument()
+  })
+
+  it('passes the derived relation map to the dialog', async () => {
+    const user = userEvent.setup()
+    render(
+      <FriendsTabs
+        friends={[makeUser({ friendshipId: 'f-1', userId: 'u-friend' })]}
+        incoming={[makeRequest({ friendshipId: 'r-1', userId: 'u-in' })]}
+        outgoing={[makeRequest({ friendshipId: 'r-2', userId: 'u-out' })]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Add friend' }))
+
+    expect(screen.getByTestId('add-friend-dialog')).toHaveAttribute(
+      'data-relations',
+      'u-friend:friends,u-in:incoming,u-out:outgoing',
+    )
   })
 
   it('treats an empty or whitespace-only query as unfiltered', async () => {

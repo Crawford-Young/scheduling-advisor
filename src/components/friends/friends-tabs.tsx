@@ -1,11 +1,12 @@
 'use client'
 import * as React from 'react'
-import { Input, Tabs, TabsContent, TabsList, TabsTrigger } from '@/lib/ui'
+import { UserPlus } from 'lucide-react'
+import { Button, Input, Tabs, TabsContent, TabsList, TabsTrigger } from '@/lib/ui'
+import { AddFriendDialog, SEARCH_PLACEHOLDER } from './add-friend-dialog'
 import { FriendsList } from './friends-list'
 import { IncomingRequestsList, OutgoingRequestsList } from './request-lists'
+import { buildRelationMap } from '@/lib/friendship-view'
 import type { FriendRequestEntry, FriendUser } from '@/server/queries/friends'
-
-const SEARCH_PLACEHOLDER = 'Search by name or @username'
 
 interface FriendsTabsProps {
   readonly friends: readonly FriendUser[]
@@ -22,25 +23,39 @@ function matchesQuery(user: FriendUser, needle: string): boolean {
 
 export function FriendsTabs({ friends, incoming, outgoing }: FriendsTabsProps): React.JSX.Element {
   const [query, setQuery] = React.useState('')
+  const [addOpen, setAddOpen] = React.useState(false)
   const needle = query.trim().toLowerCase()
   const isFiltered = needle !== ''
+  const relations = React.useMemo(
+    () => buildRelationMap(friends, incoming, outgoing),
+    [friends, incoming, outgoing],
+  )
 
   return (
     <Tabs defaultValue="friends" className="space-y-4">
-      <TabsList>
-        <TabsTrigger value="friends">
-          Friends
-          <span className="text-muted-foreground ml-1.5 text-xs">{friends.length}</span>
-        </TabsTrigger>
-        <TabsTrigger value="requests">
-          Requests
-          <span className="text-muted-foreground ml-1.5 text-xs">{incoming.length}</span>
-        </TabsTrigger>
-        <TabsTrigger value="sent">
-          Sent
-          <span className="text-muted-foreground ml-1.5 text-xs">{outgoing.length}</span>
-        </TabsTrigger>
-      </TabsList>
+      <div className="flex items-center justify-between gap-4">
+        <TabsList>
+          <TabsTrigger value="friends">
+            Friends
+            <span className="text-muted-foreground ml-1.5 text-xs">{friends.length}</span>
+          </TabsTrigger>
+          <TabsTrigger value="requests">
+            Requests
+            <span className="text-muted-foreground ml-1.5 text-xs">{incoming.length}</span>
+          </TabsTrigger>
+          <TabsTrigger value="sent">
+            Sent
+            <span className="text-muted-foreground ml-1.5 text-xs">{outgoing.length}</span>
+          </TabsTrigger>
+        </TabsList>
+        <Button type="button" onClick={() => setAddOpen(true)}>
+          <UserPlus className="h-4 w-4" />
+          Add friend
+        </Button>
+      </div>
+      {/* Conditional mount per the repo's close→reopen-freshness idiom — a
+          persistently rendered dialog would serve the abandoned search on reopen. */}
+      {addOpen && <AddFriendDialog open onOpenChange={setAddOpen} relations={relations} />}
       <Input
         type="search"
         value={query}

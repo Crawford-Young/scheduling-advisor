@@ -5,6 +5,9 @@ export const SEARCH_QUERY_MAX_LENGTH = 100
 
 export const globalSearchSchema = z.object({
   query: z.string().trim().min(SEARCH_QUERY_MIN_LENGTH).max(SEARCH_QUERY_MAX_LENGTH),
+  // Caller intent for user search only (the add-friend dialog): drop the
+  // viewer's own row server-side. Ignored by the events/activities groups.
+  excludeSelf: z.boolean().optional(),
 })
 
 export interface EventSearchResult {

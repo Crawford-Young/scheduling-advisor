@@ -1,6 +1,5 @@
 'use client'
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
 import { MoreHorizontal } from 'lucide-react'
 import {
   Button,
@@ -12,11 +11,12 @@ import {
 } from '@/lib/ui'
 import { removeFriend } from '@/server/actions/friends'
 import { FriendRow, friendDisplayName } from './friend-row'
+import {
+  FRIEND_ACTION_ERROR_MESSAGE as ERROR_MESSAGE,
+  useFriendRequestAction,
+} from './use-friend-action'
 import type { FriendUser } from '@/server/queries/friends'
 
-type FriendActionResult = { data: unknown } | { error: unknown }
-
-const ERROR_MESSAGE = 'Something went wrong. Try again.'
 const NO_MATCHES = 'No matches.'
 const NO_FRIENDS = 'No friends yet. Find people via search.'
 
@@ -25,23 +25,10 @@ interface FriendRowItemProps {
 }
 
 function FriendRowItem({ friend }: FriendRowItemProps): React.JSX.Element {
-  const router = useRouter()
-  const [isPending, startTransition] = React.useTransition()
-  const [hasError, setHasError] = React.useState(false)
+  const { isPending, hasError, run } = useFriendRequestAction()
 
   function handleRemove(): void {
-    setHasError(false)
-    startTransition(async () => {
-      const result: FriendActionResult = await removeFriend({ friendshipId: friend.friendshipId })
-      if ('error' in result) {
-        setHasError(true)
-        return
-      }
-      // router.refresh() under experimental.viewTransition must run inside a
-      // React transition or the browser aborts it (InvalidStateError) — see
-      // the repo's programmatic-nav-under-viewTransition trap.
-      React.startTransition(() => router.refresh())
-    })
+    run(() => removeFriend({ friendshipId: friend.friendshipId }))
   }
 
   return (

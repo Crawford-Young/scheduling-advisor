@@ -134,9 +134,14 @@ describe('searchUsersGlobal', () => {
     expect(mockSearchUsers).not.toHaveBeenCalled()
   })
 
-  it('delegates to searchUsers with the session user as viewer', async () => {
+  it('delegates to searchUsers with the session user as viewer, no self-exclusion by default', async () => {
     const result = await searchUsersGlobal({ query: ' sam ' })
-    expect(mockSearchUsers).toHaveBeenCalledWith('user-123', 'sam')
+    expect(mockSearchUsers).toHaveBeenCalledWith('user-123', 'sam', { excludeSelf: false })
     expect(result).toEqual({ data: [{ username: 'sam', name: 'Sam', image: null }] })
+  })
+
+  it('passes excludeSelf through to searchUsers', async () => {
+    await searchUsersGlobal({ query: 'sam', excludeSelf: true })
+    expect(mockSearchUsers).toHaveBeenCalledWith('user-123', 'sam', { excludeSelf: true })
   })
 })
