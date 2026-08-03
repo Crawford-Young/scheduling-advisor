@@ -5,6 +5,7 @@ import { Badge, Button, Card, CardContent, Input } from '@/lib/ui'
 import { createEvent } from '@/server/actions/events'
 import { createSeries } from '@/server/actions/series'
 import { computeUntilFromCount } from '@/lib/chat/proposal-until'
+import { weekdayTokensForWeekly } from '@/lib/chat/proposal-week-occurrences'
 import { WEEKDAY_ORDER, type DayOfWeek, type RecurrenceFrequency } from '@/lib/chat/weekdays'
 
 // Re-exported so existing importers (tool-result-renderer, day-proposal-preview)
@@ -127,10 +128,7 @@ function buildSeriesRuleFields(
   anchorStart: Date,
 ): SeriesRuleFields {
   if (recurrence === 'weekly') {
-    const tokens =
-      recurrenceDays && recurrenceDays.length > 0
-        ? recurrenceDays
-        : [WEEKDAY_ORDER[anchorStart.getDay()]!]
+    const tokens = weekdayTokensForWeekly(recurrenceDays, anchorStart)
     return { weekdays: tokens.map((token) => WEEKDAY_ORDER.indexOf(token)) }
   }
   if (recurrence === 'monthly') {

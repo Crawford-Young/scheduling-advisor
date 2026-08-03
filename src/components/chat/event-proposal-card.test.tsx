@@ -4,6 +4,11 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { EventProposalCard } from './event-proposal-card'
 import { createEvent } from '@/server/actions/events'
 import { createSeries } from '@/server/actions/series'
+import {
+  expandOccurrencesInWeek,
+  weekdayTokensForWeekly,
+} from '@/lib/chat/proposal-week-occurrences'
+import { WEEKDAY_ORDER } from '@/lib/chat/weekdays'
 
 vi.mock('@/lib/ui', () => ({
   Card: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -143,6 +148,28 @@ describe('EventProposalCard', () => {
     const arg = createSeriesMock.mock.calls[0]![0] as { weekdays: readonly number[] }
     // 2026-06-02 is a Tuesday (index 2).
     expect(arg.weekdays).toEqual([2])
+  })
+
+  it('derives the weekly weekday fallback from the SAME shared helper the preview uses — no drift', async () => {
+    // Never a hardcoded weekday literal here — both sides of the assertion
+    // are computed by calling the one shared function, so a future change to
+    // the fallback rule can't silently diverge between the card's confirm
+    // path and the preview's expansion (spec §A.2 binding parity invariant).
+    const anchorStart = new Date(2026, 5, 2) // 2026-06-02, matches baseProps()
+    const expectedTokens = weekdayTokensForWeekly(undefined, anchorStart)
+
+    render(<EventProposalCard {...baseProps()} recurrence="weekly" recurrenceCount={4} />)
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
+    await waitFor(() => expect(createSeriesMock).toHaveBeenCalled())
+    const arg = createSeriesMock.mock.calls[0]![0] as { weekdays: readonly number[] }
+    expect(arg.weekdays).toEqual(expectedTokens.map((token) => WEEKDAY_ORDER.indexOf(token)))
+
+    const preview = expandOccurrencesInWeek('2026-06-02', 'weekly', undefined, 4)
+    const previewTokens = preview.map((occurrence) => {
+      const [year, month, day] = occurrence.date.split('-').map(Number)
+      return WEEKDAY_ORDER[new Date(year!, month! - 1, day!).getDay()]
+    })
+    expect(previewTokens).toEqual(expectedTokens)
   })
 
   it('sends dayOfMonth (never weekdays) for a monthly recurrence', async () => {
