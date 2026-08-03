@@ -222,6 +222,8 @@ export function ProposeEventResult({
             proposal={{ title, start, end }}
             state={previewState}
             recurrence={recurrence}
+            recurrenceDays={recurrenceDays}
+            recurrenceCount={recurrenceCount}
           />
         ) : undefined
       }

@@ -80,16 +80,22 @@ vi.mock('@/components/chat/day-proposal-preview', () => ({
     date,
     state,
     recurrence,
+    recurrenceDays,
+    recurrenceCount,
   }: {
     date: string
     state: string
     recurrence?: string
+    recurrenceDays?: readonly string[]
+    recurrenceCount?: number
   }) => (
     <div
       data-testid="day-preview"
       data-date={date}
       data-state={state}
       data-recurrence={recurrence}
+      data-recurrence-days={recurrenceDays?.join(',')}
+      data-recurrence-count={recurrenceCount}
     />
   ),
 }))
@@ -488,6 +494,18 @@ describe('ToolResultRenderer', () => {
         />,
       )
       expect(screen.getByTestId('day-preview')).toHaveAttribute('data-recurrence', 'weekly')
+    })
+
+    it('threads recurrenceDays and recurrenceCount into the slotted day preview', () => {
+      render(
+        <ToolResultRenderer
+          toolInvocation={makeInvocation('proposeEvent', recurringProposal)}
+          inlineDayPreview
+        />,
+      )
+      const preview = screen.getByTestId('day-preview')
+      expect(preview).toHaveAttribute('data-recurrence-days', 'Mon,Fri')
+      expect(preview).toHaveAttribute('data-recurrence-count', '8')
     })
   })
 })
