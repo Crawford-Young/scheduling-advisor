@@ -32,7 +32,8 @@ jobs:
     needs: check
     # Preinstalled browsers; `playwright install` hangs reproducibly on the
     # bare runner after the chromium download completes. Tag must match the
-    # @playwright/test version in package.json.
+    # @playwright/test version in package.json, which is pinned exactly so a
+    # lockfile refresh cannot move it past the image.
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
     steps:
