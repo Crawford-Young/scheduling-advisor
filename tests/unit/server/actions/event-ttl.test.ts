@@ -39,11 +39,11 @@ vi.mock('drizzle-orm', () => ({
   isNotNull: vi.fn((col: unknown) => ({ op: 'isNotNull', col })),
 }))
 
-vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn() }))
+vi.mock('@/lib/report-error', () => ({ reportError: vi.fn(), reportMessage: vi.fn() }))
 
 import { deleteExpiredEvents, safeDeleteExpiredEvents } from '@/server/actions/event-ttl'
 import { and, eq, ne, lt, isNull, isNotNull } from 'drizzle-orm'
-import * as Sentry from '@sentry/nextjs'
+import { reportError } from '@/lib/report-error'
 
 describe('deleteExpiredEvents', () => {
   beforeEach(() => {
@@ -128,15 +128,15 @@ describe('safeDeleteExpiredEvents', () => {
 
   it('resolves without throwing when deleteExpiredEvents succeeds', async () => {
     await expect(safeDeleteExpiredEvents()).resolves.toBeUndefined()
-    expect(Sentry.captureException).not.toHaveBeenCalled()
+    expect(reportError).not.toHaveBeenCalled()
   })
 
-  it('swallows thrown errors and reports them to Sentry instead of throwing', async () => {
+  it('swallows thrown errors and reports them instead of throwing', async () => {
     const dbError = new Error('db unreachable')
     mockSelectWhere.mockRejectedValueOnce(dbError)
 
     await expect(safeDeleteExpiredEvents()).resolves.toBeUndefined()
 
-    expect(Sentry.captureException).toHaveBeenCalledWith(dbError)
+    expect(reportError).toHaveBeenCalledWith(dbError)
   })
 })
