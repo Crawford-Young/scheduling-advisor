@@ -56,7 +56,3 @@ auditConfig:
     # backport. The app and the ai-sdk both run on zod 3 (overrides above), so
     # the fix is a zod 4 migration, tracked as its own issue.
     - GHSA-mrhx-c7xc-m3w5
-    # happy-dom is vitest's test DOM only (never shipped). The 20.x line has no
-    # patched release; 21 is a major test-env change for its own pass.
-    - GHSA-834v-8h66-3h79
-    - GHSA-c8p4-j97h-3vg8

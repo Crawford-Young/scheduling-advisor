@@ -15,6 +15,9 @@ describe('ai models', () => {
   })
 
   it('constructs each model with only the model id (v7 factory takes no settings arg)', async () => {
+    // The models are built when the module is evaluated, and vitest 5 clears
+    // mock calls before every test, so evaluate it afresh inside this one.
+    vi.resetModules()
     await import('@/lib/ai')
     expect(modelFactory).toHaveBeenCalledWith('claude-sonnet-4-6')
     expect(modelFactory).toHaveBeenCalledWith('claude-opus-4-8')
