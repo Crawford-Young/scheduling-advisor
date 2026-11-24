@@ -8,11 +8,11 @@ vi.mock('@/server/generation', () => ({
   generateEvents: vi.fn().mockResolvedValue(0),
 }))
 
-vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn() }))
+vi.mock('@/lib/report-error', () => ({ reportError: vi.fn(), reportMessage: vi.fn() }))
 
 import { safeGenerateEvents } from '@/server/actions/event-generation'
 import { generateEvents } from '@/server/generation'
-import * as Sentry from '@sentry/nextjs'
+import { reportError } from '@/lib/report-error'
 
 describe('module export shape', () => {
   it('every export from event-generation is a function (use server contract)', async () => {
@@ -38,7 +38,7 @@ describe('safeGenerateEvents', () => {
     await expect(safeGenerateEvents()).resolves.toBeUndefined()
 
     expect(generateEvents).not.toHaveBeenCalled()
-    expect(Sentry.captureException).not.toHaveBeenCalled()
+    expect(reportError).not.toHaveBeenCalled()
   })
 
   it('calls generateEvents with the session-derived userId on success', async () => {
@@ -47,15 +47,15 @@ describe('safeGenerateEvents', () => {
     await expect(safeGenerateEvents()).resolves.toBeUndefined()
 
     expect(generateEvents).toHaveBeenCalledWith('user-123')
-    expect(Sentry.captureException).not.toHaveBeenCalled()
+    expect(reportError).not.toHaveBeenCalled()
   })
 
-  it('swallows a thrown error and reports it to Sentry', async () => {
+  it('swallows a thrown error and reports it', async () => {
     const dbError = new Error('db unreachable')
     vi.mocked(generateEvents).mockRejectedValueOnce(dbError)
 
     await expect(safeGenerateEvents()).resolves.toBeUndefined()
 
-    expect(Sentry.captureException).toHaveBeenCalledWith(dbError)
+    expect(reportError).toHaveBeenCalledWith(dbError)
   })
 })

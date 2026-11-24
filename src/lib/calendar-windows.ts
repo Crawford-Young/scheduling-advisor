@@ -1,4 +1,4 @@
-import * as Sentry from '@sentry/nextjs'
+import { reportMessage } from '@/lib/report-error'
 import { dayOverridesSchema, type CalendarDayOverrides } from '@/lib/schemas/calendar-prefs'
 
 // Defaults are minutes-since-midnight: 09:00 wake, 17:00 sleep.
@@ -28,9 +28,7 @@ function resolveOverrides(dayOverrides: unknown): CalendarDayOverrides {
   const parsed = dayOverridesSchema.safeParse(dayOverrides ?? {})
 
   if (!parsed.success) {
-    Sentry.captureMessage(
-      'Encountered corrupt calendar dayOverrides — falling back to global hours',
-    )
+    reportMessage('Encountered corrupt calendar dayOverrides — falling back to global hours')
     return {}
   }
 

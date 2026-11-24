@@ -29,9 +29,8 @@ const securityHeaders = [
 ]
 
 const nextConfig: NextConfig = {
-  experimental: {
-    viewTransition: true,
-  },
+  // No experimental.viewTransition: Next removed the flag in 16.3, and view
+  // transitions work in the App Router without configuration.
   turbopack: {
     root: path.join(import.meta.dirname, '..'),
   },

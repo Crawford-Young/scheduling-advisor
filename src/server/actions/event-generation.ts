@@ -1,5 +1,5 @@
 'use server'
-import * as Sentry from '@sentry/nextjs'
+import { reportError } from '@/lib/report-error'
 import { auth } from '@/auth'
 import { generateEvents } from '@/server/generation'
 
@@ -20,6 +20,6 @@ export async function safeGenerateEvents(): Promise<void> {
     if (!session?.user?.id) return
     await generateEvents(session.user.id)
   } catch (err) {
-    Sentry.captureException(err)
+    reportError(err)
   }
 }

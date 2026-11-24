@@ -1,0 +1,96 @@
+# Firebase App Hosting (Cloud Run underneath). Prep for the GCP move: Vercel
+# keeps deploying until the cutover, and nothing here affects it.
+# Schema: https://firebase.google.com/docs/app-hosting/configure
+#
+# src/env.ts (t3-env) validates every required var at build AND at runtime, so
+# each one is available in both phases. Create each secret with
+# `firebase apphosting:secrets:set <name>`. The ids and public keys live in
+# Secret Manager too, so this file never carries a placeholder that would pass
+# validation and ship.
+
+runConfig:
+  # Scale to zero between visits; chat streams hold a request, so keep the
+  # per-instance concurrency moderate.
+  minInstances: 0
+  maxInstances: 6
+  concurrency: 40
+  cpu: 1
+  memoryMiB: 1024
+
+env:
+  # Secrets.
+  - variable: DATABASE_URL
+    secret: database-url
+    availability: [BUILD, RUNTIME]
+  - variable: AUTH_SECRET
+    secret: auth-secret
+    availability: [BUILD, RUNTIME]
+  - variable: AUTH_GOOGLE_ID
+    secret: auth-google-id
+    availability: [BUILD, RUNTIME]
+  - variable: AUTH_GOOGLE_SECRET
+    secret: auth-google-secret
+    availability: [BUILD, RUNTIME]
+  - variable: TOKEN_ENC_KEY
+    secret: token-enc-key
+    availability: [BUILD, RUNTIME]
+  - variable: UPSTASH_REDIS_REST_URL
+    secret: upstash-redis-rest-url
+    availability: [BUILD, RUNTIME]
+  - variable: UPSTASH_REDIS_REST_TOKEN
+    secret: upstash-redis-rest-token
+    availability: [BUILD, RUNTIME]
+  - variable: VAPID_PRIVATE_KEY
+    secret: vapid-private-key
+    availability: [BUILD, RUNTIME]
+  - variable: TRIGGER_API_KEY
+    secret: trigger-api-key
+    availability: [BUILD, RUNTIME]
+  - variable: ANTHROPIC_API_KEY
+    secret: anthropic-api-key
+    availability: [BUILD, RUNTIME]
+  - variable: STRIPE_SECRET_KEY
+    secret: stripe-secret-key
+    availability: [BUILD, RUNTIME]
+  - variable: STRIPE_WEBHOOK_SECRET
+    secret: stripe-webhook-secret
+    availability: [BUILD, RUNTIME]
+  # Auth.js trusts the Host header only on Vercel unless told to. Without this,
+  # every sign-in on Cloud Run fails with UntrustedHost.
+  - variable: AUTH_TRUST_HOST
+    value: 'true'
+    availability: [RUNTIME]
+  # Ids and public keys (not secret, but environment-specific).
+  - variable: VAPID_EMAIL
+    secret: vapid-email
+    availability: [BUILD, RUNTIME]
+  - variable: STRIPE_PRICE_ID_STARTER
+    secret: stripe-price-id-starter
+    availability: [BUILD, RUNTIME]
+  - variable: STRIPE_PRICE_ID_GROWTH
+    secret: stripe-price-id-growth
+    availability: [BUILD, RUNTIME]
+  - variable: STRIPE_PRICE_ID_PRO
+    secret: stripe-price-id-pro
+    availability: [BUILD, RUNTIME]
+  - variable: STRIPE_PACK_PRICE_ID_SMALL
+    secret: stripe-pack-price-id-small
+    availability: [BUILD, RUNTIME]
+  - variable: STRIPE_PACK_PRICE_ID_MEDIUM
+    secret: stripe-pack-price-id-medium
+    availability: [BUILD, RUNTIME]
+  - variable: STRIPE_PACK_PRICE_ID_LARGE
+    secret: stripe-pack-price-id-large
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_VAPID_PUBLIC_KEY
+    secret: next-public-vapid-public-key
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+    secret: next-public-stripe-publishable-key
+    availability: [BUILD, RUNTIME]
+
+# NEXT_PUBLIC_APP_URL builds the Stripe success/cancel/return URLs, so it must be
+# the public origin. It goes in apphosting.production.yaml or the backend
+# settings; leaving it out of this file makes a backend without it fail env
+# validation at build instead of sending checkouts to localhost.
+# Optional: COMPED_EMAILS.

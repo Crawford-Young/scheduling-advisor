@@ -1,5 +1,5 @@
 'use server'
-import * as Sentry from '@sentry/nextjs'
+import { reportError } from '@/lib/report-error'
 import { auth } from '@/auth'
 import { db } from '@/db'
 import { events, calendarPrefs } from '@/db/schema'
@@ -48,13 +48,13 @@ export async function deleteExpiredEvents(): Promise<DeleteExpiredEventsResult> 
 }
 
 /**
- * Read-path-safe wrapper: never throws. Failures are reported to Sentry so a
+ * Read-path-safe wrapper: never throws. Failures are reported (reportError) so a
  * broken TTL sweep cannot crash a page render.
  */
 export async function safeDeleteExpiredEvents(): Promise<void> {
   try {
     await deleteExpiredEvents()
   } catch (err) {
-    Sentry.captureException(err)
+    reportError(err)
   }
 }

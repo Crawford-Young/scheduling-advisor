@@ -1,14 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import * as Sentry from '@sentry/nextjs'
+import { reportMessage } from '@/lib/report-error'
 import {
   resolveDayWindows,
   DEFAULT_WAKE_MINUTES,
   DEFAULT_SLEEP_MINUTES,
 } from '@/lib/calendar-windows'
 
-vi.mock('@sentry/nextjs', () => ({
-  captureMessage: vi.fn(),
-}))
+vi.mock('@/lib/report-error', () => ({ reportError: vi.fn(), reportMessage: vi.fn() }))
 
 describe('resolveDayWindows', () => {
   beforeEach(() => {
@@ -100,7 +98,7 @@ describe('resolveDayWindows', () => {
     ])
   })
 
-  it('falls back to global defaults and reports to Sentry once when dayOverrides is a corrupt string', () => {
+  it('falls back to global defaults and reports it once when dayOverrides is a corrupt string', () => {
     const result = resolveDayWindows({
       workingHoursStart: 8,
       workingHoursEnd: 18,
@@ -109,13 +107,13 @@ describe('resolveDayWindows', () => {
 
     expect(result).toHaveLength(7)
     expect(result).toEqual(Array.from({ length: 7 }, () => ({ wake: 8, sleep: 18 })))
-    expect(Sentry.captureMessage).toHaveBeenCalledTimes(1)
-    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+    expect(reportMessage).toHaveBeenCalledTimes(1)
+    expect(reportMessage).toHaveBeenCalledWith(
       expect.stringContaining('corrupt calendar dayOverrides'),
     )
   })
 
-  it('falls back to global defaults and reports to Sentry once when a day entry has an invalid value', () => {
+  it('falls back to global defaults and reports it once when a day entry has an invalid value', () => {
     const result = resolveDayWindows({
       workingHoursStart: 8,
       workingHoursEnd: 18,
@@ -124,7 +122,7 @@ describe('resolveDayWindows', () => {
 
     expect(result).toHaveLength(7)
     expect(result).toEqual(Array.from({ length: 7 }, () => ({ wake: 8, sleep: 18 })))
-    expect(Sentry.captureMessage).toHaveBeenCalledTimes(1)
+    expect(reportMessage).toHaveBeenCalledTimes(1)
   })
 
   it('always returns a length-7 result regardless of input shape', () => {
