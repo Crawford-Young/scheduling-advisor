@@ -13,6 +13,6 @@ vi.mock('next/headers', () => ({
 expect.extend(toHaveNoViolations)
 configureAxe({ rules: { region: { enabled: false } } })
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }))
+beforeAll(() => server.listen({ onUnhandledFrame: 'warn' }))
 afterEach(() => server.resetHandlers())
 afterAll(() => server.close())

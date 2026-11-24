@@ -35,7 +35,7 @@ jobs:
     # @playwright/test version in package.json, which is pinned exactly so a
     # lockfile refresh cannot move it past the image.
     container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
+      image: mcr.microsoft.com/playwright:v1.65.1-noble
     steps:
       - uses: actions/checkout@v7
       # pnpm version comes from package.json's packageManager field
